@@ -48,7 +48,7 @@ def benchmark(
     warmup_iters: int,
     benchmark_iters: int,
     backward: bool,
-) -> float:
+) -> tuple[float, float | None]:
     def run_once() -> None:
         model.zero_grad(set_to_none=True)
         if backward:
@@ -63,13 +63,31 @@ def benchmark(
     synchronize(device)
     dist.barrier()
 
+    memory_before = None
+    if device.type == "cuda":
+        model.zero_grad(set_to_none=True)
+        torch.cuda.empty_cache()
+        torch.cuda.reset_peak_memory_stats(device)
+        memory_before = torch.cuda.memory_allocated(device)
+
     start = time.perf_counter()
     for _ in range(benchmark_iters):
         run_once()
     synchronize(device)
     elapsed = time.perf_counter() - start
 
-    return global_max(elapsed / benchmark_iters * 1000, device)
+    peak_memory_mb = None
+    if memory_before is not None:
+        peak_memory = torch.cuda.max_memory_allocated(device) - memory_before
+        peak_memory_mb = global_max(peak_memory / 1024**2, device)
+
+    return global_max(elapsed / benchmark_iters * 1000, device), peak_memory_mb
+
+
+def parameter_memory_mb(model: torch.nn.Module) -> float:
+    unique_parameters = {parameter.data_ptr(): parameter for parameter in model.parameters()}
+    total_bytes = sum(parameter.numel() * parameter.element_size() for parameter in unique_parameters.values())
+    return total_bytes / 1024**2
 
 
 TP_GRAD_SUFFIXES = COLUMN_PARALLEL_SUFFIXES + ROW_PARALLEL_SUFFIXES + (
@@ -241,8 +259,10 @@ def main() -> None:
 
     dense_forward_ms = tp_forward_ms = None
     dense_train_ms = tp_train_ms = None
+    dense_forward_memory = tp_forward_memory = None
+    dense_train_memory = tp_train_memory = None
     if args.benchmark_iters > 0:
-        dense_forward_ms = benchmark(
+        dense_forward_ms, dense_forward_memory = benchmark(
             dense_model,
             input_ids,
             device,
@@ -250,7 +270,7 @@ def main() -> None:
             args.benchmark_iters,
             backward=False,
         )
-        tp_forward_ms = benchmark(
+        tp_forward_ms, tp_forward_memory = benchmark(
             tp_model,
             input_ids,
             device,
@@ -259,7 +279,7 @@ def main() -> None:
             backward=False,
         )
         if args.check_backward:
-            dense_train_ms = benchmark(
+            dense_train_ms, dense_train_memory = benchmark(
                 dense_model,
                 input_ids,
                 device,
@@ -267,7 +287,7 @@ def main() -> None:
                 args.benchmark_iters,
                 backward=True,
             )
-            tp_train_ms = benchmark(
+            tp_train_ms, tp_train_memory = benchmark(
                 tp_model,
                 input_ids,
                 device,
@@ -277,8 +297,12 @@ def main() -> None:
             )
 
     if rank == 0:
+        dense_parameter_memory = parameter_memory_mb(dense_model)
+        tp_parameter_memory = parameter_memory_mb(tp_model)
         print(f"forward max logits diff: {logits_diff:.6e}")
         print(f"forward loss diff:       {loss_diff:.6e}")
+        print(f"dense parameters:        {dense_parameter_memory:.2f} MiB")
+        print(f"TP parameters/rank:      {tp_parameter_memory:.2f} MiB")
         if grad_diff is not None:
             print(f"backward max grad diff:  {grad_diff:.6e}")
             current_layer = None
@@ -295,9 +319,15 @@ def main() -> None:
         if dense_forward_ms is not None and tp_forward_ms is not None:
             print(f"dense forward:           {dense_forward_ms:.3f} ms")
             print(f"TP forward:              {tp_forward_ms:.3f} ms")
+            if dense_forward_memory is not None and tp_forward_memory is not None:
+                print(f"dense forward peak extra:{dense_forward_memory:.2f} MiB")
+                print(f"TP forward peak extra:   {tp_forward_memory:.2f} MiB")
         if dense_train_ms is not None and tp_train_ms is not None:
             print(f"dense forward+backward:  {dense_train_ms:.3f} ms")
             print(f"TP forward+backward:     {tp_train_ms:.3f} ms")
+            if dense_train_memory is not None and tp_train_memory is not None:
+                print(f"dense train peak extra:  {dense_train_memory:.2f} MiB")
+                print(f"TP train peak extra:     {tp_train_memory:.2f} MiB")
 
     passed = logits_diff <= atol and loss_diff <= atol
     if grad_diff is not None:
