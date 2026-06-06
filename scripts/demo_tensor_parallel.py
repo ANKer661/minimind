@@ -1,7 +1,6 @@
 import argparse
 import os
 import sys
-import time
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -30,46 +29,10 @@ ROW_PARALLEL_SUFFIXES = (
 )
 
 
-def synchronize(device: torch.device) -> None:
-    if device.type == "cuda":
-        torch.cuda.synchronize(device)
-
-
 def global_max(value: float, device: torch.device) -> float:
     tensor = torch.tensor(value, device=device, dtype=torch.float64)
     dist.all_reduce(tensor, op=dist.ReduceOp.MAX)
     return tensor.item()
-
-
-def benchmark(
-    model: torch.nn.Module,
-    input_ids: torch.Tensor,
-    device: torch.device,
-    warmup_iters: int,
-    benchmark_iters: int,
-    backward: bool,
-) -> float:
-    def run_once() -> None:
-        model.zero_grad(set_to_none=True)
-        if backward:
-            output = model(input_ids)
-            output.logits.float().mean().backward()
-        else:
-            with torch.no_grad():
-                model(input_ids)
-
-    for _ in range(warmup_iters):
-        run_once()
-    synchronize(device)
-    dist.barrier()
-
-    start = time.perf_counter()
-    for _ in range(benchmark_iters):
-        run_once()
-    synchronize(device)
-    elapsed = time.perf_counter() - start
-
-    return global_max(elapsed / benchmark_iters * 1000, device)
 
 
 TP_GRAD_SUFFIXES = COLUMN_PARALLEL_SUFFIXES + ROW_PARALLEL_SUFFIXES + (
@@ -126,6 +89,69 @@ def compare_tp_gradients(
     return overall_max_diff, metrics
 
 
+def compare_tp_parameters(
+    dense_model: MiniMindForCausalLM,
+    tp_model: TPMiniMindForCausalLM,
+    tp_context: TPContext,
+    device: torch.device,
+) -> float:
+    dense_params = dict(dense_model.named_parameters())
+    local_max_diff = 0.0
+
+    for name, tp_param in tp_model.named_parameters():
+        expected = dense_params[name]
+        if name.endswith(COLUMN_PARALLEL_SUFFIXES):
+            expected = expected.chunk(tp_context.world_size, dim=0)[tp_context.rank]
+        elif name.endswith(ROW_PARALLEL_SUFFIXES):
+            expected = expected.chunk(tp_context.world_size, dim=1)[tp_context.rank]
+        local_max_diff = max(
+            local_max_diff,
+            (tp_param.detach() - expected.detach()).abs().max().item(),
+        )
+
+    return global_max(local_max_diff, device)
+
+
+def compare_optimizer_steps(
+    dense_model: MiniMindForCausalLM,
+    tp_model: TPMiniMindForCausalLM,
+    tp_context: TPContext,
+    input_ids: torch.Tensor,
+    labels: torch.Tensor,
+    device: torch.device,
+    steps: int,
+    learning_rate: float,
+) -> tuple[list[float], float]:
+    dense_optimizer = torch.optim.AdamW(dense_model.parameters(), lr=learning_rate)
+    tp_optimizer = torch.optim.AdamW(tp_model.parameters(), lr=learning_rate)
+    logits_diffs = []
+
+    dense_model.train()
+    tp_model.train()
+    for _ in range(steps):
+        dense_optimizer.zero_grad(set_to_none=True)
+        tp_optimizer.zero_grad(set_to_none=True)
+        dense_model(input_ids, labels=labels).loss.backward()
+        tp_model(input_ids, labels=labels).loss.backward()
+        dense_optimizer.step()
+        tp_optimizer.step()
+
+        with torch.no_grad():
+            dense_logits = dense_model(input_ids).logits
+            tp_logits = tp_model(input_ids).logits
+        logits_diffs.append(
+            global_max((dense_logits - tp_logits).abs().max().item(), device)
+        )
+
+    parameter_diff = compare_tp_parameters(
+        dense_model,
+        tp_model,
+        tp_context,
+        device,
+    )
+    return logits_diffs, parameter_diff
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate MiniMind tensor parallelism")
     parser.add_argument("--tp_size", type=int, default=2)
@@ -146,8 +172,9 @@ def parse_args() -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=True,
     )
-    parser.add_argument("--warmup_iters", type=int, default=3)
-    parser.add_argument("--benchmark_iters", type=int, default=10)
+    parser.add_argument("--optimizer_steps", type=int, default=10)
+    parser.add_argument("--log_interval", type=int, default=10)
+    parser.add_argument("--learning_rate", type=float, default=5e-4)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--atol", type=float, default=None)
     return parser.parse_args()
@@ -239,42 +266,19 @@ def main() -> None:
             tp_context,
         )
 
-    dense_forward_ms = tp_forward_ms = None
-    dense_train_ms = tp_train_ms = None
-    if args.benchmark_iters > 0:
-        dense_forward_ms = benchmark(
+    optimizer_logits_diffs = []
+    optimizer_parameter_diff = None
+    if args.optimizer_steps > 0:
+        optimizer_logits_diffs, optimizer_parameter_diff = compare_optimizer_steps(
             dense_model,
-            input_ids,
-            device,
-            args.warmup_iters,
-            args.benchmark_iters,
-            backward=False,
-        )
-        tp_forward_ms = benchmark(
             tp_model,
+            tp_context,
             input_ids,
+            labels,
             device,
-            args.warmup_iters,
-            args.benchmark_iters,
-            backward=False,
+            args.optimizer_steps,
+            args.learning_rate,
         )
-        if args.check_backward:
-            dense_train_ms = benchmark(
-                dense_model,
-                input_ids,
-                device,
-                args.warmup_iters,
-                args.benchmark_iters,
-                backward=True,
-            )
-            tp_train_ms = benchmark(
-                tp_model,
-                input_ids,
-                device,
-                args.warmup_iters,
-                args.benchmark_iters,
-                backward=True,
-            )
 
     if rank == 0:
         print(f"forward max logits diff: {logits_diff:.6e}")
@@ -292,16 +296,19 @@ def main() -> None:
                     f"  {short_name:<31} "
                     f"mean={mean_error:.3e} max={max_error:.3e} rel_l2={relative_l2:.3e}"
                 )
-        if dense_forward_ms is not None and tp_forward_ms is not None:
-            print(f"dense forward:           {dense_forward_ms:.3f} ms")
-            print(f"TP forward:              {tp_forward_ms:.3f} ms")
-        if dense_train_ms is not None and tp_train_ms is not None:
-            print(f"dense forward+backward:  {dense_train_ms:.3f} ms")
-            print(f"TP forward+backward:     {tp_train_ms:.3f} ms")
+        if optimizer_logits_diffs:
+            print("AdamW accumulated logits diff:")
+            for step, diff in enumerate(optimizer_logits_diffs, start=1):
+                if step % args.log_interval == 0 or step == args.optimizer_steps:
+                    print(f"  step {step:>3}: {diff:.6e}")
+            print(f"AdamW final parameter diff: {optimizer_parameter_diff:.6e}")
 
     passed = logits_diff <= atol and loss_diff <= atol
     if grad_diff is not None:
         passed = passed and grad_diff <= atol
+    if optimizer_logits_diffs:
+        passed = passed and max(optimizer_logits_diffs) <= atol
+        passed = passed and optimizer_parameter_diff <= atol
 
     passed_tensor = torch.tensor(int(passed), device=device)
     dist.all_reduce(passed_tensor, op=dist.ReduceOp.MIN)
