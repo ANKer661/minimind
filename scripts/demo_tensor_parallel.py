@@ -155,19 +155,19 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    backend = "nccl" if torch.cuda.is_available() else "gloo"
-    dist.init_process_group(backend=backend)
+    if torch.cuda.is_available():
+        local_rank = int(os.environ["LOCAL_RANK"])
+        torch.cuda.set_device(local_rank)
+        device = torch.device("cuda", local_rank)
+        dist.init_process_group(backend="nccl", device_id=device)
+    else:
+        local_rank = int(os.environ.get("LOCAL_RANK", 0))
+        device = torch.device("cpu")
+        dist.init_process_group(backend="gloo")
 
     rank = dist.get_rank()
     world_size = dist.get_world_size()
-    local_rank = int(os.environ.get("LOCAL_RANK", rank))
     assert world_size == args.tp_size, "TP v1 requires world_size == tp_size"
-
-    if torch.cuda.is_available():
-        torch.cuda.set_device(local_rank)
-        device = torch.device("cuda", local_rank)
-    else:
-        device = torch.device("cpu")
 
     dtype = getattr(torch, args.dtype)
     if device.type == "cpu" and dtype != torch.float32:
