@@ -132,9 +132,21 @@ def save_csv(rows: list[dict[str, object]], path: Path) -> None:
 def save_plot(rows: list[dict[str, object]], path: Path) -> None:
     try:
         import matplotlib.pyplot as plt
+        from matplotlib.ticker import (
+            FixedFormatter,
+            FixedLocator,
+            FuncFormatter,
+            LogLocator,
+            NullFormatter,
+        )
     except ImportError:
         print("matplotlib is not installed; skipped plot generation")
         return
+
+    def format_log_value(value: float, _: int) -> str:
+        if value >= 1:
+            return f"{value:g}"
+        return f"{value:.3g}"
 
     dense_rows = [row for row in rows if not row["dense_oom"]]
     tp_rows = [row for row in rows if not row["tp_oom"]]
@@ -142,7 +154,7 @@ def save_plot(rows: list[dict[str, object]], path: Path) -> None:
     if dense_rows:
         memory_axis.plot(
             [row["params"] for row in dense_rows],
-            [row["dense_peak_mib"] for row in dense_rows],
+            [row["dense_peak_mib"] / 1024 for row in dense_rows],
             marker="o",
             label="Dense (1 GPU)",
         )
@@ -155,7 +167,7 @@ def save_plot(rows: list[dict[str, object]], path: Path) -> None:
     if tp_rows:
         memory_axis.plot(
             [row["params"] for row in tp_rows],
-            [row["tp_peak_mib"] for row in tp_rows],
+            [row["tp_peak_mib"] / 1024 for row in tp_rows],
             marker="o",
             label="TP peak per rank",
         )
@@ -170,11 +182,18 @@ def save_plot(rows: list[dict[str, object]], path: Path) -> None:
     parameter_labels = [format_parameter_count(value) for value in parameter_counts]
     for axis in (memory_axis, time_axis):
         axis.set_xscale("log")
-        axis.set_xticks(parameter_counts, parameter_labels, rotation=30)
+        axis.xaxis.set_major_locator(FixedLocator(parameter_counts))
+        axis.xaxis.set_major_formatter(FixedFormatter(parameter_labels))
+        axis.xaxis.set_minor_formatter(NullFormatter())
+        axis.tick_params(axis="x", labelrotation=30)
         axis.set_yscale("log")
+        axis.yaxis.set_major_locator(LogLocator(base=10, subs=(1.0,)))
+        axis.yaxis.set_minor_locator(LogLocator(base=10, subs=range(2, 10)))
+        axis.yaxis.set_major_formatter(FuncFormatter(format_log_value))
+        axis.yaxis.set_minor_formatter(FuncFormatter(format_log_value))
 
     memory_axis.set_xlabel("Model parameters")
-    memory_axis.set_ylabel("Peak allocated memory per GPU (MiB)")
+    memory_axis.set_ylabel("Peak allocated memory per GPU (GB)")
     memory_axis.set_title("Peak GPU Memory")
     memory_axis.grid(which="both", alpha=0.3)
     memory_axis.legend()
