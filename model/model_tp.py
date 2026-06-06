@@ -367,7 +367,7 @@ class TPMiniMindBlock(nn.Module):
             use_cache,
             attention_mask,
         )
-        hidden_states += residual
+        hidden_states = hidden_states + residual
         hidden_states = hidden_states + self.mlp(self.post_attention_layernorm(hidden_states))
         return hidden_states, present_key_value
 
