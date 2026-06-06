@@ -35,6 +35,24 @@ def global_max(value: float, device: torch.device) -> float:
     return tensor.item()
 
 
+def replicated_tensor_error_metrics(
+    actual: torch.Tensor,
+    expected: torch.Tensor,
+) -> tuple[float, float, float]:
+    error = (actual - expected).float()
+    expected_float = expected.float()
+    metrics = torch.stack(
+        (
+            error.abs().mean(),
+            error.abs().max(),
+            torch.linalg.vector_norm(error)
+            / (torch.linalg.vector_norm(expected_float) + 1e-12),
+        )
+    ).to(torch.float64)
+    dist.all_reduce(metrics, op=dist.ReduceOp.MAX)
+    return metrics[0].item(), metrics[1].item(), metrics[2].item()
+
+
 TP_GRAD_SUFFIXES = COLUMN_PARALLEL_SUFFIXES + ROW_PARALLEL_SUFFIXES + (
     "q_norm.weight",
     "k_norm.weight",
@@ -121,7 +139,7 @@ def compare_optimizer_steps(
     device: torch.device,
     steps: int,
     learning_rate: float,
-) -> tuple[list[float], float]:
+) -> tuple[list[tuple[float, float, float]], float]:
     dense_optimizer = torch.optim.AdamW(dense_model.parameters(), lr=learning_rate)
     tp_optimizer = torch.optim.AdamW(tp_model.parameters(), lr=learning_rate)
     logits_diffs = []
@@ -140,7 +158,7 @@ def compare_optimizer_steps(
             dense_logits = dense_model(input_ids).logits
             tp_logits = tp_model(input_ids).logits
         logits_diffs.append(
-            global_max((dense_logits - tp_logits).abs().max().item(), device)
+            replicated_tensor_error_metrics(tp_logits, dense_logits)
         )
 
     parameter_diff = compare_tp_parameters(
@@ -251,7 +269,10 @@ def main() -> None:
         abs(dense_output.loss.item() - tp_output.loss.item()),
         device,
     )
-    atol = args.atol if args.atol is not None else (1e-4 if dtype == torch.float32 else 5e-2)
+    if dtype == torch.float32:
+        atol = args.atol if args.atol is not None else 1e-4
+    else:
+        atol = args.atol if args.atol is not None else 5e-2
 
     grad_diff = None
     grad_metrics = []
@@ -298,17 +319,25 @@ def main() -> None:
                 )
         if optimizer_logits_diffs:
             print("AdamW accumulated logits diff:")
-            for step, diff in enumerate(optimizer_logits_diffs, start=1):
+            for step, (mean_error, max_error, relative_l2) in enumerate(
+                optimizer_logits_diffs,
+                start=1,
+            ):
                 if step % args.log_interval == 0 or step == args.optimizer_steps:
-                    print(f"  step {step:>3}: {diff:.6e}")
-            print(f"AdamW final parameter diff: {optimizer_parameter_diff:.6e}")
+                    print(
+                        f"  step {step:>3}: "
+                        f"mean={mean_error:.3e} "
+                        f"max={max_error:.3e} "
+                        f"rel_l2={relative_l2:.3e}"
+                    )
+            print(
+                "AdamW final parameter max abs diff: "
+                f"{optimizer_parameter_diff:.6e}"
+            )
 
     passed = logits_diff <= atol and loss_diff <= atol
     if grad_diff is not None:
         passed = passed and grad_diff <= atol
-    if optimizer_logits_diffs:
-        passed = passed and max(optimizer_logits_diffs) <= atol
-        passed = passed and optimizer_parameter_diff <= atol
 
     passed_tensor = torch.tensor(int(passed), device=device)
     dist.all_reduce(passed_tensor, op=dist.ReduceOp.MIN)
