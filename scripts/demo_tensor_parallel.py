@@ -58,6 +58,12 @@ TP_GRAD_SUFFIXES = COLUMN_PARALLEL_SUFFIXES + ROW_PARALLEL_SUFFIXES + (
     "k_norm.weight",
 )
 
+SP_GRAD_SUFFIXES = (
+    "input_layernorm.weight",
+    "post_attention_layernorm.weight",
+    "model.norm.weight",
+)
+
 
 def compare_tp_gradients(
     dense_model: MiniMindForCausalLM,
@@ -67,9 +73,12 @@ def compare_tp_gradients(
     dense_params = dict(dense_model.named_parameters())
     metrics = []
     overall_max_diff = 0.0
+    grad_suffixes = TP_GRAD_SUFFIXES
+    if tp_context.sequence_parallel:
+        grad_suffixes += SP_GRAD_SUFFIXES
 
     for name, tp_param in tp_model.named_parameters():
-        if not name.endswith(TP_GRAD_SUFFIXES):
+        if not name.endswith(grad_suffixes):
             continue
 
         dense_param = dense_params[name]
@@ -195,6 +204,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--learning_rate", type=float, default=5e-4)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--atol", type=float, default=None)
+    parser.add_argument("--sequence_parallel", action="store_true")
     return parser.parse_args()
 
 
@@ -226,6 +236,7 @@ def main() -> None:
         group=dist.group.WORLD,
         world_size=world_size,
         rank=rank,
+        sequence_parallel=args.sequence_parallel,
     )
     config = MiniMindConfig(
         hidden_size=args.hidden_size,
@@ -308,11 +319,17 @@ def main() -> None:
             print(f"backward max grad diff:  {grad_diff:.6e}")
             current_layer = None
             for name, mean_error, max_error, relative_l2 in grad_metrics:
-                layer_id = name.split(".")[2]
-                if layer_id != current_layer:
-                    current_layer = layer_id
-                    print(f"layer {layer_id}:")
-                short_name = name.split(f"model.layers.{layer_id}.", 1)[1]
+                if name.startswith("model.layers."):
+                    layer_id = name.split(".")[2]
+                    if layer_id != current_layer:
+                        current_layer = layer_id
+                        print(f"layer {layer_id}:")
+                    short_name = name.split(f"model.layers.{layer_id}.", 1)[1]
+                else:
+                    if current_layer is not None:
+                        current_layer = None
+                        print("model:")
+                    short_name = name.removeprefix("model.")
                 print(
                     f"  {short_name:<31} "
                     f"mean={mean_error:.3e} max={max_error:.3e} rel_l2={relative_l2:.3e}"
