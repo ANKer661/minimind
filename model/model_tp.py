@@ -24,8 +24,10 @@ from .tensor_parallel_mappings import (
     _reduce,
     reduce_from_tensor_model_parallel_region,
     copy_to_tensor_model_parallel_region,
+    gather_from_sequence_parallel_region,
+    scatter_to_sequence_parallel_region,
+    reduce_scatter_to_sequence_parallel_region,
 )
-
 
 
 ################################
@@ -36,7 +38,7 @@ class TPContext:
     group: dist.ProcessGroup
     world_size: int
     rank: int
-    sequence_parallel: bool
+    sequence_parallel: bool = False
 
 
 _COLUMN_PARALLEL_SUFFIXES = (
@@ -66,7 +68,7 @@ def shard_state_dict_for_tp(
         elif key.endswith(_ROW_PARALLEL_SUFFIXES):
             value = value.chunk(tp_context.world_size, dim=1)[tp_context.rank]
         # for simplicity, other param are now replicated across all TP ranks
-        tp_state_dict[key] = value.contiguous()  
+        tp_state_dict[key] = value.contiguous()
 
     return tp_state_dict
 
@@ -105,7 +107,12 @@ class ColumnParallelLinear(nn.Module):
         # x: [batch_size, seq_length, input_size]
         # weight: [output_size_per_partition, input_size]
         # bias: [output_size_per_partition]
-        x_parallel = copy_to_tensor_model_parallel_region(x, self.tp_context.group)
+        if self.tp_context.sequence_parallel:
+            # in sequence parallel, we need to all-gather the input across TP ranks
+            # all-gather will be done in MLP or Attn, here we already have full input x
+            x_parallel = x
+        else:
+            x_parallel = copy_to_tensor_model_parallel_region(x, self.tp_context.group)
 
         return F.linear(x_parallel, self.weight, self.bias)
 
@@ -142,6 +149,11 @@ class RowParallelLinear(nn.Module):
 
         self.weight = nn.Parameter(torch.empty(self.output_size, self.input_size_per_partition))
         self.bias = nn.Parameter(torch.empty(self.output_size)) if bias else None
+        if tp_context.sequence_parallel and self.bias is not None:
+            # in sequence parallel, bias is added on each sequence shard
+            # so we need to all-reduce the grad in backward
+            group = tp_context.group
+            self.bias.register_hook(lambda grad: _reduce(grad, group))
 
         self.reset_parameters()
 
@@ -150,9 +162,13 @@ class RowParallelLinear(nn.Module):
         # weight: [output_size, input_size_per_partition]
         # bias: [output_size]
         x_parallel = F.linear(x, self.weight, None)
-        x = reduce_from_tensor_model_parallel_region(x_parallel, self.tp_context.group)
 
-        # add bias after all-reduce
+        if self.tp_context.sequence_parallel:
+            # in sequence parallel, we need to reduce-scatter the output across TP ranks
+            x = reduce_scatter_to_sequence_parallel_region(x_parallel, self.tp_context.group)
+        else:
+            x = reduce_from_tensor_model_parallel_region(x_parallel, self.tp_context.group)
+        # add bias after all-reduce or reduce-scatter
         x = x + self.bias if self.bias is not None else x
 
         return x
@@ -178,6 +194,7 @@ class TPFeedForward(nn.Module):
         super().__init__()
         intermediate_size = intermediate_size or config.intermediate_size
         self.act_fn = ACT2FN[config.hidden_act]
+        self.tp_context = tp_context
         ######################################################
         # replace proj to corresponding parallel linear layers
         self.gate_proj = ColumnParallelLinear(
@@ -192,6 +209,10 @@ class TPFeedForward(nn.Module):
         ######################################################
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.tp_context.sequence_parallel:
+            # in sequence parallel, we need to all-gather the input across TP ranks
+            # all-gather is done here to prevent redundant communication in gate and up_proj
+            x = gather_from_sequence_parallel_region(x, self.tp_context.group)
         return self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
 
 
@@ -236,8 +257,9 @@ class TPAttention(nn.Module):
         # RMSNorm only see local heads, and we need to all-reduce the grad in backward
         self.q_norm = RMSNorm(self.head_dim, eps=config.rms_norm_eps)
         self.k_norm = RMSNorm(self.head_dim, eps=config.rms_norm_eps)
-        self.q_norm.weight.register_hook(lambda grad: _reduce(grad, self.tp_context.group))
-        self.k_norm.weight.register_hook(lambda grad: _reduce(grad, self.tp_context.group))
+        group = tp_context.group
+        self.q_norm.weight.register_hook(lambda grad: _reduce(grad, group))
+        self.k_norm.weight.register_hook(lambda grad: _reduce(grad, group))
         ########################################################
         self.attn_dropout = nn.Dropout(config.dropout)
         self.resid_dropout = nn.Dropout(config.dropout)
@@ -249,6 +271,10 @@ class TPAttention(nn.Module):
     ):
         if past_key_value is not None or use_cache:
             raise NotImplementedError("TPAttention does not support KV cache.")
+
+        if self.tp_context.sequence_parallel:
+            # in sequence parallel, we need to all-gather the input across TP ranks
+            x = gather_from_sequence_parallel_region(x, self.tp_context.group)
 
         bsz, seq_len, _ = x.shape
         xq, xk, xv = self.q_proj(x), self.k_proj(x), self.v_proj(x)
@@ -297,6 +323,13 @@ class TPMiniMindBlock(nn.Module):
         self.input_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.mlp = TPFeedForward(config, tp_context)
+        self.tp_context = tp_context
+        if tp_context.sequence_parallel:
+            # in sequence_parallel, input_layernorm and post_attention_layernorm
+            # only see part of the sequence, so we need to all-reduce the grad in backward
+            group = tp_context.group
+            self.input_layernorm.weight.register_hook(lambda grad: _reduce(grad, group))
+            self.post_attention_layernorm.weight.register_hook(lambda grad: _reduce(grad, group))
         if config.use_moe:
             raise NotImplementedError("MoE is not implemented in TP version yet.")
 
@@ -341,6 +374,11 @@ class TPMiniMindModel(nn.Module):
         )
         self.register_buffer("freqs_cos", freqs_cos, persistent=False)
         self.register_buffer("freqs_sin", freqs_sin, persistent=False)
+        if tp_context.sequence_parallel:
+            # in sequence parallel, the final norm only see part of the sequence,
+            # so we need to all-reduce the grad in backward
+            group = tp_context.group
+            self.norm.weight.register_hook(lambda grad: _reduce(grad, group))
 
     def forward(self, input_ids, attention_mask=None, past_key_values=None, use_cache=False, **kwargs):
         if past_key_values is not None or use_cache:
@@ -351,7 +389,7 @@ class TPMiniMindModel(nn.Module):
             past_key_values = None
         past_key_values = past_key_values or [None] * len(self.layers)
         start_pos = 0
-        hidden_states = self.dropout(self.embed_tokens(input_ids))
+        hidden_states = self.embed_tokens(input_ids)
         # Recompute RoPE buffers lost during meta-device init (transformers>=5.x)
         if self.freqs_cos[0, 0] == 0:
             freqs_cos, freqs_sin = precompute_freqs_cis(
@@ -369,6 +407,13 @@ class TPMiniMindModel(nn.Module):
             self.freqs_sin[start_pos : start_pos + seq_length],
         )
         presents = []
+
+        if self.tp_context.sequence_parallel:
+            # in sequence parallel, each layer accept part of the sequence
+            # so we scatter the hidden_states at the beginning
+            hidden_states = scatter_to_sequence_parallel_region(hidden_states, self.tp_context.group)
+
+        hidden_states = self.dropout(hidden_states)
         for layer, past_key_value in zip(self.layers, past_key_values):
             hidden_states, present = layer(
                 hidden_states,
@@ -391,6 +436,7 @@ class TPMiniMindForCausalLM(PreTrainedModel):
     def __init__(self, tp_context: TPContext, config: MiniMindConfig | None = None):
         self.config = config or MiniMindConfig()
         super().__init__(self.config)
+        self.tp_context = tp_context
         self.model = TPMiniMindModel(self.config, tp_context)
         self.lm_head = nn.Linear(self.config.hidden_size, self.config.vocab_size, bias=False)
         if self.config.tie_word_embeddings:
@@ -413,6 +459,13 @@ class TPMiniMindForCausalLM(PreTrainedModel):
         slice_indices = (
             slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         )
+        # if sequence parallel, each TP rank only has part of the sequence
+        # so we need to gather the hidden_states before lm_head
+        if self.tp_context.sequence_parallel:
+            hidden_states = gather_from_sequence_parallel_region(
+                hidden_states, self.tp_context.group, tensor_parallel_output_grad=False
+            )
+
         logits = self.lm_head(hidden_states[:, slice_indices, :])
         loss = None
         if labels is not None:

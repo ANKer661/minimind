@@ -57,8 +57,8 @@ def _gather_along_sequence_dim(input_: torch.Tensor, group: dist.ProcessGroup) -
     output_size[0] = output_size[0] * world_size
     output_first = torch.empty(
         output_size,
-        dtype=input_.dtype,
-        device=torch.cuda.current_device(),
+        dtype=input_first.dtype,
+        device=input_first.device,
     )
 
     torch.distributed.all_gather_into_tensor(output_first, input_first, group=group)
@@ -82,11 +82,11 @@ def _reduce_scatter_along_sequence_dim(input_: torch.Tensor, group: dist.Process
     local_seq_length = seq_length // world_size
 
     output_size = list(input_first.size())
-    output_size[1] = local_seq_length
+    output_size[0] = local_seq_length
     output = torch.empty(
         output_size,
         dtype=input_first.dtype,
-        device=torch.cuda.current_device(),
+        device=input_first.device,
     )
 
     torch.distributed.reduce_scatter_tensor(output, input_first, group=group)
@@ -171,8 +171,12 @@ class GatherFromSequenceParallelRegion(torch.autograd.Function):
         tensor_parallel_output_grad = ctx.tensor_parallel_output_grad
 
         if tensor_parallel_output_grad:
+            # when followed by a tensor parallel region
+            # each rank only contains part of grad
             return _reduce_scatter_along_sequence_dim(grad_output, ctx.group), None, None
         else:
+            # followed by regions with replicated computation, e.g. lm head
+            # each rank contains the full grad, so just split it
             return _split_along_sequence_dim(grad_output, ctx.group), None, None
 
 
