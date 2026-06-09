@@ -3,7 +3,6 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
 
 import torch
 import torch.distributed as dist
@@ -21,63 +20,12 @@ from .model_minimind import (
     repeat_kv,
 )
 
+from .tensor_parallel_mappings import (
+    _reduce,
+    reduce_from_tensor_model_parallel_region,
+    copy_to_tensor_model_parallel_region,
+)
 
-####################################
-# two primitives for tensor parallel
-####################################
-def _reduce(input_: torch.Tensor, group: dist.ProcessGroup) -> torch.Tensor:
-    """All-reduce across the model parallel group."""
-    assert group is not None, "Model parallel group is not initialized."
-
-    # Skip if only 1 GPU
-    if dist.get_world_size(group) == 1:
-        return input_
-
-    if not input_.is_contiguous():
-        input_ = input_.contiguous()
-
-    dist.all_reduce(input_, group=group)
-    return input_
-
-
-class CopyToModelParallelRegion(torch.autograd.Function):
-    """Pass the input to the model parallel region."""
-
-    @staticmethod
-    def forward(ctx: Any, input_: torch.Tensor, group) -> torch.Tensor:
-        ctx.group = group
-        return input_
-
-    @staticmethod
-    def backward(ctx: Any, grad_output: torch.Tensor) -> tuple[torch.Tensor, None]:  # type: ignore
-        return _reduce(grad_output, ctx.group), None
-
-
-class ReduceFromModelParallelRegion(torch.autograd.Function):
-    """All-reduce the input from the model parallel region."""
-
-    @staticmethod
-    def forward(ctx: Any, input_: torch.Tensor, group: dist.ProcessGroup) -> torch.Tensor:
-        ctx.group = group
-        return _reduce(input_, ctx.group)
-
-    @staticmethod
-    def backward(ctx: Any, grad_output: torch.Tensor) -> tuple[torch.Tensor, None]:  # type: ignore
-        return grad_output, None
-
-
-def copy_to_tensor_model_parallel_region(
-    input_: torch.Tensor, group: dist.ProcessGroup
-) -> torch.Tensor:
-    """Wrapper for autograd function: forward copy, backward all-reduce."""
-    return CopyToModelParallelRegion.apply(input_, group)  # type: ignore
-
-
-def reduce_from_tensor_model_parallel_region(
-    input_: torch.Tensor, group: dist.ProcessGroup
-) -> torch.Tensor:
-    """Wrapper for autograd function: forward all-reduce, backward copy."""
-    return ReduceFromModelParallelRegion.apply(input_, group)  # type: ignore
 
 
 ################################
@@ -88,6 +36,7 @@ class TPContext:
     group: dist.ProcessGroup
     world_size: int
     rank: int
+    sequence_parallel: bool
 
 
 _COLUMN_PARALLEL_SUFFIXES = (
