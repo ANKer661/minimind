@@ -393,6 +393,24 @@ def save_plot(
 
 
 def launcher(args: argparse.Namespace) -> None:
+    if args.profile_only:
+        if args.profile_variant is None:
+            raise ValueError("--profile_only requires --profile_variant")
+        profile_layers = args.profile_layers or args.layers[0]
+        profile_variant = VARIANTS[args.profile_variant]
+        print(
+            f"profiling only: {profile_variant.label}, layers={profile_layers} "
+            f"into {args.profile_dir}"
+        )
+        result = subprocess.run(
+            profiler_command(args, profile_variant, profile_layers),
+            text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError("Profiler worker failed")
+        print("saved profiler trace")
+        return
+
     rows = []
     active = {variant_name: True for variant_name in args.variants}
 
@@ -493,6 +511,7 @@ def parse_args() -> argparse.Namespace:
         choices=tuple(VARIANTS),
         default=None,
     )
+    parser.add_argument("--profile_only", action="store_true")
     parser.add_argument("--profile_layers", type=int, default=None)
     parser.add_argument("--profile_dir", default="tp_profiler_traces")
     parser.add_argument("--profile_wait", type=int, default=1)
