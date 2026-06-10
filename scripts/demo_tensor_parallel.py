@@ -205,6 +205,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--atol", type=float, default=None)
     parser.add_argument("--sequence_parallel", action="store_true")
+    parser.add_argument("--async_communication", action="store_true")
     return parser.parse_args()
 
 
@@ -237,6 +238,7 @@ def main() -> None:
         world_size=world_size,
         rank=rank,
         sequence_parallel=args.sequence_parallel,
+        async_communication=args.async_communication,
     )
     config = MiniMindConfig(
         hidden_size=args.hidden_size,

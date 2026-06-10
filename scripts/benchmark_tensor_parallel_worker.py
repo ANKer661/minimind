@@ -25,7 +25,7 @@ def build_config(args: argparse.Namespace) -> MiniMindConfig:
         vocab_size=args.vocab_size,
         max_position_embeddings=max(args.seq_len, 32),
         dropout=0.0,
-        flash_attn=False,
+        flash_attn=args.flash_attn,
         use_moe=False,
     )
 
@@ -108,6 +108,8 @@ def run_tp(args: argparse.Namespace) -> None:
         group=dist.group.WORLD,
         world_size=world_size,
         rank=rank,
+        sequence_parallel=args.sequence_parallel,
+        async_communication=args.async_communication,
     )
     model = TPMiniMindForCausalLM(tp_context, build_config(args)).to(
         device=device,
@@ -161,6 +163,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--learning_rate", type=float, required=True)
     parser.add_argument("--warmup_iters", type=int, required=True)
     parser.add_argument("--benchmark_iters", type=int, required=True)
+    parser.add_argument(
+        "--flash_attn",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    parser.add_argument("--sequence_parallel", action="store_true")
+    parser.add_argument("--async_communication", action="store_true")
     return parser.parse_args()
 
 

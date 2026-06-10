@@ -75,6 +75,9 @@ def shard_state_dict_for_tp(
     return tp_state_dict
 
 
+################################
+# async linear: overlap the communication and the computation in linear layer
+################################
 class LinearWithAsyncCommunication(torch.autograd.Function):
     """Overlap the communication and the computation in Linear."""
 
