@@ -145,6 +145,73 @@ def worker_command(
     ]
 
 
+def profiler_command(
+    args: argparse.Namespace,
+    variant: Variant,
+    num_hidden_layers: int,
+) -> list[str]:
+    worker = str(
+        Path(__file__).with_name("benchmark_tensor_parallel_profiler.py").resolve()
+    )
+    profile_dir = Path(args.profile_dir) / (
+        f"{args.profile_variant}_layers_{num_hidden_layers}"
+    )
+    common = [
+        worker,
+        "--mode",
+        variant.mode,
+        "--tp_size",
+        str(args.tp_size),
+        "--hidden_size",
+        str(args.hidden_size),
+        "--num_hidden_layers",
+        str(num_hidden_layers),
+        "--num_attention_heads",
+        str(args.num_attention_heads),
+        "--num_key_value_heads",
+        str(args.num_key_value_heads),
+        "--vocab_size",
+        str(args.vocab_size),
+        "--seq_len",
+        str(args.seq_len),
+        "--batch_size",
+        str(args.batch_size),
+        "--dtype",
+        args.dtype,
+        "--seed",
+        str(args.seed),
+        "--learning_rate",
+        str(args.learning_rate),
+        "--profile_dir",
+        str(profile_dir),
+        "--profile_wait",
+        str(args.profile_wait),
+        "--profile_warmup",
+        str(args.profile_warmup),
+        "--profile_active",
+        str(args.profile_active),
+    ]
+    if not args.flash_attn:
+        common.append("--no-flash_attn")
+    if variant.sequence_parallel:
+        common.append("--sequence_parallel")
+    if variant.async_communication:
+        common.append("--async_communication")
+
+    if variant.mode == "dense":
+        return [sys.executable, *common]
+
+    torchrun = shutil.which("torchrun")
+    if torchrun is None:
+        raise RuntimeError("torchrun was not found in PATH")
+    return [
+        torchrun,
+        "--standalone",
+        f"--nproc_per_node={args.tp_size}",
+        *common,
+    ]
+
+
 def save_csv(rows: list[dict[str, object]], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as file:
@@ -376,6 +443,21 @@ def launcher(args: argparse.Namespace) -> None:
     if plot_path.exists():
         print(f"saved plot: {plot_path}")
 
+    if args.profile_variant is not None:
+        profile_layers = args.profile_layers or args.layers[0]
+        profile_variant = VARIANTS[args.profile_variant]
+        print(
+            f"profiling {profile_variant.label}, layers={profile_layers} "
+            f"into {args.profile_dir}"
+        )
+        result = subprocess.run(
+            profiler_command(args, profile_variant, profile_layers),
+            text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError("Profiler worker failed")
+        print("saved profiler trace")
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Benchmark MiniMind dense and TP memory")
@@ -406,6 +488,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--show_failures", action="store_true")
     parser.add_argument("--output_csv", default="tp_memory_scaling.csv")
     parser.add_argument("--output_plot", default="tp_memory_scaling.png")
+    parser.add_argument(
+        "--profile_variant",
+        choices=tuple(VARIANTS),
+        default=None,
+    )
+    parser.add_argument("--profile_layers", type=int, default=None)
+    parser.add_argument("--profile_dir", default="tp_profiler_traces")
+    parser.add_argument("--profile_wait", type=int, default=1)
+    parser.add_argument("--profile_warmup", type=int, default=1)
+    parser.add_argument("--profile_active", type=int, default=3)
     return parser.parse_args()
 
 
