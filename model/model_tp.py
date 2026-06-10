@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 import torch
 import torch.distributed as dist
@@ -71,6 +72,123 @@ def shard_state_dict_for_tp(
         tp_state_dict[key] = value.contiguous()
 
     return tp_state_dict
+
+
+class LinearWithAsyncCommunication(torch.autograd.Function):
+    """Overlap the communication and the computation in Linear."""
+
+    @staticmethod
+    def forward(
+        ctx: Any,
+        input: torch.Tensor,
+        weight: torch.Tensor,
+        bias: torch.Tensor | None,
+        sequence_parallel: bool,
+        group: dist.ProcessGroup,
+    ) -> torch.Tensor:
+        # if use sequence parallel, each rank only save part of the sequence
+        # to save activation memory in Attn and MLP
+        ctx.save_for_backward(input, weight)
+        ctx.group = group
+        ctx.use_bias = bias is not None
+        ctx.sequence_parallel = sequence_parallel
+
+        if sequence_parallel:
+            # TODO: change layout in SP to avoid this
+            input_first = input.movedim(1, 0).contiguous()
+            dim_size = list(input_first.size())
+            dim_size[0] = dim_size[0] * dist.get_world_size(group)
+
+            all_gather_input = torch.empty(
+                dim_size,
+                dtype=input_first.dtype,
+                device=input_first.device,
+            )
+            dist.all_gather_into_tensor(all_gather_input, input_first, group=group)
+
+            total_input = all_gather_input.movedim(0, 1).contiguous()
+        else:
+            total_input = input
+
+        output = torch.matmul(total_input, weight.t())
+        if bias is not None:
+            output = output + bias
+        return output
+
+    @staticmethod
+    def backward(  # type: ignore
+        ctx: Any, grad_output: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, None, None]:
+        input, weight = ctx.saved_tensors
+        group = ctx.group
+
+        if ctx.sequence_parallel:
+            # async all-gather to obatin total input
+            input_first = input.movedim(1, 0).contiguous()
+            dim_size = list(input_first.size())
+            dim_size[0] = dim_size[0] * dist.get_world_size(group)
+            all_gather_input = torch.empty(
+                dim_size,
+                dtype=input_first.dtype,
+                device=input_first.device,
+            )
+            handle_ag = dist.all_gather_into_tensor(
+                all_gather_input, input_first, group=group, async_op=True
+            )
+
+            # overlap all-gather
+            grad_input = grad_output.matmul(weight)
+
+            # async reduce-scatter: collect total grad for sequence shard
+            grad_input_first = grad_input.movedim(1, 0).contiguous()
+            dim_size = list(grad_input_first.size())
+            dim_size[0] = dim_size[0] // dist.get_world_size(group)
+            sub_grad_input = torch.empty(
+                dim_size,
+                dtype=grad_input_first.dtype,
+                device=grad_input_first.device,
+                requires_grad=False,
+            )
+            handle_rs = dist.reduce_scatter_tensor(
+                sub_grad_input, grad_input_first, group=group, async_op=True
+            )
+
+            # wait for all-gather communication
+            handle_ag.wait()  # type: ignore
+            # TODO: change layout in SP to avoid this
+            total_input = all_gather_input.movedim(0, 1).contiguous()  # B, S, D
+
+            # reshape `total_input` and `grad_input` as 2d
+            total_input = total_input.reshape(-1, total_input.size(-1))
+            grad_output = grad_output.reshape(-1, grad_output.size(-1))
+
+            # overlap reduce-scatter
+            grad_weight = grad_output.t().matmul(total_input)
+            grad_bias = grad_output.sum(0) if ctx.use_bias else None
+
+            # wait for reduce-scatter communication
+            handle_rs.wait()  # type: ignore
+            sub_grad_input = sub_grad_input.movedim(0, 1).contiguous()
+
+            return sub_grad_input, grad_weight, grad_bias, None, None
+
+        else:
+            grad_input = grad_output.matmul(weight)
+
+            # all-reduce grad_input across TP ranks
+            handle_ar = dist.all_reduce(grad_input, group=group, async_op=True)
+
+            # reshape `input` and `grad_output` as 2d
+            input = input.reshape(-1, input.size(-1))
+            grad_output = grad_output.reshape(-1, grad_output.size(-1))
+
+            # overlap all-reduce
+            grad_weight = grad_output.t().matmul(input)
+            grad_bias = grad_output.sum(0) if ctx.use_bias else None
+
+            handle_ar.wait()  # type: ignore
+
+        return grad_input, grad_weight, grad_bias, None, None
 
 
 ################################
