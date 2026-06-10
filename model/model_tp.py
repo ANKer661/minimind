@@ -40,6 +40,7 @@ class TPContext:
     world_size: int
     rank: int
     sequence_parallel: bool = False
+    async_communication: bool = False
 
 
 _COLUMN_PARALLEL_SUFFIXES = (
@@ -191,6 +192,16 @@ class LinearWithAsyncCommunication(torch.autograd.Function):
         return grad_input, grad_weight, grad_bias, None, None
 
 
+def linear_with_async_communication(
+    input: torch.Tensor,
+    weight: torch.Tensor,
+    bias: torch.Tensor | None,
+    sequence_parallel: bool,
+    group: dist.ProcessGroup,
+) -> torch.Tensor:
+    return LinearWithAsyncCommunication.apply(input, weight, bias, sequence_parallel, group)  # type: ignore
+
+
 ################################
 # tensor parallel linear layers
 ################################
@@ -225,14 +236,18 @@ class ColumnParallelLinear(nn.Module):
         # x: [batch_size, seq_length, input_size]
         # weight: [output_size_per_partition, input_size]
         # bias: [output_size_per_partition]
-        if self.tp_context.sequence_parallel:
-            # in sequence parallel, we need to all-gather the input across TP ranks
-            # all-gather will be done in MLP or Attn, here we already have full input x
-            x_parallel = x
+        if self.tp_context.async_communication:
+            return linear_with_async_communication(
+                x, self.weight, self.bias, self.tp_context.sequence_parallel, self.tp_context.group
+            )
         else:
-            x_parallel = copy_to_tensor_model_parallel_region(x, self.tp_context.group)
+            if self.tp_context.sequence_parallel:
+                # in sequence parallel, we need to gather the input across TP ranks
+                x_parallel = gather_from_sequence_parallel_region(x, self.tp_context.group)
+            else:
+                x_parallel = copy_to_tensor_model_parallel_region(x, self.tp_context.group)
 
-        return F.linear(x_parallel, self.weight, self.bias)
+            return F.linear(x_parallel, self.weight, self.bias)
 
     def reset_parameters(self) -> None:
         # initialize weight and bias in the same way as nn.Linear
@@ -327,10 +342,6 @@ class TPFeedForward(nn.Module):
         ######################################################
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if self.tp_context.sequence_parallel:
-            # in sequence parallel, we need to all-gather the input across TP ranks
-            # all-gather is done here to prevent redundant communication in gate and up_proj
-            x = gather_from_sequence_parallel_region(x, self.tp_context.group)
         return self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
 
 
@@ -390,12 +401,8 @@ class TPAttention(nn.Module):
         if past_key_value is not None or use_cache:
             raise NotImplementedError("TPAttention does not support KV cache.")
 
-        if self.tp_context.sequence_parallel:
-            # in sequence parallel, we need to all-gather the input across TP ranks
-            x = gather_from_sequence_parallel_region(x, self.tp_context.group)
-
-        bsz, seq_len, _ = x.shape
         xq, xk, xv = self.q_proj(x), self.k_proj(x), self.v_proj(x)
+        bsz, seq_len, _ = xq.shape  # get shape after linear projection
         xq = xq.view(bsz, seq_len, self.n_local_heads, self.head_dim)
         xk = xk.view(bsz, seq_len, self.n_local_kv_heads, self.head_dim)
         xv = xv.view(bsz, seq_len, self.n_local_kv_heads, self.head_dim)
