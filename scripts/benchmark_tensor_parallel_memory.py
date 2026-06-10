@@ -204,25 +204,18 @@ def save_plot(
             marker="o",
             label=variant.label,
         )
-        time_axis.plot(
-            [row["params"] for row in variant_rows],
-            [row["time_ms"] for row in variant_rows],
-            marker="o",
-            label=variant.label,
-        )
 
     parameter_counts = sorted({int(row["params"]) for row in rows})
     parameter_labels = [format_parameter_count(value) for value in parameter_counts]
-    for axis in (memory_axis, time_axis):
-        axis.set_xscale("log", base=2)
-        axis.xaxis.set_major_locator(FixedLocator(parameter_counts))
-        axis.xaxis.set_major_formatter(FixedFormatter(parameter_labels))
-        axis.xaxis.set_minor_formatter(NullFormatter())
-        axis.tick_params(axis="x", labelrotation=30)
-        axis.set_yscale("log", base=2)
-        axis.yaxis.set_major_locator(LogLocator(base=2, subs=(1.0,)))
-        axis.yaxis.set_major_formatter(FuncFormatter(format_log_value))
-        axis.yaxis.set_minor_formatter(NullFormatter())
+    memory_axis.set_xscale("log", base=2)
+    memory_axis.xaxis.set_major_locator(FixedLocator(parameter_counts))
+    memory_axis.xaxis.set_major_formatter(FixedFormatter(parameter_labels))
+    memory_axis.xaxis.set_minor_formatter(NullFormatter())
+    memory_axis.tick_params(axis="x", labelrotation=30)
+    memory_axis.set_yscale("log", base=2)
+    memory_axis.yaxis.set_major_locator(LogLocator(base=2, subs=(1.0,)))
+    memory_axis.yaxis.set_major_formatter(FuncFormatter(format_log_value))
+    memory_axis.yaxis.set_minor_formatter(NullFormatter())
 
     memory_axis.set_xlabel("Model parameters")
     memory_axis.set_ylabel("Peak allocated memory per GPU (GB)")
@@ -230,11 +223,101 @@ def save_plot(
     memory_axis.grid(which="both", alpha=0.3)
     memory_axis.legend()
 
-    time_axis.set_xlabel("Model parameters")
-    time_axis.set_ylabel("Average time per iteration (ms)")
-    time_axis.set_title("Training Step Time")
-    time_axis.grid(which="both", alpha=0.3)
-    time_axis.legend()
+    if "dense" in variant_names:
+        baseline_name = "dense"
+    else:
+        baseline_name = variant_names[0]
+    baseline_rows = sorted(
+        (
+            row
+            for row in rows
+            if row["variant"] == baseline_name and row["status"] == "ok"
+        ),
+        key=lambda row: int(row["layers"]),
+    )
+    if baseline_rows:
+        baseline_label = VARIANTS[baseline_name].label
+        group_positions = list(range(len(baseline_rows)))
+        baseline_times = {
+            int(row["layers"]): float(row["time_ms"])
+            for row in baseline_rows
+        }
+        bar_width = 0.8 / len(variant_names)
+        max_relative_time = 100.0
+
+        for variant_index, variant_name in enumerate(variant_names):
+            variant = VARIANTS[variant_name]
+            variant_times = {
+                int(row["layers"]): float(row["time_ms"])
+                for row in rows
+                if row["variant"] == variant_name and row["status"] == "ok"
+            }
+            relative_times = [
+                (
+                    variant_times[int(row["layers"])]
+                    / baseline_times[int(row["layers"])]
+                    * 100
+                )
+                if int(row["layers"]) in variant_times
+                else math.nan
+                for row in baseline_rows
+            ]
+            max_relative_time = max(
+                max_relative_time,
+                *(value for value in relative_times if not math.isnan(value)),
+            )
+            offsets = [
+                position
+                + (variant_index - (len(variant_names) - 1) / 2) * bar_width
+                for position in group_positions
+            ]
+            bars = time_axis.bar(
+                offsets,
+                relative_times,
+                width=bar_width,
+                label=variant.label,
+            )
+            for bar, relative_time in zip(bars, relative_times):
+                if math.isnan(relative_time):
+                    continue
+                if variant_name == baseline_name:
+                    label = "100%"
+                else:
+                    label = f"{relative_time - 100:+.0f}%"
+                time_axis.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    relative_time,
+                    label,
+                    ha="center",
+                    va="bottom",
+                    fontsize=8,
+                    rotation=90,
+                )
+
+        time_axis.axhline(100, color="black", linewidth=1, linestyle="--", alpha=0.5)
+        time_axis.set_ylim(0, max_relative_time * 1.18)
+        time_axis.set_xticks(
+            group_positions,
+            [format_parameter_count(int(row["params"])) for row in baseline_rows],
+            rotation=30,
+        )
+        time_axis.set_xlabel("Model parameters")
+        time_axis.set_ylabel(
+            f"Relative training step time ({baseline_label} = 100%)"
+        )
+        time_axis.set_title(f"Training Step Time vs {baseline_label}")
+        time_axis.grid(axis="y", alpha=0.3)
+        time_axis.legend()
+    else:
+        time_axis.text(
+            0.5,
+            0.5,
+            f"No successful {VARIANTS[baseline_name].label} result for relative time.",
+            ha="center",
+            va="center",
+            transform=time_axis.transAxes,
+        )
+        time_axis.set_axis_off()
 
     figure.tight_layout()
     path.parent.mkdir(parents=True, exist_ok=True)
