@@ -27,6 +27,7 @@ class TPContext:
     sequence_parallel: bool = False
     async_communication: bool = False
 
+
 ################################
 # async linear: overlap the communication and the computation in linear layer
 ################################
@@ -36,7 +37,7 @@ class LinearWithAsyncCommunication(torch.autograd.Function):
     @staticmethod
     def forward(
         ctx: Any,
-        input: torch.Tensor,
+        input_: torch.Tensor,
         weight: torch.Tensor,
         bias: torch.Tensor | None,
         sequence_parallel: bool,
@@ -44,14 +45,14 @@ class LinearWithAsyncCommunication(torch.autograd.Function):
     ) -> torch.Tensor:
         # if use sequence parallel, each rank only save part of the sequence
         # to save activation memory in Attn and MLP
-        ctx.save_for_backward(input, weight)
+        ctx.save_for_backward(input_, weight)
         ctx.group = group
         ctx.use_bias = bias is not None
         ctx.sequence_parallel = sequence_parallel
 
         if sequence_parallel:
             # TODO: change layout in SP to avoid this
-            input_first = input.movedim(1, 0).contiguous()
+            input_first = input_.movedim(1, 0).contiguous()
             dim_size = list(input_first.size())
             dim_size[0] = dim_size[0] * dist.get_world_size(group)
 
@@ -64,7 +65,7 @@ class LinearWithAsyncCommunication(torch.autograd.Function):
 
             total_input = all_gather_input.movedim(0, 1).contiguous()
         else:
-            total_input = input
+            total_input = input_
 
         output = torch.matmul(total_input, weight.t())
         if bias is not None:
@@ -75,12 +76,12 @@ class LinearWithAsyncCommunication(torch.autograd.Function):
     def backward(  # type: ignore
         ctx: Any, grad_output: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, None, None]:
-        input, weight = ctx.saved_tensors
+        input_, weight = ctx.saved_tensors
         group = ctx.group
 
         if ctx.sequence_parallel:
             # async all-gather to obatin total input
-            input_first = input.movedim(1, 0).contiguous()
+            input_first = input_.movedim(1, 0).contiguous()
             dim_size = list(input_first.size())
             dim_size[0] = dim_size[0] * dist.get_world_size(group)
             all_gather_input = torch.empty(
@@ -135,11 +136,11 @@ class LinearWithAsyncCommunication(torch.autograd.Function):
             handle_ar = dist.all_reduce(grad_input, group=group, async_op=True)
 
             # reshape `input` and `grad_output` as 2d
-            input = input.reshape(-1, input.size(-1))
+            input_ = input_.reshape(-1, input_.size(-1))
             grad_output = grad_output.reshape(-1, grad_output.size(-1))
 
             # overlap all-reduce
-            grad_weight = grad_output.t().matmul(input)
+            grad_weight = grad_output.t().matmul(input_)
             grad_bias = grad_output.sum(0) if ctx.use_bias else None
 
             handle_ar.wait()  # type: ignore
@@ -148,13 +149,13 @@ class LinearWithAsyncCommunication(torch.autograd.Function):
 
 
 def linear_with_async_communication(
-    input: torch.Tensor,
+    input_: torch.Tensor,
     weight: torch.Tensor,
     bias: torch.Tensor | None,
     sequence_parallel: bool,
     group: dist.ProcessGroup,
 ) -> torch.Tensor:
-    return LinearWithAsyncCommunication.apply(input, weight, bias, sequence_parallel, group)  # type: ignore
+    return LinearWithAsyncCommunication.apply(input_, weight, bias, sequence_parallel, group)  # type: ignore
 
 
 ################################
@@ -267,3 +268,66 @@ class RowParallelLinear(nn.Module):
         if self.bias is not None:
             bound = 1 / math.sqrt(self.input_size)
             nn.init.uniform_(self.bias, -bound, bound)
+
+
+class VocabParallelEmbedding(nn.Module):
+    """
+    Embedding layer with vocab parallelism.
+
+    Args:
+        num_embeddings: total number of embeddings (vocab size)
+        embedding_dim: dimension of each embedding vector
+        tp_context: tensor parallel context
+        reduce_scatter_embeddings: whether to reduce-scatter the embedding output across TP ranks
+
+    """
+
+    def __init__(
+        self,
+        num_embeddings: int,
+        embedding_dim: int,
+        tp_context: TPContext,
+        reduce_scatter_embeddings: bool = False,
+    ) -> None:
+        super().__init__()
+        self.num_embeddings = num_embeddings
+        self.embedding_dim = embedding_dim
+        self.tp_context = tp_context
+        self.reduce_scatter_embeddings = reduce_scatter_embeddings
+        assert num_embeddings % tp_context.world_size == 0
+        self.num_embeddings_per_partition = num_embeddings // tp_context.world_size
+        rank = tp_context.rank
+        self.vocab_start_index = rank * self.num_embeddings_per_partition
+        self.vocab_end_index = self.vocab_start_index + self.num_embeddings_per_partition
+
+        self.weight = nn.Parameter(torch.empty(self.num_embeddings_per_partition, self.embedding_dim))
+
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        nn.init.normal_(self.weight)
+
+    def forward(self, input_: torch.Tensor) -> torch.Tensor:
+        if self.tp_context.world_size > 1:
+            input_mask = (input_ < self.vocab_start_index) | (input_ >= self.vocab_end_index)
+            masked_input = input_.clone() - self.vocab_start_index
+            masked_input.masked_fill_(input_mask, 0)
+        else:
+            masked_input = input_
+
+        output_parallel = self.weight[masked_input]
+
+        if self.tp_context.world_size > 1:
+            output_parallel.masked_fill_(input_mask.unsqueeze(-1), 0.0)
+
+        if self.reduce_scatter_embeddings:
+            # output is reduced-scattered across TP ranks, each rank only has part of the sequence
+            # this is used in sequence parallel
+            output = reduce_scatter_to_sequence_parallel_region(output_parallel, self.tp_context.group)
+        elif self.tp_context.world_size > 1:
+            # all-reduce across TP ranks to get the final output
+            output = reduce_from_tensor_model_parallel_region(output_parallel, self.tp_context.group)
+        else:
+            output = output_parallel
+
+        return output
