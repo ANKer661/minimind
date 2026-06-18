@@ -26,6 +26,7 @@ class TPContext:
     rank: int
     sequence_parallel: bool = False
     async_communication: bool = False
+    vocab_parallel: bool = False
 
 
 ################################
@@ -279,7 +280,6 @@ class VocabParallelEmbedding(nn.Module):
         embedding_dim: dimension of each embedding vector
         tp_context: tensor parallel context
         reduce_scatter_embeddings: whether to reduce-scatter the embedding output across TP ranks
-
     """
 
     def __init__(
@@ -318,7 +318,7 @@ class VocabParallelEmbedding(nn.Module):
         output_parallel = self.weight[masked_input]
 
         if self.tp_context.world_size > 1:
-            output_parallel.masked_fill_(input_mask.unsqueeze(-1), 0.0)
+            output_parallel.masked_fill_(input_mask.unsqueeze(-1), 0.0)  # type: ignore
 
         if self.reduce_scatter_embeddings:
             # output is reduced-scattered across TP ranks, each rank only has part of the sequence
@@ -331,3 +331,105 @@ class VocabParallelEmbedding(nn.Module):
             output = output_parallel
 
         return output
+
+
+class VocabParallelCrossEntropy(torch.autograd.Function):
+    """Cross entropy loss with vocab parallelism."""
+
+    @staticmethod
+    def forward(
+        ctx: Any,
+        vocab_parallel_logits: torch.Tensor,
+        target: torch.Tensor,
+        group: dist.ProcessGroup,
+    ) -> torch.Tensor:
+        # vocab_parallel_logits: [batch_size, seq_length, vocab_size_per_partition]
+        # target: [batch_size, seq_length]
+        ctx.group = group
+
+        # to fp32 for numerical stability in cross entropy
+        vocab_parallel_logits = vocab_parallel_logits.float()
+        # max logits value
+        logits_max = vocab_parallel_logits.max(dim=-1).values  # [batch_size, seq_length]
+        # all-reduce to get the global max logits value across TP ranks
+        dist.all_reduce(logits_max, op=dist.ReduceOp.MAX, group=group)
+
+        partition_vocab_size = vocab_parallel_logits.size(-1)
+        vocab_start_index = dist.get_rank(group) * partition_vocab_size
+        vocab_end_index = vocab_start_index + partition_vocab_size
+
+        # in-place substraction
+        vocab_parallel_logits -= logits_max.unsqueeze(-1)
+        # mask to filter out valid target indices for this rank
+        target_mask = (target < vocab_start_index) | (target >= vocab_end_index)
+        masked_target = target.clone() - vocab_start_index
+        masked_target.masked_fill_(target_mask, 0)
+
+        # target logits, logits[target]
+        logits_2d = vocab_parallel_logits.view(-1, partition_vocab_size)
+        masked_target_1d = masked_target.view(-1)
+        arange_1d = torch.arange(logits_2d.size(0), device=logits_2d.device)
+        target_logits_1d = logits_2d[arange_1d, masked_target_1d]
+        target_logits_1d = target_logits_1d.clone().contiguous()
+        target_logits = target_logits_1d.view_as(target)
+        # mask out invalid target logits
+        target_logits.masked_fill_(target_mask, 0.0)
+
+        # sum-exp
+        exp_logits = vocab_parallel_logits
+        torch.exp(vocab_parallel_logits, out=exp_logits)
+        exp_logits_sum = exp_logits.sum(dim=-1)  # [batch_size, seq_length]
+
+        # All-reduce to get the global sum-exp and target logits
+        dist.all_reduce(exp_logits_sum, op=dist.ReduceOp.SUM, group=group)
+        dist.all_reduce(target_logits, op=dist.ReduceOp.SUM, group=group)
+
+        loss = torch.log(exp_logits_sum) - target_logits  # [batch_size, seq_length]
+        # normalize to get probability p, used in backward
+        exp_logits.div_(exp_logits_sum.unsqueeze(-1))
+
+        ctx.save_for_backward(exp_logits, masked_target_1d, target_mask)
+
+        return loss
+
+    @staticmethod
+    def backward(ctx: Any, grad_output: torch.Tensor) -> tuple[torch.Tensor, None, None]:  # type: ignore
+        softmax, masked_target_1d, target_mask = ctx.saved_tensors
+
+        grad_input = softmax
+        partition_vocab_size = softmax.size(-1)
+        grad_2d = grad_input.view(
+            -1, partition_vocab_size
+        )  # [batch_size*seq_length, vocab_size_per_partition]
+
+        # 1 for valid ids, 0 for invalid ids
+        softmax_update = 1.0 - target_mask.float()  # [batch_size, seq_length]
+
+        arange_1d = torch.arange(grad_2d.size(0), device=grad_2d.device)
+
+        # for valid target ids, subtract 1 from the corresponding softmax value
+        # for invalid target ids, - 0 <==> no update to softmax
+        grad_2d[arange_1d, masked_target_1d] -= softmax_update.view(-1)
+
+        # pointwise multiply with grad_output
+        grad_input.mul_(grad_output.unsqueeze(-1))
+
+        return grad_input, None, None
+
+
+def vocab_parallel_cross_entropy(
+    vocab_parallel_logits: torch.Tensor,
+    target: torch.Tensor,
+    group: dist.ProcessGroup,
+    ignore_index: int = -100,
+) -> torch.Tensor:
+    loss: torch.Tensor = VocabParallelCrossEntropy.apply(
+        vocab_parallel_logits, target, group
+    )  # [batch_size, seq_length], # type: ignore
+
+    ignore_mask = target == ignore_index
+    loss = loss.masked_fill(ignore_mask, 0.0)
+
+    valid_tokens = (~ignore_mask).sum().clamp_min(1)
+
+    return loss.sum() / valid_tokens

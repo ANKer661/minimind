@@ -18,9 +18,11 @@ from .model_minimind import (
     repeat_kv,
 )
 from .tensor_parallel_layers import (
+    VocabParallelEmbedding,
     ColumnParallelLinear,
     RowParallelLinear,
     TPContext,
+    vocab_parallel_cross_entropy,
 )
 from .tensor_parallel_mappings import (
     _reduce,
@@ -41,6 +43,11 @@ _ROW_PARALLEL_SUFFIXES = (
     "down_proj.weight",
 )
 
+_VOCAB_PARALLEL_SUFFIXES = (
+    "model.embed_tokens.weight",
+    "lm_head.weight",
+)
+
 
 def shard_state_dict_for_tp(
     state_dict: Mapping[str, torch.Tensor],
@@ -50,7 +57,10 @@ def shard_state_dict_for_tp(
     tp_state_dict = {}
 
     for key, value in state_dict.items():
-        if key.endswith(_COLUMN_PARALLEL_SUFFIXES):
+        if key.endswith(_VOCAB_PARALLEL_SUFFIXES):
+            if tp_context.vocab_parallel:
+                value = value.chunk(tp_context.world_size, dim=0)[tp_context.rank]
+        elif key.endswith(_COLUMN_PARALLEL_SUFFIXES):
             value = value.chunk(tp_context.world_size, dim=0)[tp_context.rank]
         elif key.endswith(_ROW_PARALLEL_SUFFIXES):
             value = value.chunk(tp_context.world_size, dim=1)[tp_context.rank]
@@ -231,7 +241,18 @@ class TPMiniMindModel(nn.Module):
         self.config = config
         self.tp_context = tp_context
         self.vocab_size, self.num_hidden_layers = config.vocab_size, config.num_hidden_layers
-        self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size)
+        if tp_context.vocab_parallel:
+            assert config.vocab_size % tp_context.world_size == 0, (
+                "vocab size must be divisible by world size for vocab parallel"
+            )
+            self.embed_tokens = VocabParallelEmbedding(
+                config.vocab_size,
+                config.hidden_size,
+                tp_context,
+                reduce_scatter_embeddings=tp_context.sequence_parallel,
+            )
+        else:
+            self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size)
         self.dropout = nn.Dropout(config.dropout)
         self.layers = nn.ModuleList(
             [TPMiniMindBlock(layer, config, tp_context) for layer in range(self.num_hidden_layers)]
@@ -241,7 +262,7 @@ class TPMiniMindModel(nn.Module):
             dim=config.head_dim,
             end=config.max_position_embeddings,
             rope_base=config.rope_theta,
-            rope_scaling=config.rope_scaling,
+            rope_scaling=config.rope_scaling,  # type: ignore
         )
         self.register_buffer("freqs_cos", freqs_cos, persistent=False)
         self.register_buffer("freqs_sin", freqs_sin, persistent=False)
@@ -267,7 +288,7 @@ class TPMiniMindModel(nn.Module):
                 dim=self.config.head_dim,
                 end=self.config.max_position_embeddings,
                 rope_base=self.config.rope_theta,
-                rope_scaling=self.config.rope_scaling,
+                rope_scaling=self.config.rope_scaling,  # type: ignore
             )
             self.freqs_cos, self.freqs_sin = (
                 freqs_cos.to(hidden_states.device),
@@ -279,7 +300,7 @@ class TPMiniMindModel(nn.Module):
         )
         presents = []
 
-        if self.tp_context.sequence_parallel:
+        if self.tp_context.sequence_parallel and not self.tp_context.vocab_parallel:
             # in sequence parallel, each layer accept part of the sequence
             # so we scatter the hidden_states at the beginning
             hidden_states = scatter_to_sequence_parallel_region(hidden_states, self.tp_context.group)
@@ -309,9 +330,18 @@ class TPMiniMindForCausalLM(PreTrainedModel):
         super().__init__(self.config)
         self.tp_context = tp_context
         self.model = TPMiniMindModel(self.config, tp_context)
-        self.lm_head = nn.Linear(self.config.hidden_size, self.config.vocab_size, bias=False)
+        if tp_context.vocab_parallel:
+            # lm_head reuse Column Parallel Linear
+            self.lm_head = ColumnParallelLinear(
+                self.config.hidden_size, self.config.vocab_size, tp_context, bias=False
+            )
+        else:
+            # if no vocab parallel
+            # the lm_head computation is duplicated across TP ranks
+            # so we use regular Linear
+            self.lm_head = nn.Linear(self.config.hidden_size, self.config.vocab_size, bias=False)
         if self.config.tie_word_embeddings:
-            self.model.embed_tokens.weight = self.lm_head.weight
+            self.model.embed_tokens.weight = self.lm_head.weight  # type: ignore
         self.post_init()
 
     def forward(
@@ -332,7 +362,9 @@ class TPMiniMindForCausalLM(PreTrainedModel):
         )
         # if sequence parallel, each TP rank only has part of the sequence
         # so we need to gather the hidden_states before lm_head
-        if self.tp_context.sequence_parallel:
+        # if vocab parallel is enabled, the inputs will be
+        # gathered in lm_head, so we don't need to gather here
+        if self.tp_context.sequence_parallel and not self.tp_context.vocab_parallel:
             hidden_states = gather_from_sequence_parallel_region(
                 hidden_states, self.tp_context.group, tensor_parallel_output_grad=False
             )
@@ -341,7 +373,10 @@ class TPMiniMindForCausalLM(PreTrainedModel):
         loss = None
         if labels is not None:
             x, y = logits[..., :-1, :].contiguous(), labels[..., 1:].contiguous()
-            loss = F.cross_entropy(x.view(-1, x.size(-1)), y.view(-1), ignore_index=-100)
+            if self.tp_context.vocab_parallel:
+                loss = vocab_parallel_cross_entropy(x, y, self.tp_context.group, ignore_index=-100)
+            else:
+                loss = F.cross_entropy(x.view(-1, x.size(-1)), y.view(-1), ignore_index=-100)
         return MoeCausalLMOutputWithPast(
             loss=loss,
             aux_loss=aux_loss,
