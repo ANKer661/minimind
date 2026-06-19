@@ -17,6 +17,7 @@ class Variant:
     mode: str
     sequence_parallel: bool = False
     async_communication: bool = False
+    vocab_parallel: bool = False
 
 
 VARIANTS = {
@@ -30,7 +31,29 @@ VARIANTS = {
         sequence_parallel=True,
         async_communication=True,
     ),
+    "tp_vp": Variant("TP + VP", "tp", vocab_parallel=True),
+    "tp_async_vp": Variant(
+        "TP + Async + VP",
+        "tp",
+        async_communication=True,
+        vocab_parallel=True,
+    ),
+    "tp_sp_vp": Variant(
+        "TP + SP + VP",
+        "tp",
+        sequence_parallel=True,
+        vocab_parallel=True,
+    ),
+    "tp_sp_async_vp": Variant(
+        "TP + SP + Async + VP",
+        "tp",
+        sequence_parallel=True,
+        async_communication=True,
+        vocab_parallel=True,
+    ),
 }
+
+DEFAULT_VARIANTS = ("dense", "tp", "tp_async", "tp_sp", "tp_sp_async")
 
 
 def count_parameters(args: argparse.Namespace, num_hidden_layers: int) -> int:
@@ -130,6 +153,8 @@ def worker_command(
         common.append("--sequence_parallel")
     if variant.async_communication:
         common.append("--async_communication")
+    if variant.vocab_parallel:
+        common.append("--vocab_parallel")
 
     if variant.mode == "dense":
         return [sys.executable, *common]
@@ -197,6 +222,8 @@ def profiler_command(
         common.append("--sequence_parallel")
     if variant.async_communication:
         common.append("--async_communication")
+    if variant.vocab_parallel:
+        common.append("--vocab_parallel")
 
     if variant.mode == "dense":
         return [sys.executable, *common]
@@ -483,7 +510,7 @@ def parse_args() -> argparse.Namespace:
         "--variants",
         nargs="+",
         choices=tuple(VARIANTS),
-        default=list(VARIANTS),
+        default=list(DEFAULT_VARIANTS),
     )
     parser.add_argument("--layers", nargs="+", type=int, default=[2, 4, 8, 16, 32, 64, 128])
     parser.add_argument("--tp_size", type=int, default=2)

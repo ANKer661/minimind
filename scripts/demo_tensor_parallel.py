@@ -28,6 +28,11 @@ ROW_PARALLEL_SUFFIXES = (
     "down_proj.weight",
 )
 
+VOCAB_PARALLEL_SUFFIXES = (
+    "model.embed_tokens.weight",
+    "lm_head.weight",
+)
+
 
 def global_max(value: float, device: torch.device) -> float:
     tensor = torch.tensor(value, device=device, dtype=torch.float64)
@@ -53,6 +58,18 @@ def replicated_tensor_error_metrics(
     return metrics[0].item(), metrics[1].item(), metrics[2].item()
 
 
+def gather_vocab_parallel_logits(
+    logits: torch.Tensor,
+    tp_context: TPContext,
+) -> torch.Tensor:
+    if not tp_context.vocab_parallel:
+        return logits
+
+    gathered = [torch.empty_like(logits) for _ in range(tp_context.world_size)]
+    dist.all_gather(gathered, logits, group=tp_context.group)
+    return torch.cat(gathered, dim=-1)
+
+
 TP_GRAD_SUFFIXES = COLUMN_PARALLEL_SUFFIXES + ROW_PARALLEL_SUFFIXES + (
     "q_norm.weight",
     "k_norm.weight",
@@ -76,6 +93,8 @@ def compare_tp_gradients(
     grad_suffixes = TP_GRAD_SUFFIXES
     if tp_context.sequence_parallel:
         grad_suffixes += SP_GRAD_SUFFIXES
+    if tp_context.vocab_parallel:
+        grad_suffixes += VOCAB_PARALLEL_SUFFIXES
 
     for name, tp_param in tp_model.named_parameters():
         if not name.endswith(grad_suffixes):
@@ -90,6 +109,8 @@ def compare_tp_gradients(
             expected_grad = expected_grad.chunk(tp_context.world_size, dim=0)[tp_context.rank]
         elif name.endswith(ROW_PARALLEL_SUFFIXES):
             expected_grad = expected_grad.chunk(tp_context.world_size, dim=1)[tp_context.rank]
+        elif name.endswith(VOCAB_PARALLEL_SUFFIXES) and tp_context.vocab_parallel:
+            expected_grad = expected_grad.chunk(tp_context.world_size, dim=0)[tp_context.rank]
 
         error = (tp_param.grad - expected_grad).float()
         expected = expected_grad.float()
@@ -131,6 +152,8 @@ def compare_tp_parameters(
             expected = expected.chunk(tp_context.world_size, dim=0)[tp_context.rank]
         elif name.endswith(ROW_PARALLEL_SUFFIXES):
             expected = expected.chunk(tp_context.world_size, dim=1)[tp_context.rank]
+        elif name.endswith(VOCAB_PARALLEL_SUFFIXES) and tp_context.vocab_parallel:
+            expected = expected.chunk(tp_context.world_size, dim=0)[tp_context.rank]
         local_max_diff = max(
             local_max_diff,
             (tp_param.detach() - expected.detach()).abs().max().item(),
@@ -165,7 +188,10 @@ def compare_optimizer_steps(
 
         with torch.no_grad():
             dense_logits = dense_model(input_ids).logits
-            tp_logits = tp_model(input_ids).logits
+            tp_logits = gather_vocab_parallel_logits(
+                tp_model(input_ids).logits,
+                tp_context,
+            )
         logits_diffs.append(
             replicated_tensor_error_metrics(tp_logits, dense_logits)
         )
@@ -206,6 +232,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--atol", type=float, default=None)
     parser.add_argument("--sequence_parallel", action="store_true")
     parser.add_argument("--async_communication", action="store_true")
+    parser.add_argument("--vocab_parallel", action="store_true")
     return parser.parse_args()
 
 
@@ -239,6 +266,7 @@ def main() -> None:
         rank=rank,
         sequence_parallel=args.sequence_parallel,
         async_communication=args.async_communication,
+        vocab_parallel=args.vocab_parallel,
     )
     config = MiniMindConfig(
         hidden_size=args.hidden_size,
@@ -273,9 +301,10 @@ def main() -> None:
     with torch.no_grad():
         dense_output = dense_model(input_ids, labels=labels)
         tp_output = tp_model(input_ids, labels=labels)
+        tp_logits = gather_vocab_parallel_logits(tp_output.logits, tp_context)
 
     logits_diff = global_max(
-        (dense_output.logits - tp_output.logits).abs().max().item(),
+        (dense_output.logits - tp_logits).abs().max().item(),
         device,
     )
     loss_diff = global_max(

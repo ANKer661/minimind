@@ -110,6 +110,7 @@ def run_tp(args: argparse.Namespace) -> None:
         rank=rank,
         sequence_parallel=args.sequence_parallel,
         async_communication=args.async_communication,
+        vocab_parallel=args.vocab_parallel,
     )
     model = TPMiniMindForCausalLM(tp_context, build_config(args)).to(
         device=device,
@@ -165,6 +166,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--sequence_parallel", action="store_true")
     parser.add_argument("--async_communication", action="store_true")
+    parser.add_argument("--vocab_parallel", action="store_true")
     return parser.parse_args()
 
 
