@@ -158,22 +158,26 @@ class TPAttention(nn.Module):
             raise NotImplementedError("TPAttention does not support KV cache.")
 
         xq, xk, xv = self.q_proj(x), self.k_proj(x), self.v_proj(x)
-        bsz, seq_len, _ = xq.shape  # get shape after linear projection
-        xq = xq.view(bsz, seq_len, self.n_local_heads, self.head_dim)
-        xk = xk.view(bsz, seq_len, self.n_local_kv_heads, self.head_dim)
-        xv = xv.view(bsz, seq_len, self.n_local_kv_heads, self.head_dim)
+        seq_len, bsz, _ = xq.shape  # get shape after linear projection
+        xq = xq.view(seq_len, bsz, self.n_local_heads, self.head_dim)
+        xk = xk.view(seq_len, bsz, self.n_local_kv_heads, self.head_dim)
+        xv = xv.view(seq_len, bsz, self.n_local_kv_heads, self.head_dim)
         xq, xk = self.q_norm(xq), self.k_norm(xk)
-        cos, sin = position_embeddings
+        cos, sin = position_embeddings  # seq_len, *
+        # unsqueeze to match the shape of xq and xk
+        cos, sin = cos.unsqueeze(1), sin.unsqueeze(1)
         xq, xk = apply_rotary_pos_emb(xq, xk, cos, sin)
-        if past_key_value is not None:
+        if past_key_value is not None:  # temporary ignore, problematic shape
             xk = torch.cat([past_key_value[0], xk], dim=1)
             xv = torch.cat([past_key_value[1], xv], dim=1)
         past_kv = (xk, xv) if use_cache else None
         xq, xk, xv = (
-            xq.transpose(1, 2),
-            repeat_kv(xk, self.n_rep).transpose(1, 2),
-            repeat_kv(xv, self.n_rep).transpose(1, 2),
-        )
+            xq.permute(1, 2, 0, 3),
+            repeat_kv(xk, self.n_rep).permute(1, 2, 0, 3),
+            repeat_kv(xv, self.n_rep).permute(
+                1, 2, 0, 3
+            ),  # in repeat_kv, assume [bsz, seq_len, ...], but it is compatible with [seq_len, bsz, ...]
+        )  # [bsz, n_local_heads, seq_len, head_dim]
         if (
             self.flash
             and (seq_len > 1)
@@ -182,7 +186,7 @@ class TPAttention(nn.Module):
         ):
             output = F.scaled_dot_product_attention(
                 xq, xk, xv, dropout_p=self.dropout if self.training else 0.0, is_causal=self.is_causal
-            )
+            )  # [bsz, n_local_heads, seq_len, head_dim]
         else:
             scores = (xq @ xk.transpose(-2, -1)) / math.sqrt(self.head_dim)
             if self.is_causal:
@@ -192,7 +196,8 @@ class TPAttention(nn.Module):
             if attention_mask is not None:
                 scores += (1.0 - attention_mask.unsqueeze(1).unsqueeze(2)) * -1e9
             output = self.attn_dropout(F.softmax(scores.float(), dim=-1).type_as(xq)) @ xv
-        output = output.transpose(1, 2).reshape(bsz, seq_len, -1)
+        # output = output.transpose(1, 2).reshape(bsz, seq_len, -1)
+        output = output.permute(2, 0, 1, 3).reshape(seq_len, bsz, -1)
         output = self.resid_dropout(self.o_proj(output))
         return output, past_kv
 
@@ -277,6 +282,8 @@ class TPMiniMindModel(nn.Module):
             raise NotImplementedError("TP does not support KV cache.")
 
         batch_size, seq_length = input_ids.shape
+        # change layout to [seq_len, bsz, hidden_size] for TP/SP
+        input_ids = input_ids.movedim(1, 0).contiguous()
         if hasattr(past_key_values, "layers"):
             past_key_values = None
         past_key_values = past_key_values or [None] * len(self.layers)
@@ -368,8 +375,9 @@ class TPMiniMindForCausalLM(PreTrainedModel):
             hidden_states = gather_from_sequence_parallel_region(
                 hidden_states, self.tp_context.group, tensor_parallel_output_grad=False
             )
-
-        logits = self.lm_head(hidden_states[:, slice_indices, :])
+        logits = self.lm_head(hidden_states[slice_indices, :, :])
+        # change layout back to [bsz, seq_len, vocab_size] for compatibility
+        logits = logits.movedim(1, 0).contiguous()
         loss = None
         if labels is not None:
             x, y = logits[..., :-1, :].contiguous(), labels[..., 1:].contiguous()

@@ -28,17 +28,17 @@ def _split_along_sequence_dim(input_: torch.Tensor, group: dist.ProcessGroup) ->
         return input_
 
     # TODO: change the tensor layout in SP to avoid this
-    input_first = input_.movedim(1, 0).contiguous()
+    # input_first = input_.movedim(1, 0).contiguous()
 
-    seq_length = input_first.size(0)
+    seq_length = input_.size(0)
     assert seq_length % world_size == 0, "The sequence length must be divisible by the world size."
     local_seq_length = seq_length // world_size
     rank = dist.get_rank(group)
     dim_offset = rank * local_seq_length
 
-    output = input_first[dim_offset : dim_offset + local_seq_length].contiguous()
+    output = input_[dim_offset : dim_offset + local_seq_length].contiguous()
 
-    return output.movedim(0, 1).contiguous()
+    return output
 
 
 def _gather_along_sequence_dim(input_: torch.Tensor, group: dist.ProcessGroup) -> torch.Tensor:
@@ -50,20 +50,20 @@ def _gather_along_sequence_dim(input_: torch.Tensor, group: dist.ProcessGroup) -
         return input_
 
     # TODO: change the tensor layout in SP to avoid this
-    input_first = input_.movedim(1, 0).contiguous()
+    # input_ = input_.movedim(1, 0).contiguous()
 
-    output_size = list(input_first.size())
+    output_size = list(input_.size())
     # change the sequence length to the total sequence length
     output_size[0] = output_size[0] * world_size
-    output_first = torch.empty(
+    output = torch.empty(
         output_size,
-        dtype=input_first.dtype,
-        device=input_first.device,
+        dtype=input_.dtype,
+        device=input_.device,
     )
 
-    torch.distributed.all_gather_into_tensor(output_first, input_first, group=group)
+    torch.distributed.all_gather_into_tensor(output, input_, group=group)
 
-    return output_first.movedim(0, 1).contiguous()
+    return output
 
 
 def _reduce_scatter_along_sequence_dim(input_: torch.Tensor, group: dist.ProcessGroup) -> torch.Tensor:
@@ -75,23 +75,23 @@ def _reduce_scatter_along_sequence_dim(input_: torch.Tensor, group: dist.Process
         return input_
 
     # TODO: change the tensor layout in SP to avoid this
-    input_first = input_.movedim(1, 0).contiguous()
-    seq_length = input_first.size(0)
+    # input_first = input_.movedim(1, 0).contiguous()
+    seq_length = input_.size(0)
 
     assert seq_length % world_size == 0, "The sequence length must be divisible by the world size."
     local_seq_length = seq_length // world_size
 
-    output_size = list(input_first.size())
+    output_size = list(input_.size())
     output_size[0] = local_seq_length
     output = torch.empty(
         output_size,
-        dtype=input_first.dtype,
-        device=input_first.device,
+        dtype=input_.dtype,
+        device=input_.device,
     )
 
-    torch.distributed.reduce_scatter_tensor(output, input_first, group=group)
+    torch.distributed.reduce_scatter_tensor(output, input_, group=group)
 
-    return output.movedim(0, 1).contiguous()
+    return output
 
 
 ####################################

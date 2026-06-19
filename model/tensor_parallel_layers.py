@@ -53,18 +53,19 @@ class LinearWithAsyncCommunication(torch.autograd.Function):
 
         if sequence_parallel:
             # TODO: change layout in SP to avoid this
-            input_first = input_.movedim(1, 0).contiguous()
-            dim_size = list(input_first.size())
+            # input_first = input_.movedim(1, 0).contiguous()
+            dim_size = list(input_.size())
             dim_size[0] = dim_size[0] * dist.get_world_size(group)
 
             all_gather_input = torch.empty(
                 dim_size,
-                dtype=input_first.dtype,
-                device=input_first.device,
+                dtype=input_.dtype,
+                device=input_.device,
             )
-            dist.all_gather_into_tensor(all_gather_input, input_first, group=group)
+            dist.all_gather_into_tensor(all_gather_input, input_, group=group)
 
-            total_input = all_gather_input.movedim(0, 1).contiguous()
+            # total_input = all_gather_input.movedim(0, 1).contiguous()
+            total_input = all_gather_input
         else:
             total_input = input_
 
@@ -82,39 +83,40 @@ class LinearWithAsyncCommunication(torch.autograd.Function):
 
         if ctx.sequence_parallel:
             # async all-gather to obatin total input
-            input_first = input_.movedim(1, 0).contiguous()
-            dim_size = list(input_first.size())
+            # input_first = input_.movedim(1, 0).contiguous()
+            dim_size = list(input_.size())
             dim_size[0] = dim_size[0] * dist.get_world_size(group)
             all_gather_input = torch.empty(
                 dim_size,
-                dtype=input_first.dtype,
-                device=input_first.device,
+                dtype=input_.dtype,
+                device=input_.device,
             )
             handle_ag = dist.all_gather_into_tensor(
-                all_gather_input, input_first, group=group, async_op=True
+                all_gather_input, input_, group=group, async_op=True
             )
 
             # overlap all-gather
             grad_input = grad_output.matmul(weight)
 
             # async reduce-scatter: collect total grad for sequence shard
-            grad_input_first = grad_input.movedim(1, 0).contiguous()
-            dim_size = list(grad_input_first.size())
+            # grad_input_first = grad_input.movedim(1, 0).contiguous()
+            dim_size = list(grad_input.size())
             dim_size[0] = dim_size[0] // dist.get_world_size(group)
             sub_grad_input = torch.empty(
                 dim_size,
-                dtype=grad_input_first.dtype,
-                device=grad_input_first.device,
+                dtype=grad_input.dtype,
+                device=grad_input.device,
                 requires_grad=False,
             )
             handle_rs = dist.reduce_scatter_tensor(
-                sub_grad_input, grad_input_first, group=group, async_op=True
+                sub_grad_input, grad_input, group=group, async_op=True
             )
 
             # wait for all-gather communication
             handle_ag.wait()  # type: ignore
             # TODO: change layout in SP to avoid this
-            total_input = all_gather_input.movedim(0, 1).contiguous()  # B, S, D
+            # total_input = all_gather_input.movedim(0, 1).contiguous()  # B, S, D
+            total_input = all_gather_input  # S, B, D
 
             # reshape `total_input` and `grad_input` as 2d
             total_input = total_input.reshape(-1, total_input.size(-1))
@@ -126,7 +128,7 @@ class LinearWithAsyncCommunication(torch.autograd.Function):
 
             # wait for reduce-scatter communication
             handle_rs.wait()  # type: ignore
-            sub_grad_input = sub_grad_input.movedim(0, 1).contiguous()
+            # sub_grad_input = sub_grad_input.movedim(0, 1).contiguous()
 
             return sub_grad_input, grad_weight, grad_bias, None, None
 
