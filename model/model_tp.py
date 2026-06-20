@@ -281,9 +281,7 @@ class TPMiniMindModel(nn.Module):
         if past_key_values is not None or use_cache:
             raise NotImplementedError("TP does not support KV cache.")
 
-        batch_size, seq_length = input_ids.shape
-        # change layout to [seq_len, bsz, hidden_size] for TP/SP
-        input_ids = input_ids.movedim(1, 0).contiguous()
+        seq_length, batch_size = input_ids.shape
         if hasattr(past_key_values, "layers"):
             past_key_values = None
         past_key_values = past_key_values or [None] * len(self.layers)
@@ -361,6 +359,9 @@ class TPMiniMindForCausalLM(PreTrainedModel):
         labels=None,
         **kwargs,
     ):
+        # change layout to [seq_len, bsz, hidden_size] for TP/SP
+        input_ids = input_ids.movedim(1, 0).contiguous()
+        
         hidden_states, past_key_values, aux_loss = self.model(
             input_ids, attention_mask, past_key_values, use_cache, **kwargs
         )
