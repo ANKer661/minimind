@@ -37,6 +37,7 @@ def forward_step(
     input_tensor: torch.Tensor | None,
     data_iterator: Iterable | None,
     loss_func: Callable,
+    forward_data_store: list[dict[str, torch.Tensor]],
 ) -> tuple[torch.Tensor, torch.Tensor]:
     
     if input_tensor is None:
@@ -45,13 +46,19 @@ def forward_step(
         input_tensor = input_ids.to(torch.cuda.current_device())
 
     stage_output = stage_model(input_tensor)
-    num_tokens = torch.tensor(0, dtype=torch.int)
+    num_tokens = torch.zeros([], dtype=torch.int, device=stage_output.device)
 
     if stage_model.pp_context.is_last:
         _, labels = next(data_iterator)  # type: ignore
         assert labels is not None, "labels must be provided on the last pipeline stage"
         labels = labels.to(torch.cuda.current_device())
         stage_output, num_tokens = loss_func(stage_output, labels, stage_model.tp_context)
+        forward_data_store.append(
+            {
+                "loss_sum": stage_output.detach(),
+                "num_tokens": num_tokens.detach(),
+            }
+        )
 
     return stage_output, num_tokens
 
@@ -104,9 +111,10 @@ def run_gpipe(
     p2p_communicator: P2PCommunicator,
     pp_context: PPContext,
     tp_context: TPContext,
-):
+) -> list[dict[str, torch.Tensor]]:
     input_tensors = []
     output_tensors = []
+    forward_data_store: list[dict[str, torch.Tensor]] = []
     total_num_tokens = torch.zeros([], dtype=torch.int, device="cuda")
 
     recv_tensor_shapes = get_tensor_shapes(
@@ -134,6 +142,7 @@ def run_gpipe(
             input_tensor=input_tensor,  # type: ignore
             data_iterator=data_iterator,
             loss_func=causal_lm_loss,
+            forward_data_store=forward_data_store,
         )
 
         p2p_communicator.send_forward(
@@ -143,8 +152,8 @@ def run_gpipe(
 
         input_tensors.append(input_tensor)
         output_tensors.append(output_tensor)
-        if pp_context.is_last:
-            total_num_tokens += num_tokens
+
+        total_num_tokens += num_tokens
 
     # all backward passes
     for _ in range(num_microbatches):
@@ -169,3 +178,5 @@ def run_gpipe(
             input_tensor_grads=input_tensor_grad,  # type: ignore
             is_first_stage=pp_context.is_first,
         )
+
+    return forward_data_store
