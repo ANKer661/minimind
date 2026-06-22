@@ -13,6 +13,7 @@ from torch.nn.parallel import DistributedDataParallel
 
 from model.model_minimind import MiniMindConfig, MiniMindForCausalLM
 from model.model_pp import PPContext, PipelineStage
+from model.model_tp import TPMiniMindForCausalLM
 from model.pipeline_parallel_p2p_communication import P2PCommunicator
 from model.pipeline_schedules import run_gpipe
 from model.tensor_parallel_layers import TPContext
@@ -232,9 +233,59 @@ def run_pipeline(
     )
 
 
+def run_tp(
+    args: argparse.Namespace,
+    device: torch.device,
+    rank: int,
+    world_size: int,
+) -> tuple[float, float]:
+    config = build_config(args)
+    assert config.hidden_size % world_size == 0
+    assert config.intermediate_size % world_size == 0
+    assert config.num_attention_heads % world_size == 0
+    assert config.num_key_value_heads % world_size == 0
+
+    tp_context = TPContext(
+        group=dist.group.WORLD,
+        world_size=world_size,
+        rank=rank,
+    )
+    model = TPMiniMindForCausalLM(tp_context, config).to(
+        device=device,
+        dtype=getattr(torch, args.dtype),
+    )
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
+    global_batch_size = args.micro_batch_size * args.num_microbatches
+    input_ids = torch.empty(
+        global_batch_size,
+        args.seq_len,
+        dtype=torch.long,
+        device=device,
+    )
+    if rank == 0:
+        generator = torch.Generator(device=device).manual_seed(args.seed + 1)
+        input_ids.random_(0, args.vocab_size, generator=generator)
+    dist.broadcast(input_ids, src=0)
+    labels = input_ids.clone()
+
+    def train_step() -> None:
+        optimizer.zero_grad(set_to_none=True)
+        output = model(input_ids, labels=labels)
+        assert output.loss is not None
+        output.loss.backward()
+        optimizer.step()
+
+    return benchmark_train_step(
+        train_step,
+        device,
+        args.warmup_iters,
+        args.benchmark_iters,
+    )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=("ddp", "pp_tp"), required=True)
+    parser.add_argument("--mode", choices=("ddp", "tp", "pp_tp"), required=True)
     parser.add_argument("--pp_size", type=int, required=True)
     parser.add_argument("--tp_size", type=int, required=True)
     parser.add_argument("--hidden_size", type=int, required=True)
@@ -271,7 +322,8 @@ def main() -> None:
     rank = dist.get_rank()
     world_size = dist.get_world_size()
     assert world_size == args.pp_size * args.tp_size
-    assert args.num_hidden_layers >= args.pp_size
+    if args.mode == "pp_tp":
+        assert args.num_hidden_layers >= args.pp_size
     assert args.micro_batch_size > 0
     assert args.num_microbatches > 0
     assert args.benchmark_iters > 0
@@ -280,6 +332,8 @@ def main() -> None:
     torch.cuda.manual_seed_all(args.seed)
     if args.mode == "ddp":
         peak_mib, time_ms = run_ddp(args, device, rank, world_size)
+    elif args.mode == "tp":
+        peak_mib, time_ms = run_tp(args, device, rank, world_size)
     else:
         peak_mib, time_ms = run_pipeline(args, device, rank)
 

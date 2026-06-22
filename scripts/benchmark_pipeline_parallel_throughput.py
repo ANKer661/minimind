@@ -8,7 +8,8 @@ from pathlib import Path
 
 
 RESULT_PREFIX = "PP_BENCHMARK_RESULT="
-MODES = (("ddp", "DDP"), ("pp_tp", "TP x PP"))
+MODE_LABELS = {"ddp": "DDP", "tp": "TP", "pp_tp": "TP x PP"}
+DEFAULT_MODES = ("ddp", "tp", "pp_tp")
 
 
 def format_flops(value: float, suffix: str = "FLOP/s") -> str:
@@ -25,9 +26,15 @@ def format_flops(value: float, suffix: str = "FLOP/s") -> str:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Benchmark DDP and TP x PP throughput")
+    parser = argparse.ArgumentParser(description="Benchmark DDP, TP, and TP x PP throughput")
     parser.add_argument("--pp_size", type=int, default=2)
     parser.add_argument("--tp_size", type=int, default=1)
+    parser.add_argument(
+        "--modes",
+        nargs="+",
+        choices=tuple(MODE_LABELS),
+        default=list(DEFAULT_MODES),
+    )
     parser.add_argument("--microbatches", nargs="+", type=int, default=[2, 4, 8, 16])
     parser.add_argument("--micro_batch_size", type=int, default=2)
     parser.add_argument("--hidden_size", type=int, default=768)
@@ -128,7 +135,11 @@ def save_csv(rows: list[dict[str, object]], path: Path) -> None:
         writer.writerows(rows)
 
 
-def save_plot(rows: list[dict[str, object]], path: Path) -> None:
+def save_plot(
+    rows: list[dict[str, object]],
+    path: Path,
+    mode_names: list[str],
+) -> None:
     try:
         import matplotlib.pyplot as plt
         from matplotlib.ticker import FuncFormatter
@@ -139,10 +150,11 @@ def save_plot(rows: list[dict[str, object]], path: Path) -> None:
     microbatch_counts = sorted({int(row["num_microbatches"]) for row in rows})
     positions = list(range(len(microbatch_counts)))
     figure, (throughput_axis, relative_axis) = plt.subplots(1, 2, figsize=(12, 5))
-    bar_width = 0.36
+    bar_width = 0.8 / len(mode_names)
 
     values_by_mode = {}
-    for mode_index, (mode, label) in enumerate(MODES):
+    for mode_index, mode in enumerate(mode_names):
+        label = MODE_LABELS[mode]
         values = {
             int(row["num_microbatches"]): float(row["flops_per_second"])
             for row in rows
@@ -150,25 +162,33 @@ def save_plot(rows: list[dict[str, object]], path: Path) -> None:
         }
         values_by_mode[mode] = values
         throughput_axis.bar(
-            [position + (mode_index - 0.5) * bar_width for position in positions],
+            [
+                position + (mode_index - (len(mode_names) - 1) / 2) * bar_width
+                for position in positions
+            ],
             [values.get(count, math.nan) for count in microbatch_counts],
             width=bar_width,
             label=label,
         )
 
-    ddp_values = values_by_mode.get("ddp", {})
-    pp_values = values_by_mode.get("pp_tp", {})
-    relative_axis.bar(
-        positions,
-        [
-            pp_values.get(count, math.nan) / ddp_values[count] * 100
-            if count in ddp_values and count in pp_values
-            else math.nan
-            for count in microbatch_counts
-        ],
-        width=0.55,
-        label="TP x PP / DDP",
-    )
+    baseline_mode = "ddp" if "ddp" in mode_names else mode_names[0]
+    baseline_values = values_by_mode[baseline_mode]
+    for mode_index, mode in enumerate(mode_names):
+        values = values_by_mode[mode]
+        relative_axis.bar(
+            [
+                position + (mode_index - (len(mode_names) - 1) / 2) * bar_width
+                for position in positions
+            ],
+            [
+                values.get(count, math.nan) / baseline_values[count] * 100
+                if count in baseline_values and count in values
+                else math.nan
+                for count in microbatch_counts
+            ],
+            width=bar_width,
+            label=MODE_LABELS[mode],
+        )
     relative_axis.axhline(100, color="black", linewidth=1, linestyle="--")
 
     labels = [f"M={count}" for count in microbatch_counts]
@@ -183,7 +203,7 @@ def save_plot(rows: list[dict[str, object]], path: Path) -> None:
     throughput_axis.set_title("End-to-End Training Throughput")
     throughput_axis.legend()
     relative_axis.set_ylabel("Relative throughput (%)")
-    relative_axis.set_title("TP x PP Relative to DDP")
+    relative_axis.set_title(f"Relative to {MODE_LABELS[baseline_mode]}")
     relative_axis.legend()
     figure.tight_layout()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -194,21 +214,24 @@ def save_plot(rows: list[dict[str, object]], path: Path) -> None:
 def main() -> None:
     args = parse_args()
     world_size = args.pp_size * args.tp_size
-    assert args.pp_size >= 2
     assert args.tp_size >= 1
-    assert args.num_hidden_layers >= args.pp_size
+    if "pp_tp" in args.modes:
+        assert args.pp_size >= 2
+        assert args.num_hidden_layers >= args.pp_size
     assert args.micro_batch_size > 0
     assert args.benchmark_iters > 0
     for count in args.microbatches:
         global_batch_size = args.micro_batch_size * count
-        assert global_batch_size % world_size == 0, (
-            f"global batch {global_batch_size} must be divisible by world size {world_size}"
-        )
+        if "ddp" in args.modes:
+            assert global_batch_size % world_size == 0, (
+                f"global batch {global_batch_size} must be divisible by world size {world_size}"
+            )
 
     rows = []
     for num_microbatches in args.microbatches:
         global_batch_size = args.micro_batch_size * num_microbatches
-        for mode, label in MODES:
+        for mode in args.modes:
+            label = MODE_LABELS[mode]
             status, metrics, output = run_worker(
                 worker_command(args, mode, num_microbatches)
             )
@@ -221,6 +244,10 @@ def main() -> None:
                 "label": label,
                 "pp_size": args.pp_size,
                 "tp_size": args.tp_size,
+                "effective_pp_size": args.pp_size if mode == "pp_tp" else 1,
+                "effective_tp_size": (
+                    world_size if mode == "tp" else args.tp_size if mode == "pp_tp" else 1
+                ),
                 "world_size": world_size,
                 "layers": args.num_hidden_layers,
                 "num_microbatches": num_microbatches,
@@ -245,7 +272,7 @@ def main() -> None:
     csv_path = Path(args.output_csv)
     plot_path = Path(args.output_plot)
     save_csv(rows, csv_path)
-    save_plot(rows, plot_path)
+    save_plot(rows, plot_path, args.modes)
     print(f"saved CSV:  {csv_path}")
     print(f"saved plot: {plot_path}")
 
