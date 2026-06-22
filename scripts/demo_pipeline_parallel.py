@@ -233,6 +233,7 @@ def run_pipeline_pass(
     tp_context: TPContext,
     *,
     forward_only: bool,
+    collect_logits: bool = False,
 ) -> list[dict[str, torch.Tensor]]:
     data_iterator = iter(microbatches) if pp_context.is_first or pp_context.is_last else None
     return run_gpipe(
@@ -245,6 +246,7 @@ def run_pipeline_pass(
         pp_context=pp_context,
         tp_context=tp_context,
         forward_only=forward_only,
+        collect_logits=collect_logits,
     )
 
 
@@ -262,6 +264,35 @@ def get_pipeline_loss(
     last_stage_rank = dist.get_global_rank(pp_context.group, pp_context.world_size - 1)
     dist.broadcast(loss, src=last_stage_rank, group=pp_context.group)
     return loss
+
+
+def compare_pipeline_logits(
+    forward_data_store: list[dict[str, torch.Tensor]],
+    dense_logits: torch.Tensor,
+    pp_context: PPContext,
+    device: torch.device,
+) -> tuple[float, float, float]:
+    metrics = torch.zeros(3, dtype=torch.float64, device=device)
+    if pp_context.is_last:
+        pipeline_logits = torch.cat(
+            [item["logits"] for item in forward_data_store],
+            dim=0,
+        )
+        error = (pipeline_logits - dense_logits).float()
+        expected = dense_logits.float()
+        metrics = torch.stack(
+            (
+                error.abs().mean(),
+                error.abs().max(),
+                torch.linalg.vector_norm(error)
+                / (torch.linalg.vector_norm(expected) + 1e-12),
+            )
+        ).to(torch.float64)
+
+    last_stage_rank = dist.get_global_rank(pp_context.group, pp_context.world_size - 1)
+    dist.broadcast(metrics, src=last_stage_rank, group=pp_context.group)
+    dist.all_reduce(metrics, op=dist.ReduceOp.MAX)
+    return metrics[0].item(), metrics[1].item(), metrics[2].item()
 
 
 def gather_gradient_metrics(
@@ -365,11 +396,19 @@ def main() -> None:
             pp_context,
             tp_context,
             forward_only=True,
+            collect_logits=True,
         )
         pp_loss = get_pipeline_loss(forward_data_store, pp_context, device)
 
     forward_loss_diff = (pp_loss - dense_output.loss.float()).abs().to(torch.float64)
     dist.all_reduce(forward_loss_diff, op=dist.ReduceOp.MAX)
+    forward_logits_metrics = compare_pipeline_logits(
+        forward_data_store,
+        dense_output.logits,
+        pp_context,
+        device,
+    )
+    del dense_output, forward_data_store
 
     grad_diff = None
     stage_gradient_metrics = []
@@ -400,7 +439,7 @@ def main() -> None:
             tp_rank,
         )
 
-    optimizer_loss_diffs = []
+    optimizer_logits_diffs = []
     optimizer_parameter_diff = None
     if args.optimizer_steps > 0:
         dense_optimizer = torch.optim.AdamW(dense_model.parameters(), lr=args.learning_rate)
@@ -429,8 +468,7 @@ def main() -> None:
             stage_optimizer.step()
 
             with torch.no_grad():
-                dense_loss = dense_model(input_ids, labels=labels).loss
-                assert dense_loss is not None
+                dense_output = dense_model(input_ids, labels=labels)
                 forward_data_store = run_pipeline_pass(
                     stage_model,
                     microbatches,
@@ -439,24 +477,23 @@ def main() -> None:
                     pp_context,
                     tp_context,
                     forward_only=True,
+                    collect_logits=True,
                 )
-                pp_loss = get_pipeline_loss(forward_data_store, pp_context, device)
-
-            loss_metrics = torch.stack(
-                (
-                    (pp_loss - dense_loss.float()).abs(),
-                    (pp_loss - dense_loss.float()).abs()
-                    / (dense_loss.float().abs() + 1e-12),
-                )
-            ).to(torch.float64)
-            dist.all_reduce(loss_metrics, op=dist.ReduceOp.MAX)
-            optimizer_loss_diffs.append((loss_metrics[0].item(), loss_metrics[1].item()))
+            logits_metrics = compare_pipeline_logits(
+                forward_data_store,
+                dense_output.logits,
+                pp_context,
+                device,
+            )
+            optimizer_logits_diffs.append(logits_metrics)
+            del dense_output, forward_data_store
 
         optimizer_parameter_diff = local_max_parameter_diff(stage_model, dense_model)
         dist.all_reduce(optimizer_parameter_diff, op=dist.ReduceOp.MAX)
 
     if rank == 0:
-        print(f"forward loss abs diff:   {forward_loss_diff.item():.6e}")
+        print(f"forward max logits diff: {forward_logits_metrics[1]:.6e}")
+        print(f"forward loss diff:       {forward_loss_diff.item():.6e}")
         if grad_diff is not None:
             print(f"backward max grad diff: {grad_diff.item():.6e}")
             for stage_rank, metrics in stage_gradient_metrics:
@@ -468,24 +505,28 @@ def main() -> None:
                         f"max={max_error:.3e} "
                         f"rel_l2={relative_l2:.3e}"
                     )
-        if optimizer_loss_diffs:
-            print("AdamW accumulated loss diff:")
-            for step, (absolute_error, relative_error) in enumerate(
-                optimizer_loss_diffs,
+        if optimizer_logits_diffs:
+            print("AdamW accumulated logits diff:")
+            for step, (mean_error, max_error, relative_l2) in enumerate(
+                optimizer_logits_diffs,
                 start=1,
             ):
                 if step % args.log_interval == 0 or step == args.optimizer_steps:
                     print(
                         f"  step {step:>3}: "
-                        f"abs={absolute_error:.3e} "
-                        f"rel={relative_error:.3e}"
+                        f"mean={mean_error:.3e} "
+                        f"max={max_error:.3e} "
+                        f"rel_l2={relative_l2:.3e}"
                     )
             print(
                 "AdamW final parameter max abs diff: "
                 f"{optimizer_parameter_diff.item():.6e}"
             )
 
-    passed = forward_loss_diff.item() <= atol
+    passed = (
+        forward_logits_metrics[1] <= atol
+        and forward_loss_diff.item() <= atol
+    )
     if grad_diff is not None:
         passed = passed and grad_diff.item() <= atol
 

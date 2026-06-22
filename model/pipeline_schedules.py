@@ -38,6 +38,7 @@ def forward_step(
     data_iterator: Iterable | None,
     loss_func: Callable,
     forward_data_store: list[dict[str, torch.Tensor]],
+    collect_logits: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     
     if input_tensor is None:
@@ -52,13 +53,15 @@ def forward_step(
         _, labels = next(data_iterator)  # type: ignore
         assert labels is not None, "labels must be provided on the last pipeline stage"
         labels = labels.to(torch.cuda.current_device())
+        logits = stage_output
         stage_output, num_tokens = loss_func(stage_output, labels, stage_model.tp_context)
-        forward_data_store.append(
-            {
-                "loss_sum": stage_output.detach(),
-                "num_tokens": num_tokens.detach(),
-            }
-        )
+        forward_data = {
+            "loss_sum": stage_output.detach(),
+            "num_tokens": num_tokens.detach(),
+        }
+        if collect_logits:
+            forward_data["logits"] = logits.detach()
+        forward_data_store.append(forward_data)
 
     return stage_output, num_tokens
 
@@ -112,6 +115,7 @@ def run_gpipe(
     pp_context: PPContext,
     tp_context: TPContext,
     forward_only: bool = False,
+    collect_logits: bool = False,
 ) -> list[dict[str, torch.Tensor]]:
     input_tensors = []
     output_tensors = []
@@ -144,6 +148,7 @@ def run_gpipe(
             data_iterator=data_iterator,
             loss_func=causal_lm_loss,
             forward_data_store=forward_data_store,
+            collect_logits=collect_logits,
         )
 
         p2p_communicator.send_forward(
