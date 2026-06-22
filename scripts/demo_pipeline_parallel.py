@@ -28,6 +28,14 @@ ROW_PARALLEL_SUFFIXES = (
     "down_proj.weight",
 )
 
+GRADIENT_REPORT_SUFFIXES = COLUMN_PARALLEL_SUFFIXES + ROW_PARALLEL_SUFFIXES + (
+    "q_norm.weight",
+    "k_norm.weight",
+    "model.embed_tokens.weight",
+    "model.norm.weight",
+    "lm_head.weight",
+)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate MiniMind GPipe pipeline parallelism")
@@ -41,7 +49,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seq_len", type=int, default=16)
     parser.add_argument("--micro_batch_size", type=int, default=2)
     parser.add_argument("--num_microbatches", type=int, default=4)
-    parser.add_argument("--steps", type=int, default=1)
+    parser.add_argument(
+        "--optimizer_steps",
+        "--steps",
+        dest="optimizer_steps",
+        type=int,
+        default=10,
+    )
+    parser.add_argument("--log_interval", type=int, default=10)
     parser.add_argument("--learning_rate", type=float, default=5e-4)
     parser.add_argument(
         "--dtype",
@@ -50,6 +65,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--atol", type=float, default=None)
+    parser.add_argument(
+        "--check_backward",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
     return parser.parse_args()
 
 
@@ -123,12 +143,13 @@ def expected_dense_tensor(
     return tensor
 
 
-def local_max_gradient_diff(
+def compare_gradients(
     stage_model: PipelineStage,
     dense_model: MiniMindForCausalLM,
-) -> torch.Tensor:
+) -> tuple[torch.Tensor, list[tuple[str, float, float, float]]]:
     dense_params = dict(dense_model.named_parameters())
     max_diff = torch.zeros([], dtype=torch.float64, device=torch.cuda.current_device())
+    metrics = []
 
     for name, stage_param in stage_model.named_parameters():
         dense_grad = dense_params[name].grad
@@ -141,7 +162,42 @@ def local_max_gradient_diff(
             (stage_grad - dense_grad).abs().max().to(torch.float64),
         )
 
-    return max_diff
+        if name.endswith(GRADIENT_REPORT_SUFFIXES):
+            error = (stage_grad - dense_grad).float()
+            expected = dense_grad.float()
+            error_sum = error.abs().sum().to(torch.float64)
+            error_count = torch.tensor(
+                error.numel(),
+                dtype=torch.float64,
+                device=error.device,
+            )
+            error_sq_sum = error.square().sum().to(torch.float64)
+            expected_sq_sum = expected.square().sum().to(torch.float64)
+            parameter_max_diff = error.abs().max().to(torch.float64)
+
+            for value, op in (
+                (error_sum, dist.ReduceOp.SUM),
+                (error_count, dist.ReduceOp.SUM),
+                (error_sq_sum, dist.ReduceOp.SUM),
+                (expected_sq_sum, dist.ReduceOp.SUM),
+                (parameter_max_diff, dist.ReduceOp.MAX),
+            ):
+                dist.all_reduce(value, op=op, group=stage_model.tp_context.group)
+
+            metrics.append(
+                (
+                    name,
+                    (error_sum / error_count).item(),
+                    parameter_max_diff.item(),
+                    (
+                        torch.sqrt(error_sq_sum)
+                        / (torch.sqrt(expected_sq_sum) + 1e-12)
+                    ).item(),
+                )
+            )
+
+    dist.all_reduce(max_diff, op=dist.ReduceOp.MAX)
+    return max_diff, metrics
 
 
 def local_max_parameter_diff(
@@ -168,6 +224,60 @@ def local_max_parameter_diff(
     return max_diff
 
 
+def run_pipeline_pass(
+    stage_model: PipelineStage,
+    microbatches: list[tuple[torch.Tensor, torch.Tensor]],
+    args: argparse.Namespace,
+    p2p_communicator: P2PCommunicator,
+    pp_context: PPContext,
+    tp_context: TPContext,
+    *,
+    forward_only: bool,
+) -> list[dict[str, torch.Tensor]]:
+    data_iterator = iter(microbatches) if pp_context.is_first or pp_context.is_last else None
+    return run_gpipe(
+        stage_model=stage_model,
+        data_iterator=data_iterator,
+        num_microbatches=args.num_microbatches,
+        micro_batch_size=args.micro_batch_size,
+        seq_length=args.seq_len,
+        p2p_communicator=p2p_communicator,
+        pp_context=pp_context,
+        tp_context=tp_context,
+        forward_only=forward_only,
+    )
+
+
+def get_pipeline_loss(
+    forward_data_store: list[dict[str, torch.Tensor]],
+    pp_context: PPContext,
+    device: torch.device,
+) -> torch.Tensor:
+    loss = torch.zeros([], dtype=torch.float32, device=device)
+    if pp_context.is_last:
+        loss_sum = torch.stack([item["loss_sum"].float() for item in forward_data_store]).sum()
+        num_tokens = torch.stack([item["num_tokens"] for item in forward_data_store]).sum()
+        loss = loss_sum / num_tokens.clamp_min(1)
+
+    last_stage_rank = dist.get_global_rank(pp_context.group, pp_context.world_size - 1)
+    dist.broadcast(loss, src=last_stage_rank, group=pp_context.group)
+    return loss
+
+
+def gather_gradient_metrics(
+    metrics: list[tuple[str, float, float, float]],
+    pp_rank: int,
+    tp_rank: int,
+) -> list[tuple[int, list[tuple[str, float, float, float]]]]:
+    payload = (pp_rank, metrics) if tp_rank == 0 else None
+    gathered = [None] * dist.get_world_size() if dist.get_rank() == 0 else None
+    dist.gather_object(payload, gathered, dst=0)
+
+    if gathered is None:
+        return []
+    return sorted((item for item in gathered if item is not None), key=lambda item: item[0])
+
+
 def main() -> None:
     args = parse_args()
     if not torch.cuda.is_available():
@@ -188,7 +298,8 @@ def main() -> None:
     assert args.num_hidden_layers >= args.pp_size, "each pipeline stage needs at least one layer"
     assert args.micro_batch_size > 0, "micro_batch_size must be positive"
     assert args.num_microbatches > 0, "num_microbatches must be positive"
-    assert args.steps > 0, "steps must be positive"
+    assert args.optimizer_steps >= 0, "optimizer_steps must be non-negative"
+    assert args.log_interval > 0, "log_interval must be positive"
 
     dtype = getattr(torch, args.dtype)
     torch.manual_seed(args.seed)
@@ -232,75 +343,151 @@ def main() -> None:
     stage_model = PipelineStage(config, pp_context, tp_context).to(device=device, dtype=dtype)
     load_dense_weights(stage_model, dense_model, tp_context)
 
-    dense_optimizer = torch.optim.AdamW(dense_model.parameters(), lr=args.learning_rate)
-    stage_optimizer = torch.optim.AdamW(stage_model.parameters(), lr=args.learning_rate)
     p2p_communicator = P2PCommunicator(pp_context)
 
     input_ids, labels, microbatches = make_microbatches(args)
     input_ids = input_ids.to(device)
     labels = labels.to(device)
-    dense_model.train()
-    stage_model.train()
-
     atol = args.atol
     if atol is None:
         atol = 1e-4 if dtype == torch.float32 else 5e-2
 
-    passed = True
-    for step in range(1, args.steps + 1):
-        dense_optimizer.zero_grad(set_to_none=True)
-        stage_optimizer.zero_grad(set_to_none=True)
+    dense_model.eval()
+    stage_model.eval()
+    with torch.no_grad():
+        dense_output = dense_model(input_ids, labels=labels)
+        assert dense_output.loss is not None
+        forward_data_store = run_pipeline_pass(
+            stage_model,
+            microbatches,
+            args,
+            p2p_communicator,
+            pp_context,
+            tp_context,
+            forward_only=True,
+        )
+        pp_loss = get_pipeline_loss(forward_data_store, pp_context, device)
 
-        data_iterator = iter(microbatches) if pp_context.is_first or pp_context.is_last else None
-        forward_data_store = run_gpipe(
-            stage_model=stage_model,
-            data_iterator=data_iterator,
-            num_microbatches=args.num_microbatches,
-            micro_batch_size=args.micro_batch_size,
-            seq_length=args.seq_len,
-            p2p_communicator=p2p_communicator,
-            pp_context=pp_context,
-            tp_context=tp_context,
+    forward_loss_diff = (pp_loss - dense_output.loss.float()).abs().to(torch.float64)
+    dist.all_reduce(forward_loss_diff, op=dist.ReduceOp.MAX)
+
+    grad_diff = None
+    stage_gradient_metrics = []
+    if args.check_backward:
+        dense_model.train()
+        stage_model.train()
+        dense_model.zero_grad(set_to_none=True)
+        stage_model.zero_grad(set_to_none=True)
+
+        run_pipeline_pass(
+            stage_model,
+            microbatches,
+            args,
+            p2p_communicator,
+            pp_context,
+            tp_context,
+            forward_only=False,
         )
 
         dense_loss = dense_model(input_ids, labels=labels).loss
         assert dense_loss is not None
         dense_loss.backward()
 
-        pp_loss = torch.zeros([], dtype=torch.float32, device=device)
-        if pp_context.is_last:
-            loss_sum = torch.stack([item["loss_sum"].float() for item in forward_data_store]).sum()
-            num_tokens = torch.stack([item["num_tokens"] for item in forward_data_store]).sum()
-            pp_loss = loss_sum / num_tokens.clamp_min(1)
-        last_stage_rank = dist.get_global_rank(pp_group, args.pp_size - 1)
-        dist.broadcast(pp_loss, src=last_stage_rank, group=pp_group)
-
-        loss_diff = (pp_loss - dense_loss.detach().float()).abs().to(torch.float64)
-        grad_diff = local_max_gradient_diff(stage_model, dense_model)
-        dist.all_reduce(grad_diff, op=dist.ReduceOp.MAX)
-
-        dense_optimizer.step()
-        stage_optimizer.step()
-
-        parameter_diff = local_max_parameter_diff(stage_model, dense_model)
-        dist.all_reduce(parameter_diff, op=dist.ReduceOp.MAX)
-
-        step_passed = (
-            loss_diff.item() <= atol
-            and grad_diff.item() <= atol
-            and parameter_diff.item() <= atol
+        grad_diff, gradient_metrics = compare_gradients(stage_model, dense_model)
+        stage_gradient_metrics = gather_gradient_metrics(
+            gradient_metrics,
+            pp_rank,
+            tp_rank,
         )
-        passed = passed and step_passed
 
-        if rank == 0:
-            print(
-                f"step {step:>3}: "
-                f"dense_loss={dense_loss.item():.6f} "
-                f"pp_loss={pp_loss.item():.6f} "
-                f"loss_diff={loss_diff.item():.3e} "
-                f"grad_max_diff={grad_diff.item():.3e} "
-                f"param_max_diff={parameter_diff.item():.3e}"
+    optimizer_loss_diffs = []
+    optimizer_parameter_diff = None
+    if args.optimizer_steps > 0:
+        dense_optimizer = torch.optim.AdamW(dense_model.parameters(), lr=args.learning_rate)
+        stage_optimizer = torch.optim.AdamW(stage_model.parameters(), lr=args.learning_rate)
+        dense_model.train()
+        stage_model.train()
+
+        for _ in range(args.optimizer_steps):
+            dense_optimizer.zero_grad(set_to_none=True)
+            stage_optimizer.zero_grad(set_to_none=True)
+
+            run_pipeline_pass(
+                stage_model,
+                microbatches,
+                args,
+                p2p_communicator,
+                pp_context,
+                tp_context,
+                forward_only=False,
             )
+
+            dense_loss = dense_model(input_ids, labels=labels).loss
+            assert dense_loss is not None
+            dense_loss.backward()
+            dense_optimizer.step()
+            stage_optimizer.step()
+
+            with torch.no_grad():
+                dense_loss = dense_model(input_ids, labels=labels).loss
+                assert dense_loss is not None
+                forward_data_store = run_pipeline_pass(
+                    stage_model,
+                    microbatches,
+                    args,
+                    p2p_communicator,
+                    pp_context,
+                    tp_context,
+                    forward_only=True,
+                )
+                pp_loss = get_pipeline_loss(forward_data_store, pp_context, device)
+
+            loss_metrics = torch.stack(
+                (
+                    (pp_loss - dense_loss.float()).abs(),
+                    (pp_loss - dense_loss.float()).abs()
+                    / (dense_loss.float().abs() + 1e-12),
+                )
+            ).to(torch.float64)
+            dist.all_reduce(loss_metrics, op=dist.ReduceOp.MAX)
+            optimizer_loss_diffs.append((loss_metrics[0].item(), loss_metrics[1].item()))
+
+        optimizer_parameter_diff = local_max_parameter_diff(stage_model, dense_model)
+        dist.all_reduce(optimizer_parameter_diff, op=dist.ReduceOp.MAX)
+
+    if rank == 0:
+        print(f"forward loss abs diff:   {forward_loss_diff.item():.6e}")
+        if grad_diff is not None:
+            print(f"backward max grad diff: {grad_diff.item():.6e}")
+            for stage_rank, metrics in stage_gradient_metrics:
+                print(f"pipeline stage {stage_rank}:")
+                for name, mean_error, max_error, relative_l2 in metrics:
+                    print(
+                        f"  {name:<48} "
+                        f"mean={mean_error:.3e} "
+                        f"max={max_error:.3e} "
+                        f"rel_l2={relative_l2:.3e}"
+                    )
+        if optimizer_loss_diffs:
+            print("AdamW accumulated loss diff:")
+            for step, (absolute_error, relative_error) in enumerate(
+                optimizer_loss_diffs,
+                start=1,
+            ):
+                if step % args.log_interval == 0 or step == args.optimizer_steps:
+                    print(
+                        f"  step {step:>3}: "
+                        f"abs={absolute_error:.3e} "
+                        f"rel={relative_error:.3e}"
+                    )
+            print(
+                "AdamW final parameter max abs diff: "
+                f"{optimizer_parameter_diff.item():.6e}"
+            )
+
+    passed = forward_loss_diff.item() <= atol
+    if grad_diff is not None:
+        passed = passed and grad_diff.item() <= atol
 
     passed_tensor = torch.tensor(int(passed), device=device)
     dist.all_reduce(passed_tensor, op=dist.ReduceOp.MIN)
