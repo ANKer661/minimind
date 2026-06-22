@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 RESULT_PREFIX = "PP_BENCHMARK_RESULT="
-MODE_LABELS = {"ddp": "DDP", "tp": "TP", "pp_tp": "TP x PP"}
+MODE_LABELS = {"ddp": "DDP", "tp": "TP (all)", "pp_tp": "TP x PP (all)"}
 DEFAULT_MODES = ("ddp", "tp", "pp_tp")
 
 
@@ -108,6 +108,8 @@ def worker_command(
         str(args.micro_batch_size),
         "--num_microbatches",
         str(args.num_microbatches),
+        "--batch_policy",
+        "fixed_per_rank",
         "--dtype",
         args.dtype,
         "--learning_rate",
@@ -241,15 +243,11 @@ def save_plot(
 def main() -> None:
     args = parse_args()
     world_size = args.pp_size * args.tp_size
-    global_batch_size = args.micro_batch_size * args.num_microbatches
+    model_batch_size = args.micro_batch_size * args.num_microbatches
     assert args.tp_size >= 1
     if "pp_tp" in args.modes:
         assert args.pp_size >= 2
         assert min(args.layers) >= args.pp_size
-    if "ddp" in args.modes:
-        assert global_batch_size % world_size == 0, (
-            f"global batch {global_batch_size} must be divisible by world size {world_size}"
-        )
     assert args.benchmark_iters > 0
 
     rows = []
@@ -274,7 +272,9 @@ def main() -> None:
                     world_size if mode == "tp" else args.tp_size if mode == "pp_tp" else 1
                 ),
                 "world_size": world_size,
-                "global_batch_size": global_batch_size,
+                "batch_policy": "fixed_per_rank",
+                "model_batch_size": metrics["model_batch_size"] if metrics else model_batch_size,
+                "global_batch_size": metrics["global_batch_size"] if metrics else math.nan,
                 "layers": num_hidden_layers,
                 "params": params,
                 "peak_mib": metrics["peak_mib"] if metrics else math.nan,

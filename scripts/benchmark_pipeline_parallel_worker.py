@@ -37,13 +37,12 @@ def build_config(args: argparse.Namespace) -> MiniMindConfig:
     )
 
 
-def estimate_training_flops(args: argparse.Namespace) -> int:
+def estimate_training_flops(args: argparse.Namespace, batch_size: int) -> int:
     """Estimate logical model FLOPs for one forward/backward training step.
 
     Counts GEMMs in attention projections, attention score/value products,
     SwiGLU MLP, and lm_head. Backward is approximated as 2x forward.
     """
-    batch_size = args.micro_batch_size * args.num_microbatches
     sequence_length = args.seq_len
     hidden_size = args.hidden_size
     head_dim = hidden_size // args.num_attention_heads
@@ -122,10 +121,13 @@ def run_ddp(
     world_size: int,
 ) -> tuple[float, float]:
     global_batch_size = args.micro_batch_size * args.num_microbatches
-    assert global_batch_size % world_size == 0, (
-        "DDP requires global_batch_size divisible by world_size"
-    )
-    local_batch_size = global_batch_size // world_size
+    if args.batch_policy == "fixed_global":
+        assert global_batch_size % world_size == 0, (
+            "DDP requires global_batch_size divisible by world_size"
+        )
+        local_batch_size = global_batch_size // world_size
+    else:
+        local_batch_size = global_batch_size
 
     model = MiniMindForCausalLM(build_config(args)).to(
         device=device,
@@ -170,6 +172,9 @@ def run_pipeline(
         group=tp_group,
         world_size=args.tp_size,
         rank=tp_rank,
+        sequence_parallel=True,
+        async_communication=True,
+        vocab_parallel=True,
     )
     pp_context = PPContext(
         group=pp_group,
@@ -185,6 +190,8 @@ def run_pipeline(
     assert config.intermediate_size % args.tp_size == 0
     assert config.num_attention_heads % args.tp_size == 0
     assert config.num_key_value_heads % args.tp_size == 0
+    assert config.vocab_size % args.tp_size == 0
+    assert args.seq_len % args.tp_size == 0
 
     model = PipelineStage(config, pp_context, tp_context).to(
         device=device,
@@ -244,11 +251,16 @@ def run_tp(
     assert config.intermediate_size % world_size == 0
     assert config.num_attention_heads % world_size == 0
     assert config.num_key_value_heads % world_size == 0
+    assert config.vocab_size % world_size == 0
+    assert args.seq_len % world_size == 0
 
     tp_context = TPContext(
         group=dist.group.WORLD,
         world_size=world_size,
         rank=rank,
+        sequence_parallel=True,
+        async_communication=True,
+        vocab_parallel=True,
     )
     model = TPMiniMindForCausalLM(tp_context, config).to(
         device=device,
@@ -296,6 +308,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seq_len", type=int, required=True)
     parser.add_argument("--micro_batch_size", type=int, required=True)
     parser.add_argument("--num_microbatches", type=int, required=True)
+    parser.add_argument(
+        "--batch_policy",
+        choices=("fixed_global", "fixed_per_rank"),
+        required=True,
+    )
     parser.add_argument("--dtype", choices=("float32", "bfloat16"), required=True)
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--learning_rate", type=float, required=True)
@@ -337,8 +354,13 @@ def main() -> None:
     else:
         peak_mib, time_ms = run_pipeline(args, device, rank)
 
-    global_batch_size = args.micro_batch_size * args.num_microbatches
-    training_flops = estimate_training_flops(args)
+    model_batch_size = args.micro_batch_size * args.num_microbatches
+    global_batch_size = (
+        model_batch_size * world_size
+        if args.mode == "ddp" and args.batch_policy == "fixed_per_rank"
+        else model_batch_size
+    )
+    training_flops = estimate_training_flops(args, global_batch_size)
     flops_per_second = training_flops / (time_ms / 1000)
     if rank == 0:
         print(
@@ -350,6 +372,8 @@ def main() -> None:
                     "time_ms": time_ms,
                     "training_flops": training_flops,
                     "flops_per_second": flops_per_second,
+                    "batch_policy": args.batch_policy,
+                    "model_batch_size": model_batch_size,
                     "global_batch_size": global_batch_size,
                 }
             )

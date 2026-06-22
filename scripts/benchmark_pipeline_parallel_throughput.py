@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 RESULT_PREFIX = "PP_BENCHMARK_RESULT="
-MODE_LABELS = {"ddp": "DDP", "tp": "TP", "pp_tp": "TP x PP"}
+MODE_LABELS = {"ddp": "DDP", "tp": "TP (all)", "pp_tp": "TP x PP (all)"}
 DEFAULT_MODES = ("ddp", "tp", "pp_tp")
 
 
@@ -94,6 +94,8 @@ def worker_command(
         str(args.micro_batch_size),
         "--num_microbatches",
         str(num_microbatches),
+        "--batch_policy",
+        "fixed_global",
         "--dtype",
         args.dtype,
         "--learning_rate",
@@ -252,7 +254,8 @@ def main() -> None:
                 "layers": args.num_hidden_layers,
                 "num_microbatches": num_microbatches,
                 "micro_batch_size": args.micro_batch_size,
-                "global_batch_size": global_batch_size,
+                "model_batch_size": metrics["model_batch_size"] if metrics else math.nan,
+                "global_batch_size": metrics["global_batch_size"] if metrics else math.nan,
                 "training_flops": metrics["training_flops"] if metrics else math.nan,
                 "flops_per_second": metrics["flops_per_second"] if metrics else math.nan,
                 "time_ms": metrics["time_ms"] if metrics else math.nan,
