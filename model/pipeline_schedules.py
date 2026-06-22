@@ -111,6 +111,7 @@ def run_gpipe(
     p2p_communicator: P2PCommunicator,
     pp_context: PPContext,
     tp_context: TPContext,
+    forward_only: bool = False,
 ) -> list[dict[str, torch.Tensor]]:
     input_tensors = []
     output_tensors = []
@@ -154,6 +155,9 @@ def run_gpipe(
         output_tensors.append(output_tensor)
 
         total_num_tokens += num_tokens
+
+    if forward_only:
+        return forward_data_store
 
     # all backward passes
     for _ in range(num_microbatches):
