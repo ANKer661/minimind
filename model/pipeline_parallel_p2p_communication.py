@@ -124,9 +124,7 @@ class P2PCommunicator:
 
         return tensor_recv_prev, tensor_recv_next
 
-    def recv_forward(
-        self, tensor_shapes: list[torch.Size], is_first_stage: bool
-    ):
+    def recv_forward(self, tensor_shapes: list[torch.Size], is_first_stage: bool):
         unwrap_tensor_shapes = False
         if is_single_shape(tensor_shapes):
             tensor_shapes = [tensor_shapes]  # type: ignore
@@ -203,3 +201,69 @@ class P2PCommunicator:
                     recv_next=False,
                     tensor_shape=input_tensor_grad.shape,
                 )
+
+    def send_forawrd_recv_backward(
+        self,
+        output_tensors: list[torch.Tensor],
+        tensor_shapes: list[torch.Size],
+        is_last_stage: bool,
+    ):
+        unwrap_output_tensors = False
+        if not isinstance(output_tensors, list):
+            unwrap_output_tensors = True
+            output_tensors = [output_tensors]
+        if not isinstance(tensor_shapes, list):
+            tensor_shapes = [tensor_shapes]
+
+        output_tensor_grads = []
+
+        for output_tensor, tensor_shape in zip(output_tensors, tensor_shapes):
+            if is_last_stage:
+                output_tensor_grad = None
+            else:
+                _, output_tensor_grad = self._communicate(
+                    tensor_send_next=output_tensor,
+                    tensor_send_prev=None,
+                    recv_prev=False,
+                    recv_next=True,
+                    tensor_shape=tensor_shape,
+                )
+
+            output_tensor_grads.append(output_tensor_grad)
+
+        if unwrap_output_tensors:
+            return output_tensor_grads[0]
+        return output_tensor_grads
+
+    def send_backward_recv_forward(
+        self,
+        input_tensor_grads: list[torch.Tensor],
+        tensor_shapes: list[torch.Size],
+        is_first_stage: bool,
+    ):
+        unwrap_input_tensor_grads = False
+        if not isinstance(input_tensor_grads, list):
+            unwrap_input_tensor_grads = True
+            input_tensor_grads = [input_tensor_grads]
+        if not isinstance(tensor_shapes, list):
+            tensor_shapes = [tensor_shapes]
+
+        input_tensors = []
+
+        for input_tensor_grad, tensor_shape in zip(input_tensor_grads, tensor_shapes):
+            if is_first_stage:
+                input_tensor = None
+            else:
+                input_tensor, _ = self._communicate(
+                    tensor_send_next=None,
+                    tensor_send_prev=input_tensor_grad,
+                    recv_prev=True,
+                    recv_next=False,
+                    tensor_shape=tensor_shape,
+                )
+
+            input_tensors.append(input_tensor)
+
+        if unwrap_input_tensor_grads:
+            return input_tensors[0]
+        return input_tensors
