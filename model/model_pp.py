@@ -175,3 +175,8 @@ class PipelineStage(nn.Module):
         # change layout back to [bsz, seq_len, vocab_size] for compatibility
         logits = logits.movedim(1, 0).contiguous()
         return logits
+
+    def scale_grads(self, scaling_factor: torch.Tensor) -> None:
+        for param in self.parameters():
+            if param.grad is not None:
+                param.grad.data.mul_(scaling_factor)
