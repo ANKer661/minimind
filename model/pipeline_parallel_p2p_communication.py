@@ -202,7 +202,7 @@ class P2PCommunicator:
                     tensor_shape=input_tensor_grad.shape,
                 )
 
-    def send_forawrd_recv_backward(
+    def send_forward_recv_backward(
         self,
         output_tensors: list[torch.Tensor],
         tensor_shapes: list[torch.Size],
