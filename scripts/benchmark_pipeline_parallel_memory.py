@@ -32,6 +32,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num_microbatches", type=int, default=4)
     parser.add_argument("--dtype", choices=("float32", "bfloat16"), default="bfloat16")
     parser.add_argument("--learning_rate", type=float, default=5e-4)
+    parser.add_argument(
+        "--pp_schedule",
+        choices=("gpipe", "1f1b"),
+        default="gpipe",
+    )
     parser.add_argument("--warmup_iters", type=int, default=2)
     parser.add_argument("--benchmark_iters", type=int, default=5)
     parser.add_argument("--seed", type=int, default=42)
@@ -114,6 +119,8 @@ def worker_command(
         args.dtype,
         "--learning_rate",
         str(args.learning_rate),
+        "--pp_schedule",
+        args.pp_schedule,
         "--warmup_iters",
         str(args.warmup_iters),
         "--benchmark_iters",
@@ -158,7 +165,7 @@ def save_plot(
 ) -> None:
     try:
         import matplotlib.pyplot as plt
-        from matplotlib.ticker import FixedFormatter, FixedLocator, FuncFormatter, NullFormatter
+        from matplotlib.ticker import FixedFormatter, FixedLocator, NullFormatter
     except ImportError:
         print("matplotlib is not installed; skipped plot generation")
         return
@@ -167,31 +174,12 @@ def save_plot(
     parameter_labels = [format_parameter_count(value) for value in parameter_counts]
     figure, (memory_axis, time_axis) = plt.subplots(1, 2, figsize=(13, 5))
 
-    for mode in mode_names:
-        label = MODE_LABELS[mode]
-        mode_rows = [
-            row for row in rows if row["mode"] == mode and row["status"] == "ok"
-        ]
-        memory_axis.plot(
-            [row["params"] for row in mode_rows],
-            [row["peak_mib"] / 1024 for row in mode_rows],
-            marker="o",
-            label=label,
-        )
-
-    memory_axis.set_xscale("log", base=2)
-    memory_axis.set_yscale("log", base=2)
-    memory_axis.xaxis.set_major_locator(FixedLocator(parameter_counts))
-    memory_axis.xaxis.set_major_formatter(FixedFormatter(parameter_labels))
-    memory_axis.xaxis.set_minor_formatter(NullFormatter())
-    memory_axis.yaxis.set_major_formatter(FuncFormatter(lambda value, _: f"{value:g}"))
-    memory_axis.set_xlabel("Model parameters")
-    memory_axis.set_ylabel("Peak allocated memory per GPU (GB)")
-    memory_axis.set_title("Peak GPU Memory")
-    memory_axis.grid(which="both", alpha=0.3)
-    memory_axis.legend()
-
     baseline_mode = "ddp" if "ddp" in mode_names else mode_names[0]
+    baseline_memory = {
+        int(row["layers"]): float(row["peak_mib"])
+        for row in rows
+        if row["mode"] == baseline_mode and row["status"] == "ok"
+    }
     baseline_times = {
         int(row["layers"]): float(row["time_ms"])
         for row in rows
@@ -203,31 +191,71 @@ def save_plot(
         int(row["params"]): int(row["layers"])
         for row in rows
     }
+    max_relative_memory = 100.0
+    max_relative_time = 100.0
     for mode_index, mode in enumerate(mode_names):
         label = MODE_LABELS[mode]
+        mode_memory = {
+            int(row["layers"]): float(row["peak_mib"])
+            for row in rows
+            if row["mode"] == mode and row["status"] == "ok"
+        }
         mode_times = {
             int(row["layers"]): float(row["time_ms"])
             for row in rows
             if row["mode"] == mode and row["status"] == "ok"
         }
+        relative_memory = []
         relative_times = []
         for params in parameter_counts:
             layer = layer_by_params[params]
+            if layer in baseline_memory and layer in mode_memory:
+                relative_memory.append(mode_memory[layer] / baseline_memory[layer] * 100)
+            else:
+                relative_memory.append(math.nan)
             if layer in baseline_times and layer in mode_times:
                 relative_times.append(mode_times[layer] / baseline_times[layer] * 100)
             else:
                 relative_times.append(math.nan)
+        valid_relative_memory = [
+            value for value in relative_memory if not math.isnan(value)
+        ]
+        valid_relative_times = [
+            value for value in relative_times if not math.isnan(value)
+        ]
+        if valid_relative_memory:
+            max_relative_memory = max(max_relative_memory, *valid_relative_memory)
+        if valid_relative_times:
+            max_relative_time = max(max_relative_time, *valid_relative_times)
+        offsets = [
+            position + (mode_index - (len(mode_names) - 1) / 2) * bar_width
+            for position in positions
+        ]
+        memory_axis.bar(
+            offsets,
+            relative_memory,
+            width=bar_width,
+            label=label,
+        )
         time_axis.bar(
-            [
-                position + (mode_index - (len(mode_names) - 1) / 2) * bar_width
-                for position in positions
-            ],
+            offsets,
             relative_times,
             width=bar_width,
             label=label,
         )
 
+    memory_axis.axhline(100, color="black", linewidth=1, linestyle="--")
+    memory_axis.set_ylim(0, max_relative_memory * 1.18)
+    memory_axis.set_xticks(positions, parameter_labels, rotation=30)
+    memory_axis.xaxis.set_minor_formatter(NullFormatter())
+    memory_axis.set_xlabel("Model parameters")
+    memory_axis.set_ylabel(f"Peak memory relative to {MODE_LABELS[baseline_mode]} (%)")
+    memory_axis.set_title("Relative Peak GPU Memory")
+    memory_axis.grid(axis="y", alpha=0.3)
+    memory_axis.legend()
+
     time_axis.axhline(100, color="black", linewidth=1, linestyle="--")
+    time_axis.set_ylim(0, max_relative_time * 1.18)
     time_axis.set_xticks(positions, parameter_labels, rotation=30)
     time_axis.set_xlabel("Model parameters")
     time_axis.set_ylabel(f"Step time relative to {MODE_LABELS[baseline_mode]} (%)")
@@ -265,6 +293,7 @@ def main() -> None:
             row = {
                 "mode": mode,
                 "label": label,
+                "pp_schedule": args.pp_schedule,
                 "pp_size": args.pp_size,
                 "tp_size": args.tp_size,
                 "effective_pp_size": args.pp_size if mode == "pp_tp" else 1,
@@ -281,6 +310,7 @@ def main() -> None:
                 "time_ms": metrics["time_ms"] if metrics else math.nan,
                 "training_flops": metrics["training_flops"] if metrics else math.nan,
                 "flops_per_second": metrics["flops_per_second"] if metrics else math.nan,
+                "worker_pp_schedule": metrics["pp_schedule"] if metrics else args.pp_schedule,
                 "status": status,
             }
             rows.append(row)

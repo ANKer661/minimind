@@ -11,7 +11,7 @@ from model.model_minimind import MiniMindConfig, MiniMindForCausalLM
 from model.model_pp import PPContext, PipelineStage
 from model.model_tp import shard_state_dict_for_tp
 from model.pipeline_parallel_p2p_communication import P2PCommunicator
-from model.pipeline_schedules import run_gpipe
+from model.pipeline_schedules import run_pipeline_schedule
 from model.tensor_parallel_layers import TPContext
 
 
@@ -58,6 +58,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--log_interval", type=int, default=10)
     parser.add_argument("--learning_rate", type=float, default=5e-4)
+    parser.add_argument(
+        "--pp_schedule",
+        choices=("gpipe", "1f1b"),
+        default="gpipe",
+    )
     parser.add_argument(
         "--dtype",
         choices=("float32", "float16", "bfloat16"),
@@ -236,7 +241,8 @@ def run_pipeline_pass(
     collect_logits: bool = False,
 ) -> list[dict[str, torch.Tensor]]:
     data_iterator = iter(microbatches) if pp_context.is_first or pp_context.is_last else None
-    return run_gpipe(
+    return run_pipeline_schedule(
+        schedule=args.pp_schedule,
         stage_model=stage_model,
         data_iterator=data_iterator,
         num_microbatches=args.num_microbatches,
@@ -536,7 +542,7 @@ def main() -> None:
     dist.destroy_process_group()
 
     if passed_tensor.item() != 1:
-        raise RuntimeError(f"GPipe parity check failed with atol={atol}")
+        raise RuntimeError(f"{args.pp_schedule} parity check failed with atol={atol}")
 
 
 if __name__ == "__main__":

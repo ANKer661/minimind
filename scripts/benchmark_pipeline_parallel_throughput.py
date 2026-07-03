@@ -45,6 +45,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seq_len", type=int, default=1024)
     parser.add_argument("--dtype", choices=("float32", "bfloat16"), default="bfloat16")
     parser.add_argument("--learning_rate", type=float, default=5e-4)
+    parser.add_argument(
+        "--pp_schedule",
+        choices=("gpipe", "1f1b"),
+        default="gpipe",
+    )
     parser.add_argument("--warmup_iters", type=int, default=2)
     parser.add_argument("--benchmark_iters", type=int, default=5)
     parser.add_argument("--seed", type=int, default=42)
@@ -100,6 +105,8 @@ def worker_command(
         args.dtype,
         "--learning_rate",
         str(args.learning_rate),
+        "--pp_schedule",
+        args.pp_schedule,
         "--warmup_iters",
         str(args.warmup_iters),
         "--benchmark_iters",
@@ -244,6 +251,7 @@ def main() -> None:
             row = {
                 "mode": mode,
                 "label": label,
+                "pp_schedule": args.pp_schedule,
                 "pp_size": args.pp_size,
                 "tp_size": args.tp_size,
                 "effective_pp_size": args.pp_size if mode == "pp_tp" else 1,
@@ -258,6 +266,7 @@ def main() -> None:
                 "global_batch_size": metrics["global_batch_size"] if metrics else math.nan,
                 "training_flops": metrics["training_flops"] if metrics else math.nan,
                 "flops_per_second": metrics["flops_per_second"] if metrics else math.nan,
+                "worker_pp_schedule": metrics["pp_schedule"] if metrics else args.pp_schedule,
                 "time_ms": metrics["time_ms"] if metrics else math.nan,
                 "peak_mib": metrics["peak_mib"] if metrics else math.nan,
                 "status": status,

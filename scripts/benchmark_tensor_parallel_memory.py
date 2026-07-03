@@ -265,57 +265,14 @@ def save_plot(
 ) -> None:
     try:
         import matplotlib.pyplot as plt
-        from matplotlib.ticker import (
-            FixedFormatter,
-            FixedLocator,
-            FuncFormatter,
-            LogLocator,
-            NullFormatter,
-        )
+        from matplotlib.ticker import FixedFormatter, FixedLocator, NullFormatter
     except ImportError:
         print("matplotlib is not installed; skipped plot generation")
         return
 
-    def format_log_value(value: float, _: int) -> str:
-        if value >= 1:
-            return f"{value:g}"
-        return f"{value:.3g}"
-
     figure, (memory_axis, time_axis) = plt.subplots(1, 2, figsize=(13, 5))
-    for variant_name in variant_names:
-        variant = VARIANTS[variant_name]
-        variant_rows = [
-            row
-            for row in rows
-            if row["variant"] == variant_name and row["status"] == "ok"
-        ]
-        if not variant_rows:
-            continue
-
-        memory_axis.plot(
-            [row["params"] for row in variant_rows],
-            [row["peak_mib"] / 1024 for row in variant_rows],
-            marker="o",
-            label=variant.label,
-        )
-
     parameter_counts = sorted({int(row["params"]) for row in rows})
     parameter_labels = [format_parameter_count(value) for value in parameter_counts]
-    memory_axis.set_xscale("log", base=2)
-    memory_axis.xaxis.set_major_locator(FixedLocator(parameter_counts))
-    memory_axis.xaxis.set_major_formatter(FixedFormatter(parameter_labels))
-    memory_axis.xaxis.set_minor_formatter(NullFormatter())
-    memory_axis.tick_params(axis="x", labelrotation=30)
-    memory_axis.set_yscale("log", base=2)
-    memory_axis.yaxis.set_major_locator(LogLocator(base=2, subs=(1.0,)))
-    memory_axis.yaxis.set_major_formatter(FuncFormatter(format_log_value))
-    memory_axis.yaxis.set_minor_formatter(NullFormatter())
-
-    memory_axis.set_xlabel("Model parameters")
-    memory_axis.set_ylabel("Peak allocated memory per GPU (GB)")
-    memory_axis.set_title("Peak GPU Memory")
-    memory_axis.grid(which="both", alpha=0.3)
-    memory_axis.legend()
 
     if "dense" in variant_names:
         baseline_name = "dense"
@@ -332,20 +289,40 @@ def save_plot(
     if baseline_rows:
         baseline_label = VARIANTS[baseline_name].label
         group_positions = list(range(len(baseline_rows)))
+        baseline_memory = {
+            int(row["layers"]): float(row["peak_mib"])
+            for row in baseline_rows
+        }
         baseline_times = {
             int(row["layers"]): float(row["time_ms"])
             for row in baseline_rows
         }
         bar_width = 0.8 / len(variant_names)
+        max_relative_memory = 100.0
         max_relative_time = 100.0
 
         for variant_index, variant_name in enumerate(variant_names):
             variant = VARIANTS[variant_name]
+            variant_memory = {
+                int(row["layers"]): float(row["peak_mib"])
+                for row in rows
+                if row["variant"] == variant_name and row["status"] == "ok"
+            }
             variant_times = {
                 int(row["layers"]): float(row["time_ms"])
                 for row in rows
                 if row["variant"] == variant_name and row["status"] == "ok"
             }
+            relative_memory = [
+                (
+                    variant_memory[int(row["layers"])]
+                    / baseline_memory[int(row["layers"])]
+                    * 100
+                )
+                if int(row["layers"]) in variant_memory
+                else math.nan
+                for row in baseline_rows
+            ]
             relative_times = [
                 (
                     variant_times[int(row["layers"])]
@@ -356,15 +333,43 @@ def save_plot(
                 else math.nan
                 for row in baseline_rows
             ]
-            max_relative_time = max(
-                max_relative_time,
-                *(value for value in relative_times if not math.isnan(value)),
-            )
+            valid_relative_memory = [
+                value for value in relative_memory if not math.isnan(value)
+            ]
+            valid_relative_times = [
+                value for value in relative_times if not math.isnan(value)
+            ]
+            if valid_relative_memory:
+                max_relative_memory = max(max_relative_memory, *valid_relative_memory)
+            if valid_relative_times:
+                max_relative_time = max(max_relative_time, *valid_relative_times)
             offsets = [
                 position
                 + (variant_index - (len(variant_names) - 1) / 2) * bar_width
                 for position in group_positions
             ]
+            memory_bars = memory_axis.bar(
+                offsets,
+                relative_memory,
+                width=bar_width,
+                label=variant.label,
+            )
+            for bar, relative_value in zip(memory_bars, relative_memory):
+                if math.isnan(relative_value):
+                    continue
+                if variant_name == baseline_name:
+                    label = "100%"
+                else:
+                    label = f"{relative_value - 100:+.0f}%"
+                memory_axis.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    relative_value,
+                    label,
+                    ha="center",
+                    va="bottom",
+                    fontsize=8,
+                    rotation=90,
+                )
             bars = time_axis.bar(
                 offsets,
                 relative_times,
@@ -388,6 +393,21 @@ def save_plot(
                     rotation=90,
                 )
 
+        memory_axis.axhline(100, color="black", linewidth=1, linestyle="--", alpha=0.5)
+        memory_axis.set_ylim(0, max_relative_memory * 1.18)
+        memory_axis.set_xticks(
+            group_positions,
+            [format_parameter_count(int(row["params"])) for row in baseline_rows],
+            rotation=30,
+        )
+        memory_axis.set_xlabel("Model parameters")
+        memory_axis.set_ylabel(
+            f"Relative peak memory ({baseline_label} = 100%)"
+        )
+        memory_axis.set_title(f"Peak GPU Memory vs {baseline_label}")
+        memory_axis.grid(axis="y", alpha=0.3)
+        memory_axis.legend()
+
         time_axis.axhline(100, color="black", linewidth=1, linestyle="--", alpha=0.5)
         time_axis.set_ylim(0, max_relative_time * 1.18)
         time_axis.set_xticks(
@@ -403,6 +423,15 @@ def save_plot(
         time_axis.grid(axis="y", alpha=0.3)
         time_axis.legend()
     else:
+        memory_axis.text(
+            0.5,
+            0.5,
+            f"No successful {VARIANTS[baseline_name].label} result for relative memory.",
+            ha="center",
+            va="center",
+            transform=memory_axis.transAxes,
+        )
+        memory_axis.set_axis_off()
         time_axis.text(
             0.5,
             0.5,

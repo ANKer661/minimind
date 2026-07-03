@@ -15,7 +15,7 @@ from model.model_minimind import MiniMindConfig, MiniMindForCausalLM
 from model.model_pp import PPContext, PipelineStage
 from model.model_tp import TPMiniMindForCausalLM
 from model.pipeline_parallel_p2p_communication import P2PCommunicator
-from model.pipeline_schedules import run_gpipe
+from model.pipeline_schedules import run_pipeline_schedule
 from model.tensor_parallel_layers import TPContext
 
 
@@ -220,7 +220,8 @@ def run_pipeline(
     def train_step() -> None:
         optimizer.zero_grad(set_to_none=True)
         data_iterator = iter(microbatches) if pp_context.is_first or pp_context.is_last else None
-        run_gpipe(
+        run_pipeline_schedule(
+            schedule=args.pp_schedule,
             stage_model=model,
             data_iterator=data_iterator,
             num_microbatches=args.num_microbatches,
@@ -319,6 +320,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--warmup_iters", type=int, required=True)
     parser.add_argument("--benchmark_iters", type=int, required=True)
     parser.add_argument(
+        "--pp_schedule",
+        choices=("gpipe", "1f1b"),
+        required=True,
+    )
+    parser.add_argument(
         "--flash_attn",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -373,6 +379,7 @@ def main() -> None:
                     "training_flops": training_flops,
                     "flops_per_second": flops_per_second,
                     "batch_policy": args.batch_policy,
+                    "pp_schedule": args.pp_schedule,
                     "model_batch_size": model_batch_size,
                     "global_batch_size": global_batch_size,
                 }

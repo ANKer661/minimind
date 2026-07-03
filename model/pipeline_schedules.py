@@ -191,6 +191,40 @@ def run_gpipe(
     return forward_data_store
 
 
+def run_pipeline_schedule(
+    schedule: str,
+    stage_model: PipelineStage,
+    data_iterator: Iterable | None,
+    num_microbatches: int,
+    micro_batch_size: int,
+    seq_length: int,
+    p2p_communicator: P2PCommunicator,
+    pp_context: PPContext,
+    tp_context: TPContext,
+    forward_only: bool = False,
+    collect_logits: bool = False,
+) -> list[dict[str, torch.Tensor]]:
+    if schedule == "gpipe":
+        schedule_func = run_gpipe
+    elif schedule == "1f1b":
+        schedule_func = run_1f1b
+    else:
+        raise ValueError(f"unsupported pipeline schedule: {schedule}")
+
+    return schedule_func(
+        stage_model=stage_model,
+        data_iterator=data_iterator,
+        num_microbatches=num_microbatches,
+        micro_batch_size=micro_batch_size,
+        seq_length=seq_length,
+        p2p_communicator=p2p_communicator,
+        pp_context=pp_context,
+        tp_context=tp_context,
+        forward_only=forward_only,
+        collect_logits=collect_logits,
+    )
+
+
 def run_1f1b(
     stage_model: PipelineStage,
     data_iterator: Iterable | None,
