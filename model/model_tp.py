@@ -6,6 +6,7 @@ from collections.abc import Mapping
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from .attention_cp import CPAttention, CPContext, cp_sequence_range
 from transformers import PreTrainedModel
 from transformers.activations import ACT2FN
 from transformers.modeling_outputs import MoeCausalLMOutputWithPast
@@ -203,9 +204,18 @@ class TPAttention(nn.Module):
 
 
 class TPMiniMindBlock(nn.Module):
-    def __init__(self, layer_id: int, config: MiniMindConfig, tp_context: TPContext) -> None:
+    def __init__(
+        self,
+        layer_id: int,
+        config: MiniMindConfig,
+        tp_context: TPContext,
+        cp_context: CPContext | None,
+    ) -> None:
         super().__init__()
-        self.self_attn = TPAttention(config, tp_context)
+        if cp_context is None:
+            self.self_attn = TPAttention(config, tp_context)
+        else:
+            self.self_attn = CPAttention(config, tp_context, cp_context)
         self.input_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.mlp = TPFeedForward(config, tp_context)
@@ -241,10 +251,13 @@ class TPMiniMindBlock(nn.Module):
 
 
 class TPMiniMindModel(nn.Module):
-    def __init__(self, config: MiniMindConfig, tp_context: TPContext) -> None:
+    def __init__(
+        self, config: MiniMindConfig, tp_context: TPContext, cp_context: CPContext | None
+    ) -> None:
         super().__init__()
         self.config = config
         self.tp_context = tp_context
+        self.cp_context = cp_context
         self.vocab_size, self.num_hidden_layers = config.vocab_size, config.num_hidden_layers
         if tp_context.vocab_parallel:
             assert config.vocab_size % tp_context.world_size == 0, (
@@ -260,7 +273,10 @@ class TPMiniMindModel(nn.Module):
             self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size)
         self.dropout = nn.Dropout(config.dropout)
         self.layers = nn.ModuleList(
-            [TPMiniMindBlock(layer, config, tp_context) for layer in range(self.num_hidden_layers)]
+            [
+                TPMiniMindBlock(layer, config, tp_context, cp_context)
+                for layer in range(self.num_hidden_layers)
+            ]
         )
         self.norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         freqs_cos, freqs_sin = precompute_freqs_cis(
@@ -285,7 +301,13 @@ class TPMiniMindModel(nn.Module):
         if hasattr(past_key_values, "layers"):
             past_key_values = None
         past_key_values = past_key_values or [None] * len(self.layers)
-        start_pos = 0
+
+        if self.cp_context is not None:
+            start_pos, end_pos = cp_sequence_range(seq_length, self.cp_context)
+            input_ids = input_ids[start_pos:end_pos]
+        else:
+            start_pos, end_pos = 0, seq_length
+
         hidden_states = self.embed_tokens(input_ids)
         # Recompute RoPE buffers lost during meta-device init (transformers>=5.x)
         if self.freqs_cos[0, 0] == 0:
@@ -299,9 +321,10 @@ class TPMiniMindModel(nn.Module):
                 freqs_cos.to(hidden_states.device),
                 freqs_sin.to(hidden_states.device),
             )
+
         position_embeddings = (
-            self.freqs_cos[start_pos : start_pos + seq_length],
-            self.freqs_sin[start_pos : start_pos + seq_length],
+            self.freqs_cos[start_pos:end_pos],
+            self.freqs_sin[start_pos:end_pos],
         )
         presents = []
 
@@ -330,11 +353,17 @@ class TPMiniMindForCausalLM(PreTrainedModel):
     config_class = MiniMindConfig
     _tied_weights_keys = {"lm_head.weight": "model.embed_tokens.weight"}
 
-    def __init__(self, tp_context: TPContext, config: MiniMindConfig | None = None):
+    def __init__(
+        self,
+        tp_context: TPContext,
+        config: MiniMindConfig | None = None,
+        cp_context: CPContext | None = None,
+    ) -> None:
         self.config = config or MiniMindConfig()
         super().__init__(self.config)
         self.tp_context = tp_context
-        self.model = TPMiniMindModel(self.config, tp_context)
+        self.cp_context = cp_context
+        self.model = TPMiniMindModel(self.config, tp_context, cp_context)
         if tp_context.vocab_parallel:
             # lm_head reuse Column Parallel Linear
             self.lm_head = ColumnParallelLinear(
@@ -361,7 +390,7 @@ class TPMiniMindForCausalLM(PreTrainedModel):
     ):
         # change layout to [seq_len, bsz, hidden_size] for TP/SP
         input_ids = input_ids.movedim(1, 0).contiguous()
-        
+
         hidden_states, past_key_values, aux_loss = self.model(
             input_ids, attention_mask, past_key_values, use_cache, **kwargs
         )
