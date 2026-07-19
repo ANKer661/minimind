@@ -5,11 +5,12 @@ import torch
 import torch.nn.functional as F
 import torch.distributed as dist
 
-from model.model_minimind import MiniMindConfig
-
+from .model_minimind import MiniMindConfig
+from .attention_cp import CPContext, cp_sequence_range
 from .model_pp import PipelineStage, PPContext
 from .pipeline_parallel_p2p_communication import P2PCommunicator
 from .tensor_parallel_layers import vocab_parallel_cross_entropy, TPContext
+from .tensor_parallel_mappings import _reduce
 
 
 def causal_lm_loss(
@@ -17,7 +18,8 @@ def causal_lm_loss(
     labels: torch.Tensor,
     tp_context: TPContext,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    x, y = logits[..., :-1, :].contiguous(), labels[..., 1:].contiguous()
+    y = labels[..., 1:].contiguous()
+    x = logits[..., : y.size(1), :].contiguous()
     num_tokens = (y != -100).sum()
     if tp_context.vocab_parallel:
         loss_mean = vocab_parallel_cross_entropy(x, y, tp_context.group, ignore_index=-100)
@@ -39,19 +41,34 @@ def forward_step(
     data_iterator: Iterable | None,
     loss_func: Callable,
     forward_data_store: list[dict[str, torch.Tensor]],
+    start_pos: int,
+    end_pos: int,
     collect_logits: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
+    cp_context = stage_model.cp_context
+    labels = None
+
     if input_tensor is None:
         # first stage, get input from data iterator
         input_ids, labels = next(data_iterator)  # type: ignore
+        seq_length = input_ids.size(1)
+        if cp_context is not None:
+            input_ids = input_ids[:, start_pos:end_pos]
+
         input_tensor = input_ids.to(torch.cuda.current_device())
 
-    stage_output = stage_model(input_tensor)
+    stage_output = stage_model(input_tensor, start_pos=start_pos, end_pos=end_pos)  # type: ignore
     num_tokens = torch.zeros([], dtype=torch.int, device=stage_output.device)
 
     if stage_model.pp_context.is_last:
-        _, labels = next(data_iterator)  # type: ignore
-        assert labels is not None, "labels must be provided on the last pipeline stage"
+        if labels is None:
+            _, labels = next(data_iterator)  # type: ignore
+        if cp_context is not None:
+            seq_length = labels.size(1)
+            start_pos, end_pos = cp_sequence_range(seq_length, cp_context)
+            end_pos = min(end_pos + 1, seq_length)
+            labels = labels[:, start_pos:end_pos]
+
         labels = labels.to(torch.cuda.current_device())
         logits = stage_output
         stage_output, num_tokens = loss_func(stage_output, labels, stage_model.tp_context)
@@ -89,6 +106,7 @@ def get_tensor_shapes(
     micro_batch_size: int,
     config: MiniMindConfig,
     tp_context: TPContext,
+    cp_context: CPContext | None,
 ) -> torch.Size:
     """Determine tensor shapes for pipeline communication.
 
@@ -98,6 +116,9 @@ def get_tensor_shapes(
 
     # Fixed sequence lengths - compute shape
     effective_seq_length = seq_length
+
+    if cp_context is not None:
+        effective_seq_length = effective_seq_length // cp_context.world_size
 
     if tp_context.sequence_parallel:
         effective_seq_length = effective_seq_length // tp_context.world_size
@@ -127,13 +148,19 @@ def run_gpipe(
         micro_batch_size=micro_batch_size,
         config=stage_model.config,
         tp_context=tp_context,
+        cp_context=stage_model.cp_context,
     )
     send_tensor_shapes = get_tensor_shapes(
         seq_length=seq_length,
         micro_batch_size=micro_batch_size,
         config=stage_model.config,
         tp_context=tp_context,
+        cp_context=stage_model.cp_context,
     )
+
+    start_pos, end_pos = 0, seq_length
+    if stage_model.cp_context is not None:
+        start_pos, end_pos = cp_sequence_range(seq_length, stage_model.cp_context)
 
     # all forward passes
     for _ in range(num_microbatches):
@@ -149,6 +176,8 @@ def run_gpipe(
             loss_func=causal_lm_loss,
             forward_data_store=forward_data_store,
             collect_logits=collect_logits,
+            start_pos=start_pos,
+            end_pos=end_pos,
         )
 
         p2p_communicator.send_forward(
@@ -174,9 +203,6 @@ def run_gpipe(
             is_last_stage=pp_context.is_last,
         )  # None if last stage, else grad tensor from next stage
 
-        if pp_context.is_last:
-            output_tensor = output_tensor / total_num_tokens.clamp_min(1)
-
         input_tensor_grad = backward_step(
             input_tensor=input_tensor,
             output_tensor=output_tensor,
@@ -187,6 +213,13 @@ def run_gpipe(
             input_tensor_grads=input_tensor_grad,  # type: ignore
             is_first_stage=pp_context.is_first,
         )
+
+    finalize_model_grads(
+        model=[stage_model],
+        pp_context=pp_context,
+        num_tokens=total_num_tokens,
+        cp_context=stage_model.cp_context,
+    )
 
     return forward_data_store
 
@@ -251,13 +284,19 @@ def run_1f1b(
         micro_batch_size=micro_batch_size,
         config=stage_model.config,
         tp_context=tp_context,
+        cp_context=stage_model.cp_context,
     )
     send_tensor_shapes = get_tensor_shapes(
         seq_length=seq_length,
         micro_batch_size=micro_batch_size,
         config=stage_model.config,
         tp_context=tp_context,
+        cp_context=stage_model.cp_context,
     )
+
+    start_pos, end_pos = 0, seq_length
+    if stage_model.cp_context is not None:
+        start_pos, end_pos = cp_sequence_range(seq_length, stage_model.cp_context)
 
     num_warmup_microbatches = min(pp_context.world_size - pp_context.rank - 1, num_microbatches)
     num_microbatches_remaining = num_microbatches - num_warmup_microbatches
@@ -276,6 +315,8 @@ def run_1f1b(
             loss_func=causal_lm_loss,
             forward_data_store=forward_data_store,
             collect_logits=collect_logits,
+            start_pos=start_pos,
+            end_pos=end_pos,
         )
 
         p2p_communicator.send_forward(
@@ -306,6 +347,8 @@ def run_1f1b(
             loss_func=causal_lm_loss,
             forward_data_store=forward_data_store,
             collect_logits=collect_logits,
+            start_pos=start_pos,
+            end_pos=end_pos,
         )
         total_num_tokens += num_tokens
 
@@ -378,6 +421,7 @@ def run_1f1b(
             model=[stage_model],
             pp_context=pp_context,
             num_tokens=total_num_tokens,
+            cp_context=stage_model.cp_context,
         )
 
     return forward_data_store
@@ -387,7 +431,12 @@ def finalize_model_grads(
     model: list[PipelineStage],
     pp_context: PPContext,
     num_tokens: torch.Tensor,
+    cp_context: CPContext | None,
 ) -> None:
+    # allreduce num_tokens across CP group
+    if cp_context is not None:
+        dist.all_reduce(num_tokens, op=dist.ReduceOp.SUM, group=cp_context.group)
+
     last_rank = dist.get_global_rank(group=pp_context.group, group_rank=pp_context.world_size - 1)
     dist.broadcast(num_tokens, src=last_rank, group=pp_context.group)
 
@@ -395,3 +444,10 @@ def finalize_model_grads(
     scaling_factor = 1.0 / safe_num_tokens.float()
     for model_chunk in model:
         model_chunk.scale_grads(scaling_factor)
+
+    # grad sync within CP group
+    if cp_context is not None:
+        for model_chunk in model:
+            for param in model_chunk.parameters():
+                if param.grad is not None:
+                    _reduce(param.grad, cp_context.group)

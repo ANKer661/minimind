@@ -8,6 +8,7 @@ from .model_minimind import (
     RMSNorm,
     precompute_freqs_cis,
 )
+from .attention_cp import CPContext
 from .model_tp import TPContext, TPMiniMindBlock
 from .tensor_parallel_layers import (
     VocabParallelEmbedding,
@@ -31,11 +32,18 @@ class PPContext:
 
 
 class PipelineStageModel(nn.Module):
-    def __init__(self, config: MiniMindConfig, pp_context: PPContext, tp_context: TPContext) -> None:
+    def __init__(
+        self,
+        config: MiniMindConfig,
+        pp_context: PPContext,
+        tp_context: TPContext,
+        cp_context: CPContext | None,
+    ) -> None:
         super().__init__()
         self.config = config
         self.pp_context = pp_context
         self.tp_context = tp_context
+        self.cp_context = cp_context
         self.vocab_size, self.num_hidden_layers = config.vocab_size, config.num_hidden_layers
         num_hidden_layers = self.num_hidden_layers
         pp_rank, pp_size = pp_context.rank, pp_context.world_size
@@ -72,7 +80,7 @@ class PipelineStageModel(nn.Module):
         # module layers in each stage
         self.layers = nn.ModuleDict(
             {
-                str(layer): TPMiniMindBlock(layer, config, tp_context)
+                str(layer): TPMiniMindBlock(layer, config, tp_context, cp_context)
                 for layer in range(self.layer_start, self.layer_end)
             }
         )
@@ -89,11 +97,14 @@ class PipelineStageModel(nn.Module):
     def forward(
         self,
         input_tensor: torch.Tensor,
+        start_pos: int,
+        end_pos: int,
         attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         if self.pp_context.is_first:
             # Change external [batch, sequence] input IDs to internal [sequence, batch] layout.
             input_ids = input_tensor.movedim(1, 0).contiguous()
+
             hidden_states = self.embed_tokens(input_ids)
             if self.tp_context.sequence_parallel and not self.tp_context.vocab_parallel:
                 hidden_states = scatter_to_sequence_parallel_region(
@@ -120,8 +131,8 @@ class PipelineStageModel(nn.Module):
                 freqs_sin.to(hidden_states.device),
             )
         position_embeddings = (
-            self.freqs_cos[:seq_length],  # type: ignore
-            self.freqs_sin[:seq_length],  # type: ignore
+            self.freqs_cos[start_pos:end_pos],  # type: ignore
+            self.freqs_sin[start_pos:end_pos],  # type: ignore
         )
         for layer in self.layers.values():
             hidden_states, _ = layer(
@@ -137,12 +148,19 @@ class PipelineStageModel(nn.Module):
 
 
 class PipelineStage(nn.Module):
-    def __init__(self, config: MiniMindConfig, pp_context: PPContext, tp_context: TPContext) -> None:
+    def __init__(
+        self,
+        config: MiniMindConfig,
+        pp_context: PPContext,
+        tp_context: TPContext,
+        cp_context: CPContext | None,
+    ) -> None:
         super().__init__()
         self.config = config
         self.pp_context = pp_context
         self.tp_context = tp_context
-        self.model = PipelineStageModel(config, pp_context, tp_context)
+        self.cp_context = cp_context
+        self.model = PipelineStageModel(config, pp_context, tp_context, cp_context)
 
         # if last stage, include the LM head
         if self.pp_context.is_last:
@@ -160,9 +178,16 @@ class PipelineStage(nn.Module):
     def forward(
         self,
         input_tensor: torch.Tensor,
+        start_pos: int,
+        end_pos: int,
         attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        hidden_states = self.model(input_tensor, attention_mask)
+        hidden_states = self.model(
+            input_tensor,
+            start_pos,
+            end_pos,
+            attention_mask,
+        )
 
         if not self.pp_context.is_last:
             return hidden_states
