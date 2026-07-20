@@ -430,7 +430,8 @@ def main() -> None:
     if not args.cp and args.cp_size != 1:
         raise ValueError("--cp_size requires --cp")
     effective_cp_size = args.cp_size if args.mode == "parallel" and args.cp else 1
-    assert world_size == args.pp_size * effective_cp_size * args.tp_size
+    if args.mode != "ddp":
+        assert world_size == args.pp_size * effective_cp_size * args.tp_size
     if args.mode in ("pp_tp", "parallel"):
         assert args.num_hidden_layers >= args.pp_size
     assert args.micro_batch_size > 0

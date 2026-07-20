@@ -49,6 +49,32 @@ def mode_parallel_sizes(
     return args.pp_size, args.tp_size, False, 1
 
 
+def mode_world_size(args: argparse.Namespace, mode: str) -> int:
+    pp_size, tp_size, _, cp_size = mode_parallel_sizes(args, mode)
+    return pp_size * cp_size * tp_size
+
+
+def ddp_comparison_world_size(args: argparse.Namespace) -> int:
+    parallel_world_sizes = {
+        mode: mode_world_size(args, mode)
+        for mode in args.modes
+        if mode != "ddp"
+    }
+    unique_world_sizes = set(parallel_world_sizes.values())
+    if len(unique_world_sizes) > 1:
+        details = ", ".join(
+            f"{mode}={world_size}"
+            for mode, world_size in parallel_world_sizes.items()
+        )
+        raise ValueError(
+            "DDP cannot provide one fair baseline for modes with different "
+            f"world sizes: {details}. Run them in separate benchmarks."
+        )
+    if unique_world_sizes:
+        return unique_world_sizes.pop()
+    return args.pp_size * (args.cp_size if args.cp else 1) * args.tp_size
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Benchmark configurable TP x CP x PP memory and step time"
@@ -147,17 +173,25 @@ def worker_command(
     mode: str,
     num_hidden_layers: int,
     seq_len: int,
+    ddp_world_size: int | None = None,
 ) -> list[str]:
     effective_pp_size, effective_tp_size, cp_enabled, effective_cp_size = (
         mode_parallel_sizes(args, mode)
     )
     worker_mode = "parallel" if mode == "parallel" or mode in COMPOSED_MODES else mode
+    world_size = (
+        ddp_world_size
+        if mode == "ddp"
+        else effective_pp_size * effective_cp_size * effective_tp_size
+    )
+    if world_size is None:
+        raise ValueError("ddp_world_size is required for DDP mode")
     command = [
         sys.executable,
         "-m",
         "torch.distributed.run",
         "--standalone",
-        f"--nproc_per_node={effective_pp_size * effective_cp_size * effective_tp_size}",
+        f"--nproc_per_node={world_size}",
         "--module",
         "evaluation.benchmark_worker",
         "--mode",
@@ -422,9 +456,9 @@ def main() -> None:
         raise ValueError("--cp_size requires --cp")
     if "pp_tp" in args.modes:
         assert args.pp_size >= 2
+    ddp_world_size = None
     if "ddp" in args.modes:
-        ddp_pp_size, ddp_tp_size, _, _ = mode_parallel_sizes(args, "ddp")
-        ddp_world_size = ddp_pp_size * ddp_tp_size
+        ddp_world_size = ddp_comparison_world_size(args)
         if model_batch_size % ddp_world_size != 0:
             raise ValueError(
                 "DDP requires micro_batch_size * num_microbatches "
@@ -480,10 +514,21 @@ def main() -> None:
             effective_pp_size, effective_tp_size, cp_enabled, effective_cp_size = (
                 mode_parallel_sizes(args, mode)
             )
-            world_size = effective_pp_size * effective_cp_size * effective_tp_size
+            world_size = (
+                ddp_world_size
+                if mode == "ddp"
+                else effective_pp_size * effective_cp_size * effective_tp_size
+            )
+            assert world_size is not None
             label = MODE_LABELS[mode]
             status, metrics, output = run_worker(
-                worker_command(args, mode, num_hidden_layers, seq_len)
+                worker_command(
+                    args,
+                    mode,
+                    num_hidden_layers,
+                    seq_len,
+                    ddp_world_size,
+                )
             )
             if status == "failed":
                 print(output)
@@ -493,8 +538,8 @@ def main() -> None:
                 "mode": mode,
                 "label": label,
                 "pp_schedule": args.pp_schedule,
-                "pp_size": effective_pp_size,
-                "tp_size": effective_tp_size,
+                "pp_size": effective_pp_size if mode != "ddp" else 1,
+                "tp_size": effective_tp_size if mode != "ddp" else 1,
                 "cp_enabled": cp_enabled,
                 "cp_size": effective_cp_size,
                 "cp_comm_type": args.cp_comm_type if cp_enabled else "",
