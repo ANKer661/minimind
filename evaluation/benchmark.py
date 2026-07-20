@@ -75,12 +75,24 @@ def parse_args() -> argparse.Namespace:
         choices=tuple(MODE_LABELS),
         default=list(DEFAULT_MODES),
     )
+    parser.add_argument(
+        "--scaling",
+        choices=("layers", "sequence"),
+        default="layers",
+    )
     parser.add_argument("--layers", nargs="+", type=int, default=[4, 8, 16, 32])
+    parser.add_argument("--num_hidden_layers", type=int, default=16)
     parser.add_argument("--hidden_size", type=int, default=768)
     parser.add_argument("--num_attention_heads", type=int, default=8)
     parser.add_argument("--num_key_value_heads", type=int, default=4)
     parser.add_argument("--vocab_size", type=int, default=6400)
     parser.add_argument("--seq_len", type=int, default=1024)
+    parser.add_argument(
+        "--seq_lens",
+        nargs="+",
+        type=int,
+        default=[1024, 2048, 4096, 8192],
+    )
     parser.add_argument("--micro_batch_size", type=int, default=2)
     parser.add_argument("--num_microbatches", type=int, default=4)
     parser.add_argument("--dtype", choices=("float32", "bfloat16"), default="bfloat16")
@@ -134,6 +146,7 @@ def worker_command(
     args: argparse.Namespace,
     mode: str,
     num_hidden_layers: int,
+    seq_len: int,
 ) -> list[str]:
     effective_pp_size, effective_tp_size, cp_enabled, effective_cp_size = (
         mode_parallel_sizes(args, mode)
@@ -164,7 +177,7 @@ def worker_command(
         "--vocab_size",
         str(args.vocab_size),
         "--seq_len",
-        str(args.seq_len),
+        str(seq_len),
         "--micro_batch_size",
         str(args.micro_batch_size),
         "--num_microbatches",
@@ -228,59 +241,117 @@ def save_plot(
     rows: list[dict[str, object]],
     path: Path,
     mode_names: list[str],
+    scaling: str,
 ) -> None:
     try:
         import matplotlib.pyplot as plt
-        from matplotlib.ticker import FixedFormatter, FixedLocator, NullFormatter
     except ImportError:
         print("matplotlib is not installed; skipped plot generation")
         return
 
-    parameter_counts = sorted({int(row["params"]) for row in rows})
-    parameter_labels = [format_parameter_count(value) for value in parameter_counts]
+    scale_key = "layers" if scaling == "layers" else "seq_len"
+    scale_values = sorted({int(row[scale_key]) for row in rows})
+    if scaling == "layers":
+        params_by_layer = {
+            int(row["layers"]): int(row["params"])
+            for row in rows
+        }
+        scale_labels = [
+            format_parameter_count(params_by_layer[value])
+            for value in scale_values
+        ]
+        x_label = "Model parameters"
+    else:
+        scale_labels = [f"{value:,}" for value in scale_values]
+        x_label = "Sequence length"
     figure, (memory_axis, time_axis) = plt.subplots(1, 2, figsize=(13, 5))
+
+    if scaling == "sequence":
+        positions = list(range(len(scale_values)))
+        for mode in mode_names:
+            label = MODE_LABELS[mode]
+            mode_memory = {
+                int(row["seq_len"]): float(row["peak_mib"])
+                for row in rows
+                if row["mode"] == mode and row["status"] == "ok"
+            }
+            mode_times = {
+                int(row["seq_len"]): float(row["time_ms"])
+                for row in rows
+                if row["mode"] == mode and row["status"] == "ok"
+            }
+            memory_axis.plot(
+                positions,
+                [mode_memory.get(value, math.nan) for value in scale_values],
+                marker="o",
+                label=label,
+            )
+            time_axis.plot(
+                positions,
+                [mode_times.get(value, math.nan) for value in scale_values],
+                marker="o",
+                label=label,
+            )
+
+        memory_axis.set_xticks(positions, scale_labels, rotation=30)
+        memory_axis.set_xlabel(x_label)
+        memory_axis.set_ylabel("Peak GPU memory (MiB)")
+        memory_axis.set_title("Peak GPU Memory by Sequence Length")
+        memory_axis.grid(alpha=0.3)
+        memory_axis.legend()
+
+        time_axis.set_xticks(positions, scale_labels, rotation=30)
+        time_axis.set_xlabel(x_label)
+        time_axis.set_ylabel("End-to-end step time (ms)")
+        time_axis.set_title("Step Time by Sequence Length")
+        time_axis.grid(alpha=0.3)
+        time_axis.legend()
+        figure.tight_layout()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        figure.savefig(path, dpi=160)
+        plt.close(figure)
+        return
 
     baseline_mode = "ddp" if "ddp" in mode_names else mode_names[0]
     baseline_memory = {
-        int(row["layers"]): float(row["peak_mib"])
+        int(row[scale_key]): float(row["peak_mib"])
         for row in rows
         if row["mode"] == baseline_mode and row["status"] == "ok"
     }
     baseline_times = {
-        int(row["layers"]): float(row["time_ms"])
+        int(row[scale_key]): float(row["time_ms"])
         for row in rows
         if row["mode"] == baseline_mode and row["status"] == "ok"
     }
-    positions = list(range(len(parameter_counts)))
+    positions = list(range(len(scale_values)))
     bar_width = 0.8 / len(mode_names)
-    layer_by_params = {
-        int(row["params"]): int(row["layers"])
-        for row in rows
-    }
     max_relative_memory = 100.0
     max_relative_time = 100.0
     for mode_index, mode in enumerate(mode_names):
         label = MODE_LABELS[mode]
         mode_memory = {
-            int(row["layers"]): float(row["peak_mib"])
+            int(row[scale_key]): float(row["peak_mib"])
             for row in rows
             if row["mode"] == mode and row["status"] == "ok"
         }
         mode_times = {
-            int(row["layers"]): float(row["time_ms"])
+            int(row[scale_key]): float(row["time_ms"])
             for row in rows
             if row["mode"] == mode and row["status"] == "ok"
         }
         relative_memory = []
         relative_times = []
-        for params in parameter_counts:
-            layer = layer_by_params[params]
-            if layer in baseline_memory and layer in mode_memory:
-                relative_memory.append(mode_memory[layer] / baseline_memory[layer] * 100)
+        for scale_value in scale_values:
+            if scale_value in baseline_memory and scale_value in mode_memory:
+                relative_memory.append(
+                    mode_memory[scale_value] / baseline_memory[scale_value] * 100
+                )
             else:
                 relative_memory.append(math.nan)
-            if layer in baseline_times and layer in mode_times:
-                relative_times.append(mode_times[layer] / baseline_times[layer] * 100)
+            if scale_value in baseline_times and scale_value in mode_times:
+                relative_times.append(
+                    mode_times[scale_value] / baseline_times[scale_value] * 100
+                )
             else:
                 relative_times.append(math.nan)
         valid_relative_memory = [
@@ -312,9 +383,8 @@ def save_plot(
 
     memory_axis.axhline(100, color="black", linewidth=1, linestyle="--")
     memory_axis.set_ylim(0, max_relative_memory * 1.18)
-    memory_axis.set_xticks(positions, parameter_labels, rotation=30)
-    memory_axis.xaxis.set_minor_formatter(NullFormatter())
-    memory_axis.set_xlabel("Model parameters")
+    memory_axis.set_xticks(positions, scale_labels, rotation=30)
+    memory_axis.set_xlabel(x_label)
     memory_axis.set_ylabel(f"Peak memory relative to {MODE_LABELS[baseline_mode]} (%)")
     memory_axis.set_title("Relative Peak GPU Memory")
     memory_axis.grid(axis="y", alpha=0.3)
@@ -322,8 +392,8 @@ def save_plot(
 
     time_axis.axhline(100, color="black", linewidth=1, linestyle="--")
     time_axis.set_ylim(0, max_relative_time * 1.18)
-    time_axis.set_xticks(positions, parameter_labels, rotation=30)
-    time_axis.set_xlabel("Model parameters")
+    time_axis.set_xticks(positions, scale_labels, rotation=30)
+    time_axis.set_xlabel(x_label)
     time_axis.set_ylabel(f"Step time relative to {MODE_LABELS[baseline_mode]} (%)")
     time_axis.set_title("Relative End-to-End Step Time")
     time_axis.grid(axis="y", alpha=0.3)
@@ -358,12 +428,44 @@ def main() -> None:
         if mode in ("pp_tp", "parallel")
         or (mode in COMPOSED_MODES and COMPOSED_MODES[mode][2])
     }
+    points = (
+        [(num_hidden_layers, args.seq_len) for num_hidden_layers in args.layers]
+        if args.scaling == "layers"
+        else [(args.num_hidden_layers, seq_len) for seq_len in args.seq_lens]
+    )
+    assert all(num_hidden_layers > 0 for num_hidden_layers, _ in points)
+    assert all(seq_len > 0 for _, seq_len in points)
     if pp_modes:
-        assert min(args.layers) >= args.pp_size
+        assert min(num_hidden_layers for num_hidden_layers, _ in points) >= args.pp_size
+    for _, seq_len in points:
+        for mode in args.modes:
+            effective_pp_size, effective_tp_size, cp_enabled, effective_cp_size = (
+                mode_parallel_sizes(args, mode)
+            )
+            if cp_enabled and seq_len % effective_cp_size != 0:
+                raise ValueError(
+                    f"seq_len {seq_len} must be divisible by CP size "
+                    f"{effective_cp_size} for mode {mode}"
+                )
+            if mode == "tp":
+                sequence_parallel_size = effective_pp_size * effective_tp_size
+            elif mode == "pp_tp":
+                sequence_parallel_size = effective_tp_size
+            elif (
+                mode == "parallel" or mode in COMPOSED_MODES
+            ) and args.sequence_parallel:
+                sequence_parallel_size = effective_cp_size * effective_tp_size
+            else:
+                sequence_parallel_size = 1
+            if seq_len % sequence_parallel_size != 0:
+                raise ValueError(
+                    f"seq_len {seq_len} must be divisible by sequence-parallel "
+                    f"size {sequence_parallel_size} for mode {mode}"
+                )
     assert args.benchmark_iters > 0
 
     rows = []
-    for num_hidden_layers in args.layers:
+    for num_hidden_layers, seq_len in points:
         params = count_parameters(args, num_hidden_layers)
         for mode in args.modes:
             effective_pp_size, effective_tp_size, cp_enabled, effective_cp_size = (
@@ -372,7 +474,7 @@ def main() -> None:
             world_size = effective_pp_size * effective_cp_size * effective_tp_size
             label = MODE_LABELS[mode]
             status, metrics, output = run_worker(
-                worker_command(args, mode, num_hidden_layers)
+                worker_command(args, mode, num_hidden_layers, seq_len)
             )
             if status == "failed":
                 print(output)
@@ -415,7 +517,9 @@ def main() -> None:
                 "batch_policy": "fixed_per_rank",
                 "model_batch_size": metrics["model_batch_size"] if metrics else model_batch_size,
                 "global_batch_size": metrics["global_batch_size"] if metrics else math.nan,
+                "scaling": args.scaling,
                 "layers": num_hidden_layers,
+                "seq_len": seq_len,
                 "params": params,
                 "peak_mib": metrics["peak_mib"] if metrics else math.nan,
                 "time_ms": metrics["time_ms"] if metrics else math.nan,
@@ -425,18 +529,34 @@ def main() -> None:
                 "status": status,
             }
             rows.append(row)
+            scale_label = (
+                f"layers={num_hidden_layers:>3}"
+                if args.scaling == "layers"
+                else f"seq_len={seq_len:>6}"
+            )
             if status == "ok":
                 print(
-                    f"layers={num_hidden_layers:>3} {label:<7} "
+                    f"{scale_label} {label:<7} "
                     f"{row['peak_mib']:.2f} MiB, {row['time_ms']:.2f} ms"
                 )
             else:
-                print(f"layers={num_hidden_layers:>3} {label:<7} OOM")
+                print(f"{scale_label} {label:<7} OOM")
+
+    if args.scaling == "sequence":
+        print("maximum successful tested sequence length:")
+        for mode in args.modes:
+            successful_lengths = [
+                int(row["seq_len"])
+                for row in rows
+                if row["mode"] == mode and row["status"] == "ok"
+            ]
+            result = f"{max(successful_lengths):,}" if successful_lengths else "none"
+            print(f"  {MODE_LABELS[mode]:<28} {result}")
 
     csv_path = Path(args.output_csv)
     plot_path = Path(args.output_plot)
     save_csv(rows, csv_path)
-    save_plot(rows, plot_path, args.modes)
+    save_plot(rows, plot_path, args.modes, args.scaling)
     print(f"saved CSV:  {csv_path}")
     print(f"saved plot: {plot_path}")
 
