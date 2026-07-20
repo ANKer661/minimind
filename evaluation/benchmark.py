@@ -183,7 +183,7 @@ def worker_command(
         "--num_microbatches",
         str(args.num_microbatches),
         "--batch_policy",
-        "fixed_per_rank",
+        "fixed_global",
         "--dtype",
         args.dtype,
         "--learning_rate",
@@ -422,6 +422,15 @@ def main() -> None:
         raise ValueError("--cp_size requires --cp")
     if "pp_tp" in args.modes:
         assert args.pp_size >= 2
+    if "ddp" in args.modes:
+        ddp_pp_size, ddp_tp_size, _, _ = mode_parallel_sizes(args, "ddp")
+        ddp_world_size = ddp_pp_size * ddp_tp_size
+        if model_batch_size % ddp_world_size != 0:
+            raise ValueError(
+                "DDP requires micro_batch_size * num_microbatches "
+                f"({model_batch_size}) divisible by DDP world size "
+                f"({ddp_world_size})"
+            )
     pp_modes = {
         mode
         for mode in args.modes
@@ -514,7 +523,7 @@ def main() -> None:
                     else 1
                 ),
                 "world_size": world_size,
-                "batch_policy": "fixed_per_rank",
+                "batch_policy": "fixed_global",
                 "model_batch_size": metrics["model_batch_size"] if metrics else model_batch_size,
                 "global_batch_size": metrics["global_batch_size"] if metrics else math.nan,
                 "scaling": args.scaling,
