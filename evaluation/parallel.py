@@ -5,9 +5,7 @@ import sys
 
 from evaluation.launch import (
     module_command,
-    python_command,
     run,
-    torchrun_command,
     torchrun_module_command,
 )
 
@@ -50,13 +48,6 @@ def parallel_args(
 
 
 def validate_command(args: argparse.Namespace, passthrough: list[str]) -> list[str]:
-    if args.target == "tp":
-        return torchrun_command(
-            "demo_tensor_parallel.py",
-            args.tp_size,
-            ["--tp_size", str(args.tp_size), *passthrough],
-        )
-
     cp_size = args.cp_size if args.cp else 1
     return torchrun_module_command(
         "evaluation.validate",
@@ -66,38 +57,29 @@ def validate_command(args: argparse.Namespace, passthrough: list[str]) -> list[s
 
 
 def benchmark_command(args: argparse.Namespace, passthrough: list[str]) -> list[str]:
-    if args.target == "tp":
-        if args.kind != "memory":
-            raise ValueError("TP benchmark currently supports only --kind memory")
-        return python_command("benchmark_tensor_parallel_memory.py", passthrough)
-
     if args.kind == "throughput":
-        if args.target != "pp":
-            raise ValueError("throughput benchmark currently supports only --target pp")
         return module_command(
             "evaluation.throughput",
             [*parallel_args(args, include_cp=False), *passthrough],
         )
 
-    benchmark_args = [*parallel_args(args), *passthrough]
-    if args.target == "parallel" and "--modes" not in passthrough:
-        benchmark_args.extend(["--modes", "parallel"])
-    return module_command("evaluation.benchmark", benchmark_args)
+    return module_command(
+        "evaluation.benchmark",
+        [*parallel_args(args), *passthrough],
+    )
 
 
 def profile_command(args: argparse.Namespace, passthrough: list[str]) -> list[str]:
-    if args.target != "tp":
-        raise ValueError("profile currently supports only --target tp")
-
     command_args = [
-        "--profile_only",
-        "--profile_variant",
+        "--variant",
         args.variant,
+        "--tp_size",
+        str(args.tp_size),
     ]
     if args.layers is not None:
-        command_args.extend(["--profile_layers", str(args.layers)])
+        command_args.extend(["--layers", str(args.layers)])
     command_args.extend(passthrough)
-    return python_command("benchmark_tensor_parallel_memory.py", command_args)
+    return module_command("evaluation.profile", command_args)
 
 
 def parse_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
@@ -108,26 +90,16 @@ def parse_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     validate = subparsers.add_parser("validate", help="run numerical parity checks")
-    validate.add_argument(
-        "--target",
-        choices=("tp", "pp", "parallel"),
-        required=True,
-    )
     add_parallel_args(validate)
 
     benchmark = subparsers.add_parser("benchmark", help="run memory or throughput benchmark")
-    benchmark.add_argument(
-        "--target",
-        choices=("tp", "pp", "parallel"),
-        required=True,
-    )
     benchmark.add_argument("--kind", choices=("memory", "throughput"), required=True)
     add_parallel_args(benchmark)
 
     profile = subparsers.add_parser("profile", help="collect profiler traces")
-    profile.add_argument("--target", choices=("tp",), required=True)
     profile.add_argument("--variant", required=True)
     profile.add_argument("--layers", type=int, default=None)
+    profile.add_argument("--tp_size", type=int, default=2)
 
     return parser.parse_args(parser_argv), passthrough
 

@@ -3,14 +3,6 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
-from pathlib import Path
-
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-
-
-def script_path(name: str) -> str:
-    return str(REPO_ROOT / "scripts" / name)
 
 
 def require_torchrun() -> str:
@@ -20,22 +12,8 @@ def require_torchrun() -> str:
     return torchrun
 
 
-def python_command(script: str, args: list[str]) -> list[str]:
-    return [sys.executable, script_path(script), *args]
-
-
 def module_command(module: str, args: list[str]) -> list[str]:
     return [sys.executable, "-m", module, *args]
-
-
-def torchrun_command(script: str, nproc_per_node: int, args: list[str]) -> list[str]:
-    return [
-        require_torchrun(),
-        "--standalone",
-        f"--nproc_per_node={nproc_per_node}",
-        script_path(script),
-        *args,
-    ]
 
 
 def torchrun_module_command(
