@@ -121,6 +121,16 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--micro_batch_size", type=int, default=2)
     parser.add_argument("--num_microbatches", type=int, default=4)
+    parser.add_argument(
+        "--batch_policy",
+        choices=("fixed_global", "fixed_per_rank"),
+        default="fixed_global",
+        help=(
+            "Interpret micro_batch_size * num_microbatches as the global DDP "
+            "batch or as each DDP rank's local batch. Model-parallel modes "
+            "always process it once per model-parallel group."
+        ),
+    )
     parser.add_argument("--dtype", choices=("float32", "bfloat16"), default="bfloat16")
     parser.add_argument("--learning_rate", type=float, default=5e-4)
     parser.add_argument(
@@ -217,7 +227,7 @@ def worker_command(
         "--num_microbatches",
         str(args.num_microbatches),
         "--batch_policy",
-        "fixed_global",
+        args.batch_policy,
         "--dtype",
         args.dtype,
         "--learning_rate",
@@ -459,7 +469,10 @@ def main() -> None:
     ddp_world_size = None
     if "ddp" in args.modes:
         ddp_world_size = ddp_comparison_world_size(args)
-        if model_batch_size % ddp_world_size != 0:
+        if (
+            args.batch_policy == "fixed_global"
+            and model_batch_size % ddp_world_size != 0
+        ):
             raise ValueError(
                 "DDP requires micro_batch_size * num_microbatches "
                 f"({model_batch_size}) divisible by DDP world size "
@@ -568,7 +581,7 @@ def main() -> None:
                     else 1
                 ),
                 "world_size": world_size,
-                "batch_policy": "fixed_global",
+                "batch_policy": args.batch_policy,
                 "model_batch_size": metrics["model_batch_size"] if metrics else model_batch_size,
                 "global_batch_size": metrics["global_batch_size"] if metrics else math.nan,
                 "scaling": args.scaling,

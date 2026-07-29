@@ -5,5 +5,6 @@ out
 website/
 docs-minimind/
 
-# mdBook build output
-/book/book/
+# Quarto build output
+/book/_book/
+/book/.quarto/
