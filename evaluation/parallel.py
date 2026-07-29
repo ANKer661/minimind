@@ -69,19 +69,6 @@ def benchmark_command(args: argparse.Namespace, passthrough: list[str]) -> list[
     )
 
 
-def profile_command(args: argparse.Namespace, passthrough: list[str]) -> list[str]:
-    command_args = [
-        "--variant",
-        args.variant,
-        "--tp_size",
-        str(args.tp_size),
-    ]
-    if args.layers is not None:
-        command_args.extend(["--layers", str(args.layers)])
-    command_args.extend(passthrough)
-    return module_command("evaluation.profile", command_args)
-
-
 def parse_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
     parser_argv, passthrough = split_passthrough(argv)
     parser = argparse.ArgumentParser(
@@ -96,11 +83,6 @@ def parse_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
     benchmark.add_argument("--kind", choices=("memory", "throughput"), required=True)
     add_parallel_args(benchmark)
 
-    profile = subparsers.add_parser("profile", help="collect profiler traces")
-    profile.add_argument("--variant", required=True)
-    profile.add_argument("--layers", type=int, default=None)
-    profile.add_argument("--tp_size", type=int, default=2)
-
     return parser.parse_args(parser_argv), passthrough
 
 
@@ -108,10 +90,8 @@ def main() -> None:
     args, passthrough = parse_args(sys.argv[1:])
     if args.command == "validate":
         command = validate_command(args, passthrough)
-    elif args.command == "benchmark":
-        command = benchmark_command(args, passthrough)
     else:
-        command = profile_command(args, passthrough)
+        command = benchmark_command(args, passthrough)
 
     raise SystemExit(run(command))
 
