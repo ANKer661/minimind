@@ -314,16 +314,18 @@ def run_tp(
     assert config.intermediate_size % world_size == 0
     assert config.num_attention_heads % world_size == 0
     assert config.num_key_value_heads % world_size == 0
-    assert config.vocab_size % world_size == 0
-    assert args.seq_len % world_size == 0
+    if args.vocab_parallel:
+        assert config.vocab_size % world_size == 0
+    if args.sequence_parallel:
+        assert args.seq_len % world_size == 0
 
     tp_context = TPContext(
         group=dist.group.WORLD,
         world_size=world_size,
         rank=rank,
-        sequence_parallel=True,
-        async_communication=True,
-        vocab_parallel=True,
+        sequence_parallel=args.sequence_parallel,
+        async_communication=args.async_communication,
+        vocab_parallel=args.vocab_parallel,
     )
     model = TPMiniMindForCausalLM(tp_context, config).to(
         device=device,

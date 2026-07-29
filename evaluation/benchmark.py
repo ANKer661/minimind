@@ -10,7 +10,7 @@ from pathlib import Path
 RESULT_PREFIX = "PARALLEL_BENCHMARK_RESULT="
 MODE_LABELS = {
     "ddp": "DDP",
-    "tp": "TP (all)",
+    "tp": "TP",
     "pp_tp": "TP x PP (all)",
     "cp": "CP",
     "pp": "PP",
@@ -37,6 +37,8 @@ def mode_parallel_sizes(
 ) -> tuple[int, int, bool, int]:
     if mode == "parallel":
         return args.pp_size, args.tp_size, args.cp, args.cp_size if args.cp else 1
+    if mode == "tp":
+        return 1, args.tp_size, False, 1
     if mode in COMPOSED_MODES:
         use_tp, use_cp, use_pp = COMPOSED_MODES[mode]
         cp_enabled = use_cp and args.cp
@@ -247,6 +249,7 @@ def worker_command(
         command.extend(["--cp_size", str(effective_cp_size)])
         if cp_enabled:
             command.extend(["--cp", "--cp_comm_type", args.cp_comm_type])
+    if worker_mode in ("tp", "parallel"):
         if args.sequence_parallel:
             command.append("--sequence_parallel")
         if args.async_communication:
@@ -503,8 +506,8 @@ def main() -> None:
                     f"seq_len {seq_len} must be divisible by CP size "
                     f"{effective_cp_size} for mode {mode}"
                 )
-            if mode == "tp":
-                sequence_parallel_size = effective_pp_size * effective_tp_size
+            if mode == "tp" and args.sequence_parallel:
+                sequence_parallel_size = effective_tp_size
             elif mode == "pp_tp":
                 sequence_parallel_size = effective_tp_size
             elif (
@@ -557,15 +560,15 @@ def main() -> None:
                 "cp_size": effective_cp_size,
                 "cp_comm_type": args.cp_comm_type if cp_enabled else "",
                 "sequence_parallel": (
-                    (mode == "parallel" or mode in COMPOSED_MODES)
+                    (mode in ("tp", "parallel") or mode in COMPOSED_MODES)
                     and args.sequence_parallel
                 ),
                 "async_communication": (
-                    (mode == "parallel" or mode in COMPOSED_MODES)
+                    (mode in ("tp", "parallel") or mode in COMPOSED_MODES)
                     and args.async_communication
                 ),
                 "vocab_parallel": (
-                    (mode == "parallel" or mode in COMPOSED_MODES)
+                    (mode in ("tp", "parallel") or mode in COMPOSED_MODES)
                     and args.vocab_parallel
                 ),
                 "effective_pp_size": (
