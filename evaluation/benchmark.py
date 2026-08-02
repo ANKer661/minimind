@@ -11,6 +11,10 @@ RESULT_PREFIX = "PARALLEL_BENCHMARK_RESULT="
 MODE_LABELS = {
     "ddp": "DDP",
     "tp": "TP",
+    "tp_sp": "TP + SP",
+    "tp_sp_async": "TP + SP + Async",
+    "tp_vp": "TP + VP",
+    "tp_sp_async_vp": "TP + SP + Async + VP",
     "pp_tp": "TP x PP (all)",
     "cp": "CP",
     "pp": "PP",
@@ -29,6 +33,29 @@ COMPOSED_MODES = {
     "pp_cp": (False, True, True),
     "tp_cp_pp": (True, True, True),
 }
+TP_VARIANT_FEATURES = {
+    "tp_sp": (True, False, False),
+    "tp_sp_async": (True, True, False),
+    "tp_vp": (False, False, True),
+    "tp_sp_async_vp": (True, True, True),
+}
+
+
+def mode_features(
+    args: argparse.Namespace,
+    mode: str,
+) -> tuple[bool, bool, bool]:
+    if mode in TP_VARIANT_FEATURES:
+        return TP_VARIANT_FEATURES[mode]
+    if mode == "pp_tp":
+        return True, True, True
+    if mode == "tp" or mode == "parallel" or mode in COMPOSED_MODES:
+        return (
+            args.sequence_parallel,
+            args.async_communication,
+            args.vocab_parallel,
+        )
+    return False, False, False
 
 
 def mode_parallel_sizes(
@@ -37,7 +64,7 @@ def mode_parallel_sizes(
 ) -> tuple[int, int, bool, int]:
     if mode == "parallel":
         return args.pp_size, args.tp_size, args.cp, args.cp_size if args.cp else 1
-    if mode == "tp":
+    if mode == "tp" or mode in TP_VARIANT_FEATURES:
         return 1, args.tp_size, False, 1
     if mode in COMPOSED_MODES:
         use_tp, use_cp, use_pp = COMPOSED_MODES[mode]
@@ -190,7 +217,16 @@ def worker_command(
     effective_pp_size, effective_tp_size, cp_enabled, effective_cp_size = (
         mode_parallel_sizes(args, mode)
     )
-    worker_mode = "parallel" if mode == "parallel" or mode in COMPOSED_MODES else mode
+    worker_mode = (
+        "tp"
+        if mode in TP_VARIANT_FEATURES
+        else "parallel"
+        if mode == "parallel" or mode in COMPOSED_MODES
+        else mode
+    )
+    sequence_parallel, async_communication, vocab_parallel = mode_features(
+        args, mode
+    )
     world_size = (
         ddp_world_size
         if mode == "ddp"
@@ -250,11 +286,11 @@ def worker_command(
         if cp_enabled:
             command.extend(["--cp", "--cp_comm_type", args.cp_comm_type])
     if worker_mode in ("tp", "parallel"):
-        if args.sequence_parallel:
+        if sequence_parallel:
             command.append("--sequence_parallel")
-        if args.async_communication:
+        if async_communication:
             command.append("--async_communication")
-        if args.vocab_parallel:
+        if vocab_parallel:
             command.append("--vocab_parallel")
     return command
 
@@ -501,18 +537,13 @@ def main() -> None:
             effective_pp_size, effective_tp_size, cp_enabled, effective_cp_size = (
                 mode_parallel_sizes(args, mode)
             )
+            sequence_parallel, _, _ = mode_features(args, mode)
             if cp_enabled and seq_len % effective_cp_size != 0:
                 raise ValueError(
                     f"seq_len {seq_len} must be divisible by CP size "
                     f"{effective_cp_size} for mode {mode}"
                 )
-            if mode == "tp" and args.sequence_parallel:
-                sequence_parallel_size = effective_tp_size
-            elif mode == "pp_tp":
-                sequence_parallel_size = effective_tp_size
-            elif (
-                mode == "parallel" or mode in COMPOSED_MODES
-            ) and args.sequence_parallel:
+            if sequence_parallel:
                 sequence_parallel_size = effective_cp_size * effective_tp_size
             else:
                 sequence_parallel_size = 1
@@ -529,6 +560,9 @@ def main() -> None:
         for mode in args.modes:
             effective_pp_size, effective_tp_size, cp_enabled, effective_cp_size = (
                 mode_parallel_sizes(args, mode)
+            )
+            sequence_parallel, async_communication, vocab_parallel = mode_features(
+                args, mode
             )
             world_size = (
                 ddp_world_size
@@ -559,18 +593,9 @@ def main() -> None:
                 "cp_enabled": cp_enabled,
                 "cp_size": effective_cp_size,
                 "cp_comm_type": args.cp_comm_type if cp_enabled else "",
-                "sequence_parallel": (
-                    (mode in ("tp", "parallel") or mode in COMPOSED_MODES)
-                    and args.sequence_parallel
-                ),
-                "async_communication": (
-                    (mode in ("tp", "parallel") or mode in COMPOSED_MODES)
-                    and args.async_communication
-                ),
-                "vocab_parallel": (
-                    (mode in ("tp", "parallel") or mode in COMPOSED_MODES)
-                    and args.vocab_parallel
-                ),
+                "sequence_parallel": sequence_parallel,
+                "async_communication": async_communication,
+                "vocab_parallel": vocab_parallel,
                 "effective_pp_size": (
                     effective_pp_size
                     if mode == "parallel" or mode in COMPOSED_MODES or mode == "pp_tp"
@@ -578,7 +603,7 @@ def main() -> None:
                 ),
                 "effective_tp_size": (
                     world_size
-                    if mode == "tp"
+                    if mode == "tp" or mode in TP_VARIANT_FEATURES
                     else effective_tp_size
                     if mode in ("pp_tp", "parallel") or mode in COMPOSED_MODES
                     else 1
