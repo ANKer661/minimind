@@ -106,7 +106,12 @@ def ddp_comparison_world_size(args: argparse.Namespace) -> int:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Benchmark configurable TP x CP x PP memory and step time"
+        description="Benchmark configurable TP x CP x PP memory or throughput"
+    )
+    parser.add_argument(
+        "--kind",
+        choices=("memory", "throughput"),
+        default="memory",
     )
     parser.add_argument("--pp_size", type=int, default=2)
     parser.add_argument("--tp_size", type=int, default=1)
@@ -130,24 +135,12 @@ def parse_args() -> argparse.Namespace:
         choices=tuple(MODE_LABELS),
         default=list(DEFAULT_MODES),
     )
-    parser.add_argument(
-        "--scaling",
-        choices=("layers", "sequence"),
-        default="layers",
-    )
-    parser.add_argument("--layers", nargs="+", type=int, default=[4, 8, 16, 32])
-    parser.add_argument("--num_hidden_layers", type=int, default=16)
+    parser.add_argument("--num_hidden_layers", nargs="+", type=int, default=[16])
     parser.add_argument("--hidden_size", type=int, default=768)
     parser.add_argument("--num_attention_heads", type=int, default=8)
     parser.add_argument("--num_key_value_heads", type=int, default=4)
     parser.add_argument("--vocab_size", type=int, default=6400)
-    parser.add_argument("--seq_len", type=int, default=1024)
-    parser.add_argument(
-        "--seq_lens",
-        nargs="+",
-        type=int,
-        default=[1024, 2048, 4096, 8192],
-    )
+    parser.add_argument("--seq_len", nargs="+", type=int, default=[1024])
     parser.add_argument("--micro_batch_size", type=int, default=2)
     parser.add_argument("--num_microbatches", type=int, default=4)
     parser.add_argument(
@@ -175,8 +168,8 @@ def parse_args() -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=True,
     )
-    parser.add_argument("--output_csv", default="parallel_memory_scaling.csv")
-    parser.add_argument("--output_plot", default="parallel_memory_scaling.png")
+    parser.add_argument("--output_csv")
+    parser.add_argument("--output_plot")
     return parser.parse_args()
 
 
@@ -318,6 +311,104 @@ def save_csv(rows: list[dict[str, object]], path: Path) -> None:
         writer = csv.DictWriter(file, fieldnames=rows[0].keys())
         writer.writeheader()
         writer.writerows(rows)
+
+
+def format_tokens_per_second(value: float) -> str:
+    if value >= 1_000_000:
+        return f"{value / 1_000_000:.2f}M"
+    if value >= 1_000:
+        return f"{value / 1_000:.1f}K"
+    return f"{value:.0f}"
+
+
+def save_throughput_plot(
+    rows: list[dict[str, object]],
+    path: Path,
+    mode_names: list[str],
+    scaling: str,
+) -> None:
+    try:
+        import matplotlib.pyplot as plt
+        from matplotlib.ticker import FuncFormatter
+    except ImportError:
+        print("matplotlib is not installed; skipped plot generation")
+        return
+
+    scale_key = "layers" if scaling == "layers" else "seq_len"
+    scale_values = sorted({int(row[scale_key]) for row in rows})
+    if scaling == "layers":
+        params_by_layer = {
+            int(row["layers"]): int(row["params"])
+            for row in rows
+        }
+        scale_labels = [
+            format_parameter_count(params_by_layer[value])
+            for value in scale_values
+        ]
+        x_label = "Model parameters"
+    else:
+        scale_labels = [f"{value:,}" for value in scale_values]
+        x_label = "Sequence length"
+    positions = list(range(len(scale_values)))
+    figure, (throughput_axis, relative_axis) = plt.subplots(1, 2, figsize=(13, 5))
+    bar_width = 0.8 / len(mode_names)
+    values_by_mode: dict[str, dict[int, float]] = {}
+
+    for mode_index, mode in enumerate(mode_names):
+        values = {
+            int(row[scale_key]): float(row["tokens_per_second"])
+            for row in rows
+            if row["mode"] == mode and row["status"] == "ok"
+        }
+        values_by_mode[mode] = values
+        offsets = [
+            position + (mode_index - (len(mode_names) - 1) / 2) * bar_width
+            for position in positions
+        ]
+        throughput_axis.bar(
+            offsets,
+            [values.get(value, math.nan) for value in scale_values],
+            width=bar_width,
+            label=MODE_LABELS[mode],
+        )
+
+    baseline_mode = "ddp" if "ddp" in mode_names else mode_names[0]
+    baseline_values = values_by_mode[baseline_mode]
+    for mode_index, mode in enumerate(mode_names):
+        values = values_by_mode[mode]
+        offsets = [
+            position + (mode_index - (len(mode_names) - 1) / 2) * bar_width
+            for position in positions
+        ]
+        relative_axis.bar(
+            offsets,
+            [
+                values.get(value, math.nan) / baseline_values[value] * 100
+                if value in baseline_values and value in values
+                else math.nan
+                for value in scale_values
+            ],
+            width=bar_width,
+            label=MODE_LABELS[mode],
+        )
+
+    for axis in (throughput_axis, relative_axis):
+        axis.set_xticks(positions, scale_labels, rotation=30)
+        axis.set_xlabel(x_label)
+        axis.grid(axis="y", alpha=0.3)
+        axis.legend()
+    throughput_axis.yaxis.set_major_formatter(
+        FuncFormatter(lambda value, _: format_tokens_per_second(value))
+    )
+    throughput_axis.set_ylabel("Training tokens/s")
+    throughput_axis.set_title("End-to-End Training Throughput")
+    relative_axis.axhline(100, color="black", linewidth=1, linestyle="--")
+    relative_axis.set_ylabel(f"Throughput relative to {MODE_LABELS[baseline_mode]} (%)")
+    relative_axis.set_title("Relative Throughput")
+    figure.tight_layout()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(path, dpi=160)
+    plt.close(figure)
 
 
 def save_plot(
@@ -489,7 +580,13 @@ def save_plot(
 
 def main() -> None:
     args = parse_args()
-    model_batch_size = args.micro_batch_size * args.num_microbatches
+    if args.kind == "throughput":
+        args.batch_policy = "fixed_global"
+        args.output_csv = args.output_csv or "parallel_throughput.csv"
+        args.output_plot = args.output_plot or "parallel_throughput.png"
+    else:
+        args.output_csv = args.output_csv or "parallel_memory_scaling.csv"
+        args.output_plot = args.output_plot or "parallel_memory_scaling.png"
     assert args.tp_size >= 1
     assert args.pp_size >= 1
     assert args.cp_size >= 1
@@ -508,31 +605,47 @@ def main() -> None:
     ddp_world_size = None
     if "ddp" in args.modes:
         ddp_world_size = ddp_comparison_world_size(args)
-        if (
-            args.batch_policy == "fixed_global"
-            and model_batch_size % ddp_world_size != 0
-        ):
-            raise ValueError(
-                "DDP requires micro_batch_size * num_microbatches "
-                f"({model_batch_size}) divisible by DDP world size "
-                f"({ddp_world_size})"
-            )
     pp_modes = {
         mode
         for mode in args.modes
         if mode in ("pp_tp", "parallel")
         or (mode in COMPOSED_MODES and COMPOSED_MODES[mode][2])
     }
-    points = (
-        [(num_hidden_layers, args.seq_len) for num_hidden_layers in args.layers]
-        if args.scaling == "layers"
-        else [(args.num_hidden_layers, seq_len) for seq_len in args.seq_lens]
-    )
-    assert all(num_hidden_layers > 0 for num_hidden_layers, _ in points)
-    assert all(seq_len > 0 for _, seq_len in points)
+    if len(args.num_hidden_layers) > 1 and len(args.seq_len) > 1:
+        raise ValueError(
+            "scan either --num_hidden_layers or --seq_len, not both"
+        )
+    if len(args.num_hidden_layers) > 1:
+        scan_dimension = "layers"
+    elif len(args.seq_len) > 1:
+        scan_dimension = "sequence"
+    else:
+        scan_dimension = "none"
+    plot_dimension = "sequence" if scan_dimension == "sequence" else "layers"
+    points = [
+        (num_hidden_layers, seq_len, args.num_microbatches)
+        for num_hidden_layers in args.num_hidden_layers
+        for seq_len in args.seq_len
+    ]
+    assert all(num_hidden_layers > 0 for num_hidden_layers, _, _ in points)
+    assert all(seq_len > 0 for _, seq_len, _ in points)
+    assert all(num_microbatches > 0 for _, _, num_microbatches in points)
+    if "ddp" in args.modes and args.batch_policy == "fixed_global":
+        assert ddp_world_size is not None
+        for _, _, num_microbatches in points:
+            model_batch_size = args.micro_batch_size * num_microbatches
+            if model_batch_size % ddp_world_size != 0:
+                raise ValueError(
+                    "DDP requires micro_batch_size * num_microbatches "
+                    f"({model_batch_size}) divisible by DDP world size "
+                    f"({ddp_world_size})"
+                )
     if pp_modes:
-        assert min(num_hidden_layers for num_hidden_layers, _ in points) >= args.pp_size
-    for _, seq_len in points:
+        assert (
+            min(num_hidden_layers for num_hidden_layers, _, _ in points)
+            >= args.pp_size
+        )
+    for _, seq_len, _ in points:
         for mode in args.modes:
             effective_pp_size, effective_tp_size, cp_enabled, effective_cp_size = (
                 mode_parallel_sizes(args, mode)
@@ -555,7 +668,9 @@ def main() -> None:
     assert args.benchmark_iters > 0
 
     rows = []
-    for num_hidden_layers, seq_len in points:
+    for num_hidden_layers, seq_len, num_microbatches in points:
+        args.num_microbatches = num_microbatches
+        model_batch_size = args.micro_batch_size * num_microbatches
         params = count_parameters(args, num_hidden_layers)
         for mode in args.modes:
             effective_pp_size, effective_tp_size, cp_enabled, effective_cp_size = (
@@ -612,32 +727,43 @@ def main() -> None:
                 "batch_policy": args.batch_policy,
                 "model_batch_size": metrics["model_batch_size"] if metrics else model_batch_size,
                 "global_batch_size": metrics["global_batch_size"] if metrics else math.nan,
-                "scaling": args.scaling,
+                "scaling": scan_dimension,
                 "layers": num_hidden_layers,
                 "seq_len": seq_len,
+                "num_microbatches": num_microbatches,
                 "params": params,
                 "peak_mib": metrics["peak_mib"] if metrics else math.nan,
                 "time_ms": metrics["time_ms"] if metrics else math.nan,
                 "training_flops": metrics["training_flops"] if metrics else math.nan,
                 "flops_per_second": metrics["flops_per_second"] if metrics else math.nan,
+                "tokens_per_second": metrics["tokens_per_second"] if metrics else math.nan,
                 "worker_pp_schedule": metrics["pp_schedule"] if metrics else args.pp_schedule,
                 "status": status,
             }
             rows.append(row)
-            scale_label = (
-                f"layers={num_hidden_layers:>3}"
-                if args.scaling == "layers"
-                else f"seq_len={seq_len:>6}"
-            )
-            if status == "ok":
-                print(
-                    f"{scale_label} {label:<7} "
-                    f"{row['peak_mib']:.2f} MiB, {row['time_ms']:.2f} ms"
+            if scan_dimension == "layers":
+                scale_label = f"layers={num_hidden_layers:>3}"
+            elif scan_dimension == "sequence":
+                scale_label = f"seq_len={seq_len:>6}"
+            else:
+                scale_label = (
+                    f"layers={num_hidden_layers:>3}, seq_len={seq_len:>6}"
                 )
+            if status == "ok":
+                if args.kind == "throughput":
+                    print(
+                        f"{scale_label} {label:<28} "
+                        f"{format_tokens_per_second(row['tokens_per_second'])} tokens/s"
+                    )
+                else:
+                    print(
+                        f"{scale_label} {label:<28} "
+                        f"{row['peak_mib']:.2f} MiB, {row['time_ms']:.2f} ms"
+                    )
             else:
                 print(f"{scale_label} {label:<7} OOM")
 
-    if args.scaling == "sequence":
+    if args.kind == "memory" and scan_dimension == "sequence":
         print("maximum successful tested sequence length:")
         for mode in args.modes:
             successful_lengths = [
@@ -651,7 +777,10 @@ def main() -> None:
     csv_path = Path(args.output_csv)
     plot_path = Path(args.output_plot)
     save_csv(rows, csv_path)
-    save_plot(rows, plot_path, args.modes, args.scaling)
+    if args.kind == "throughput":
+        save_throughput_plot(rows, plot_path, args.modes, plot_dimension)
+    else:
+        save_plot(rows, plot_path, args.modes, plot_dimension)
     print(f"saved CSV:  {csv_path}")
     print(f"saved plot: {plot_path}")
 

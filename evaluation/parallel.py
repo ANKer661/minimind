@@ -28,19 +28,13 @@ def add_parallel_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--cp_size", type=int, default=1)
 
 
-def parallel_args(
-    args: argparse.Namespace,
-    *,
-    include_cp: bool = True,
-) -> list[str]:
+def parallel_args(args: argparse.Namespace) -> list[str]:
     result = [
         "--pp_size",
         str(args.pp_size),
         "--tp_size",
         str(args.tp_size),
     ]
-    if not include_cp:
-        return result
     result.extend(["--cp_size", str(args.cp_size if args.cp else 1)])
     if args.cp:
         result.append("--cp")
@@ -57,15 +51,9 @@ def validate_command(args: argparse.Namespace, passthrough: list[str]) -> list[s
 
 
 def benchmark_command(args: argparse.Namespace, passthrough: list[str]) -> list[str]:
-    if args.kind == "throughput":
-        return module_command(
-            "evaluation.throughput",
-            [*parallel_args(args, include_cp=False), *passthrough],
-        )
-
     return module_command(
         "evaluation.benchmark",
-        [*parallel_args(args), *passthrough],
+        ["--kind", args.kind, *parallel_args(args), *passthrough],
     )
 
 

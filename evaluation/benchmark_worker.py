@@ -457,6 +457,7 @@ def main() -> None:
     )
     training_flops = estimate_training_flops(args, global_batch_size)
     flops_per_second = training_flops / (time_ms / 1000)
+    tokens_per_second = global_batch_size * args.seq_len / (time_ms / 1000)
     if rank == 0:
         print(
             RESULT_PREFIX
@@ -467,6 +468,7 @@ def main() -> None:
                     "time_ms": time_ms,
                     "training_flops": training_flops,
                     "flops_per_second": flops_per_second,
+                    "tokens_per_second": tokens_per_second,
                     "batch_policy": args.batch_policy,
                     "pp_schedule": args.pp_schedule,
                     "model_batch_size": model_batch_size,
