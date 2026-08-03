@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.DS_Store
+out
+website/
+docs-minimind/
+
+# Quarto build output
+/book/_book/
+/book/.quarto/
