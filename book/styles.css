@@ -1,0 +1,11 @@
+/* Keep Mermaid rank/subgraph containers light enough for their labels to read clearly. */
+svg.mermaid-js .cluster rect {
+  fill: #f8fafc !important;
+  stroke: #94a3b8 !important;
+}
+
+svg.mermaid-js .cluster-label text,
+svg.mermaid-js .cluster-label span {
+  fill: #334155 !important;
+  color: #334155 !important;
+}

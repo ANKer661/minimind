@@ -1,0 +1,30 @@
+project:
+  type: book
+  output-dir: _book
+
+book:
+  title: "MiniMind Parallelism Book"
+  author: "ANKer661"
+  description: "从 MiniMind 出发，理解并实现大模型并行训练策略。"
+  chapters:
+    - index.qmd
+    - src/tensor_parallel.qmd
+  repo-url: https://github.com/ANKer661/minimind-tron
+  repo-branch: main
+  repo-subdir: book
+  repo-actions: [edit, issue]
+  search: true
+
+lang: zh
+number-sections: false
+
+format:
+  html:
+    theme: cosmo
+    css: styles.css
+    toc: true
+    code-copy: true
+    code-overflow: wrap
+    html-math-method: mathjax
+    grid:
+      body-width: 1100px

@@ -1,0 +1,14 @@
+# 前言
+
+这本书记录了在 MiniMind 中逐步实现大模型并行训练策略的过程。
+
+当前内容覆盖：
+
+- Tensor Parallelism
+- Sequence Parallelism
+- Vocab Parallelism
+- 异步通信与激活重计算
+
+本文档的目标不是替代 Megatron-LM、DeepSpeed 或 PyTorch 官方文档，而是从一个较小的 Transformer 项目出发，把并行策略的设计逻辑、通信位置、反向传播语义和数值验证过程讲清楚。
+
+项目中的 Pipeline Parallelism、Context Parallelism 以及 TP、PP、CP 的多维并行组合已经完成，目前尚未整理成教程，后续会作为新的章节逐步加入。
