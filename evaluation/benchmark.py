@@ -753,7 +753,8 @@ def main() -> None:
                 if args.kind == "throughput":
                     print(
                         f"{scale_label} {label:<28} "
-                        f"{format_tokens_per_second(row['tokens_per_second'])} tokens/s"
+                        f"{format_tokens_per_second(row['tokens_per_second'])} tokens/s, "
+                        f"{row['peak_mib']:.2f} MiB"
                     )
                 else:
                     print(
