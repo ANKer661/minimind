@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - master
+      - main
     paths:
       - "book/**"
       - ".github/workflows/publish-book.yml"
@@ -29,4 +29,3 @@ jobs:
           path: book
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
