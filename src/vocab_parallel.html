@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="zh-Hans" xml:lang="zh-Hans"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.10.18">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="description" content="从 MiniMind 出发，理解并实现大模型并行训练策略。">
+
+<title>5&nbsp; Vocab Parallelism – MiniMind Parallelism Book</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: 1.5em;}
+div.column{flex: auto;}
+@media screen {
+div.columns{gap: min(4vw, 1.5em);}
+div.column{overflow-x: auto;}
+}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<link href="../src/unified_benchmark.html" rel="next">
+<link href="../src/sequence_parallel_optimization.html" rel="prev">
+<script src="../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-64a204ab8560d761af7679ceaba22944.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-e8d5af89a1f099882f037266c687133d.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "sidebar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "start",
+  "type": "textbox",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "没有结果",
+    "search-matching-documents-text": "匹配的文档",
+    "search-copy-link-title": "复制搜索链接",
+    "search-hide-matches-text": "隐藏其它匹配结果",
+    "search-more-match-text": "更多匹配结果",
+    "search-more-matches-text": "更多匹配结果",
+    "search-clear-button-title": "清除",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "取消",
+    "search-submit-button-title": "提交",
+    "search-label": "搜索"
+  }
+}</script>
+<script src="../site_libs/quarto-diagram/mermaid.min.js"></script>
+<script src="../site_libs/quarto-diagram/mermaid-init.js"></script>
+<link href="../site_libs/quarto-diagram/mermaid.css" rel="stylesheet">
+
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script defer="" src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-chtml.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
+
+<link rel="stylesheet" href="../styles.css">
+</head>
+
+<body class="nav-sidebar floating quarto-light">
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+  <nav class="quarto-secondary-nav">
+    <div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="展开或折叠侧边栏导航" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../src/tensor_parallel.html">从 MiniMind 到 Tensor、Sequence 与 Vocab Parallelism</a></li><li class="breadcrumb-item"><a href="../src/vocab_parallel.html"><span class="chapter-number">5</span>&nbsp; <span class="chapter-title">Vocab Parallelism</span></a></li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="展开或折叠侧边栏导航" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        </a>
+      <button type="button" class="btn quarto-search-button" aria-label="搜索" onclick="window.quartoOpenSearch();">
+        <i class="bi bi-search"></i>
+      </button>
+    </div>
+  </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto">
+    <div class="pt-lg-2 mt-2 text-left sidebar-header">
+    <div class="sidebar-title mb-0 py-0">
+      <a href="../">MiniMind Parallelism Book</a> 
+        <div class="sidebar-tools-main">
+    <a href="https://github.com/ANKer661/minimind-tron/tree/main/book/" title="源代码" class="quarto-navigation-tool px-1" aria-label="源代码"><i class="bi bi-github"></i></a>
+</div>
+    </div>
+      </div>
+        <div class="mt-2 flex-shrink-0 align-items-center">
+        <div class="sidebar-search">
+        <div id="quarto-search" class="" title="搜索"></div>
+        </div>
+        </div>
+    <div class="sidebar-menu-container"> 
+    <ul class="list-unstyled mt-1">
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../index.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">前言</span></span></a>
+  </div>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true">
+ <span class="menu-text">从 MiniMind 到 Tensor、Sequence 与 Vocab Parallelism</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/tensor_parallel.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Tensor Parallelism</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/sequence_parallel.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Sequence Parallelism：布局与梯度</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/sequence_parallel_optimization.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Sequence Parallelism：显存边界、异步通信与重计算</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/vocab_parallel.html" class="sidebar-item-text sidebar-link active">
+ <span class="menu-text"><span class="chapter-number">5</span>&nbsp; <span class="chapter-title">Vocab Parallelism</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/unified_benchmark.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">6</span>&nbsp; <span class="chapter-title">统一 Benchmark、限制与源码索引</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+    </ul>
+    </div>
+</nav>
+<div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">目录</h2>
+   
+  <ul>
+  <li><a href="#为什么还需要-vocab-parallelism" id="toc-为什么还需要-vocab-parallelism" class="nav-link active" data-scroll-target="#为什么还需要-vocab-parallelism"><span class="header-section-number">5.1</span> 为什么还需要 Vocab Parallelism</a></li>
+  <li><a href="#vp-的模型边界" id="toc-vp-的模型边界" class="nav-link" data-scroll-target="#vp-的模型边界"><span class="header-section-number">5.2</span> VP 的模型边界</a>
+  <ul class="collapse">
+  <li><a href="#vocab-parallel-embedding" id="toc-vocab-parallel-embedding" class="nav-link" data-scroll-target="#vocab-parallel-embedding"><span class="header-section-number">5.2.1</span> Vocab Parallel Embedding</a></li>
+  <li><a href="#vocab-parallel-lm-head" id="toc-vocab-parallel-lm-head" class="nav-link" data-scroll-target="#vocab-parallel-lm-head"><span class="header-section-number">5.2.2</span> Vocab Parallel LM Head</a></li>
+  </ul></li>
+  <li><a href="#sec-vp-ce" id="toc-sec-vp-ce" class="nav-link" data-scroll-target="#sec-vp-ce"><span class="header-section-number">5.3</span> Vocab Parallel Cross Entropy</a>
+  <ul class="collapse">
+  <li><a href="#forward不恢复完整-logits" id="toc-forward不恢复完整-logits" class="nav-link" data-scroll-target="#forward不恢复完整-logits"><span class="header-section-number">5.3.1</span> Forward：不恢复完整 Logits</a></li>
+  <li><a href="#backward本地无分支更新" id="toc-backward本地无分支更新" class="nav-link" data-scroll-target="#backward本地无分支更新"><span class="header-section-number">5.3.2</span> Backward：本地无分支更新</a></li>
+  <li><a href="#ignore_index" id="toc-ignore_index" class="nav-link" data-scroll-target="#ignore_index"><span class="header-section-number">5.3.3</span> ignore_index</a></li>
+  </ul></li>
+  <li><a href="#sec-vp-benefit" id="toc-sec-vp-benefit" class="nav-link" data-scroll-target="#sec-vp-benefit"><span class="header-section-number">5.4</span> 收益验证</a></li>
+  </ul>
+<div class="toc-actions"><ul><li><a href="https://github.com/ANKer661/minimind-tron/edit/main/book/src/vocab_parallel.qmd" class="toc-action"><i class="bi bi-github"></i>编辑该页面</a></li><li><a href="https://github.com/ANKer661/minimind-tron/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../src/tensor_parallel.html">从 MiniMind 到 Tensor、Sequence 与 Vocab Parallelism</a></li><li class="breadcrumb-item"><a href="../src/vocab_parallel.html"><span class="chapter-number">5</span>&nbsp; <span class="chapter-title">Vocab Parallelism</span></a></li></ol></nav>
+<div class="quarto-title">
+<h1 class="title"><span class="chapter-number">5</span>&nbsp; <span class="chapter-title">Vocab Parallelism</span></h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<section id="为什么还需要-vocab-parallelism" class="level2" data-number="5.1">
+<h2 data-number="5.1" class="anchored" data-anchor-id="为什么还需要-vocab-parallelism"><span class="header-section-number">5.1</span> 为什么还需要 Vocab Parallelism</h2>
+<p>TP 已经切分了 Attention 和 MLP 中的大矩阵，SP 又切分了两个 TP 区域之间的 activation。接下来检查模型边界处还没有被这两种策略覆盖的部分。</p>
+<p>此时，仍未切分的主要大张量是 embedding 和 LM head：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>embedding weight: [V,H]</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>LM head weight:   [V,H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>它们在每个 rank 上都是完整副本，因为 TP 切的是 Transformer block 内的 hidden/intermediate dimension，SP 切的是 sequence dimension，两者都没有触及 vocab dimension。</p>
+<p>MiniMind 将 embedding 与 LM head 绑定为同一个参数，因此不会实际保存两份 weight；但这份共享的 <code>[V,H]</code> 参数及其 gradient、optimizer states 仍在所有 rank 上完整复制。LM head 产生的 logits <code>[S,B,V]</code> 也不会随 TP size 缩小。词表 <span class="math inline">\(V\)</span> 越大，这部分显存就越难忽略。</p>
+<p>既然这些 tensor 都沿 vocab dimension 增长，是否可以让不同 rank 各自负责一段词表？Vocab Parallelism（VP）正是沿这一维继续切分：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>embedding weight per rank: [V<span class="op">/</span>T,H]</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>LM head weight per rank:   [V<span class="op">/</span>T,H]</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>local logits:              [S,B,V<span class="op">/</span>T]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>它要求：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>V <span class="op">%</span> T <span class="op">==</span> <span class="dv">0</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>对应的配置是：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>vocab_parallel: <span class="bu">bool</span> <span class="op">=</span> <span class="va">False</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+<section id="vp-的模型边界" class="level2" data-number="5.2">
+<h2 data-number="5.2" class="anchored" data-anchor-id="vp-的模型边界"><span class="header-section-number">5.2</span> VP 的模型边界</h2>
+<p>Embedding 负责把 token id 映射到 hidden states，LM head 再把 hidden states 映射回 logits。绑定权重启用时，它们共享同一个 <code>[V,H]</code> 参数，因此较合理的设计是让 LM head 也沿相同的 vocab range 切分。</p>
+<div class="cell" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+<pre class="mermaid mermaid-js">flowchart LR
+    classDef input fill:#495057,stroke:#212529,color:#ffffff,stroke-width:1px;
+    classDef rank0 fill:#1971c2,stroke:#0b4a85,color:#ffffff,stroke-width:1px;
+    classDef rank1 fill:#0b7285,stroke:#064653,color:#ffffff,stroke-width:1px;
+    classDef comm fill:#5f3dc4,stroke:#3b2585,color:#ffffff,stroke-width:2px;
+    classDef model fill:#2b8a3e,stroke:#176329,color:#ffffff,stroke-width:1px;
+
+    I["token ids"]:::input
+    E0["Rank 0 Embedding&lt;br/&gt;使用 W0&lt;br/&gt;vocab [0,V/2)"]:::rank0
+    E1["Rank 1 Embedding&lt;br/&gt;使用 W1&lt;br/&gt;vocab [V/2,V)"]:::rank1
+    C["all-reduce&lt;br/&gt;或 reduce-scatter"]:::comm
+    T["Transformer blocks"]:::model
+    L0["Rank 0 LM Head&lt;br/&gt;复用 W0&lt;br/&gt;local logits [0,V/2)"]:::rank0
+    L1["Rank 1 LM Head&lt;br/&gt;复用 W1&lt;br/&gt;local logits [V/2,V)"]:::rank1
+    CE["Vocab Parallel&lt;br/&gt;Cross Entropy"]:::comm
+
+    I --&gt; E0
+    I --&gt; E1
+    E0 --&gt; C
+    E1 --&gt; C
+    C --&gt; T
+    T --&gt; L0
+    T --&gt; L1
+    L0 --&gt; CE
+    L1 --&gt; CE
+    E0 -. "同一份 W0 shard" .-&gt; L0
+    E1 -. "同一份 W1 shard" .-&gt; L1
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+<p>Rank 0 在模型两端都使用 <span class="math inline">\(W_0\)</span>，Rank 1 都使用 <span class="math inline">\(W_1\)</span>，从单个 rank 的角度看，现在的行为与不切分 Embedding/LM head 完全一致，两个 layer 在底层共享同一份 Parameter。若不切分 LM head，则每次更新后需要在所有 rank 上同步 LM head 的完整参数，显然不如直接切分 LM head。</p>
+<section id="vocab-parallel-embedding" class="level3" data-number="5.2.1">
+<h3 data-number="5.2.1" class="anchored" data-anchor-id="vocab-parallel-embedding"><span class="header-section-number">5.2.1</span> Vocab Parallel Embedding</h3>
+<p>Rank <span class="math inline">\(t\)</span> 只负责区间：</p>
+<p><span class="math display">\[
+\left[t\frac{V}{T},(t+1)\frac{V}{T}\right).
+\]</span></p>
+<p>先看一个具体例子。设 <span class="math inline">\(V=8\)</span>、TP size <span class="math inline">\(=2\)</span>，输入的两个 token id 是 <code>[1,6]</code>：</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th></th>
+<th>token 1</th>
+<th>token 6</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Rank 0，负责 <code>[0,4)</code></td>
+<td><span class="math inline">\(E_1\)</span></td>
+<td><span class="math inline">\(0\)</span></td>
+</tr>
+<tr class="even">
+<td>Rank 1，负责 <code>[4,8)</code></td>
+<td><span class="math inline">\(0\)</span></td>
+<td><span class="math inline">\(E_6\)</span></td>
+</tr>
+<tr class="odd">
+<td>SUM</td>
+<td><span class="math inline">\(E_1\)</span></td>
+<td><span class="math inline">\(E_6\)</span></td>
+</tr>
+</tbody>
+</table>
+<p>Rank 0 只认识 token 1，Rank 1 只认识 token 6；不属于本地 vocab shard 的位置输出零。两个 local embedding 相加后，正好恢复 Dense Embedding 的结果：</p>
+<p><span class="math display">\[
+[E_1,0]+[0,E_6]=[E_1,E_6].
+\]</span></p>
+<p>本地 lookup 的关键逻辑是：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>mask <span class="op">=</span> (token <span class="op">&lt;</span> <span class="va">self</span>.vocab_start) <span class="op">|</span> (token <span class="op">&gt;=</span> <span class="va">self</span>.vocab_end)</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>local_token <span class="op">=</span> token <span class="op">-</span> vocab_start</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>local_token[mask] <span class="op">=</span> <span class="dv">0</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>output <span class="op">=</span> local_embedding(local_token)</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>output[mask] <span class="op">=</span> <span class="dv">0</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>对于任意 token，只有一个 rank 产生非零 embedding。因此，根据 SP 是否开启，可以用不同的方法得到当前 rank 需要的 embedding：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>SP off: <span class="bu">all</span><span class="op">-</span><span class="bu">reduce</span> local embeddings</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>SP on:  <span class="bu">reduce</span><span class="op">-</span>scatter local embeddings</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+<section id="vocab-parallel-lm-head" class="level3" data-number="5.2.2">
+<h3 data-number="5.2.2" class="anchored" data-anchor-id="vocab-parallel-lm-head"><span class="header-section-number">5.2.2</span> Vocab Parallel LM Head</h3>
+<p>LM head 要在输出维度 V 上切成 V/T，本质上是 Column Parallel Linear：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="bu">input</span>:        [S,B,H]</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>LM head weight shape:  [V<span class="op">/</span>T,H]</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>output:  [S,B,V<span class="op">/</span>T]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>MiniMind 绑定 embedding 和 LM head 权重。开启 VP 后，两者必须引用同一个 vocab shard，这个很简单，因为都在同一个 rank 上，设计时 <code>VocabParallelEmbedding</code> 和 <code>ColumnParallelLinear</code> 都是模仿普通的 <code>nn.Embedding</code> 和 <code>nn.Linear</code>，因此绑定权重和一般的模块完全一致：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="va">self</span>.config.tie_word_embeddings:</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>    <span class="va">self</span>.model.embed_tokens.weight <span class="op">=</span> <span class="va">self</span>.lm_head.weight</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+</section>
+<section id="sec-vp-ce" class="level2" data-number="5.3">
+<h2 data-number="5.3" class="anchored" data-anchor-id="sec-vp-ce"><span class="header-section-number">5.3</span> Vocab Parallel Cross Entropy</h2>
+<section id="forward不恢复完整-logits" class="level3" data-number="5.3.1">
+<h3 data-number="5.3.1" class="anchored" data-anchor-id="forward不恢复完整-logits"><span class="header-section-number">5.3.1</span> Forward：不恢复完整 Logits</h3>
+<p>当 LM head 被切分后，每个 rank 仅持有形状为 <code>[B, S, V/T]</code> 的 local logits。最直接的实现方式是通过全收集（all-gather）恢复完整张量：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>local logits [B, S, V<span class="op">/</span>T]</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> <span class="bu">all</span><span class="op">-</span>gather</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> full logits [B, S, V]</span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> standard cross entropy</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>但这种方式会在每个 rank 上重新构造 <code>[B, S, V]</code>，导致此前通过词表并行（VP）省下的完整 logits 显存重新被占用，且通信量也会随词表大小 <span class="math inline">\(V\)</span> 线性增长。因此我们需要思考：能否不恢复完整 logits，直接利用各 rank 的 vocab shards 算出与 Dense Cross Entropy 完全一致的结果？</p>
+<p>设某一 token 位置上的完整 logits 为 <span class="math inline">\(x\)</span>，目标类别为 <span class="math inline">\(k\)</span>。Cross Entropy 可以展开为：</p>
+<p><span class="math display">\[\operatorname{CE}(x,k) = -x_k + m + \log\sum_{i=1}^{V}e^{x_i-m}\]</span></p>
+<p>其中 <span class="math inline">\(m = \max_i x_i\)</span> 用于保证数值稳定性。</p>
+<p>虽然每个 rank 仅持有局部词表的 logits，但只需通过三次形状为 <code>[B, S]</code> 的通信，即可收集到所需的变量：</p>
+<ol type="1">
+<li><strong>目标类别的 target logit (<span class="math inline">\(x_k\)</span>)</strong>：正确词的 logit <span class="math inline">\(x_k\)</span> 只会出现在负责该词表 shard 的单个 rank 上。每个 rank 先检查每个 token 的目标类别是否落在自己的 vocab shard 内；若是，则将对应的 logit 写入本地 target logit 张量，否则填零。随后通过 <code>all-reduce</code>（SUM 算子）求和，所有 rank 便都能获得准确的 <span class="math inline">\(x_k\)</span>。</li>
+<li><strong>全局最大值 (<span class="math inline">\(m\)</span>)</strong>：每个 rank 先独立计算本地 logits 沿着 vocab 维度的最大值，再通过 <code>all-reduce</code>（MAX 算子）规约，得到全局最大值 <span class="math inline">\(m\)</span>。</li>
+<li><strong>全局 sum-exp 项</strong>：每个 rank 利用全局最大值 <span class="math inline">\(m\)</span> 计算本地的 <span class="math inline">\(\sum \exp(x_{\text{local}} - m)\)</span>，再通过 <code>all-reduce</code>（SUM 算子）求和，即可得到全局的归一化分母。</li>
+</ol>
+<p>借助这三次仅传输 <code>[B, S]</code> 张量的通信，我们以极低的显存和通信开销精确计算出了 Cross Entropy，避免了传输 <code>[B, S, V]</code> 完整 logits 的高昂代价。</p>
+</section>
+<section id="backward本地无分支更新" class="level3" data-number="5.3.2">
+<h3 data-number="5.3.2" class="anchored" data-anchor-id="backward本地无分支更新"><span class="header-section-number">5.3.2</span> Backward：本地无分支更新</h3>
+<p>回顾 Cross Entropy 的定义：</p>
+<p><span class="math display">\[\operatorname{CE}(x,k) = -x_k + \log\sum_{i=1}^{V}e^{x_i}\]</span></p>
+<p>损失函数对第 <span class="math inline">\(j\)</span> 个 logit <span class="math inline">\(x_j\)</span> 的偏导数为：</p>
+<p><span class="math display">\[\frac{\partial \operatorname{CE}}{\partial x_j} = \frac{e^{x_j}}{\sum_{i=1}^{V}e^{x_i}} - \mathbb{I}_{\{k=j\}} = p_j - y_j\]</span></p>
+<p>即 Cross Entropy 对 logits 的梯度为：</p>
+<p><span class="math display">\[\frac{\partial \operatorname{CE}}{\partial x_i} = p_i - y_i\]</span></p>
+<p>在反向传播过程中：</p>
+<ul>
+<li>概率 <span class="math inline">\(p_i\)</span> 可以通过本地 rank 的 logits 与 forward 阶段通信获取的全局 sum-exp 直接计算得出。</li>
+<li>one-hot <span class="math inline">\(y_i\)</span> 可以通过掩码逻辑判断 target 是否属于当前 rank：若在本地，则在 target 位置减 1；若不在，则减 0。</li>
+</ul>
+<p>因此，backward 阶段的梯度计算完全不需要额外的跨卡通信，各 rank 均可在本地独立完成。</p>
+<p>伪代码如下：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="co"># forward 阶段</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>target_mask <span class="op">=</span> (target <span class="op">&lt;</span> vocab_start) <span class="op">|</span> (target <span class="op">&gt;=</span> vocab_end)  <span class="co"># [B, S]，True 表示不在当前 rank</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>masked_target <span class="op">=</span> target.clone() <span class="op">-</span> vocab_start</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>masked_target[target_mask] <span class="op">=</span> <span class="dv">0</span>  <span class="co"># [B, S]，属于本地的映射为 local id，不属于的置 0 防越界</span></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a><span class="co"># forward 中其他计算 ...</span></span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>prob <span class="op">=</span> exp_logits <span class="op">/</span> exp_logits_sum  <span class="co"># [B, S, v]</span></span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>ctx.save_for_backward(prob, masked_target, target_mask)</span>
+<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-11"><a href="#cb10-11" aria-hidden="true" tabindex="-1"></a><span class="co"># backward 阶段</span></span>
+<span id="cb10-12"><a href="#cb10-12" aria-hidden="true" tabindex="-1"></a>prob, masked_target, target_mask <span class="op">=</span> ctx.saved_tensors</span>
+<span id="cb10-13"><a href="#cb10-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-14"><a href="#cb10-14" aria-hidden="true" tabindex="-1"></a>prob_update <span class="op">=</span> <span class="fl">1.0</span> <span class="op">-</span> target_mask.<span class="bu">float</span>()  <span class="co"># 在当前 rank 为 1.0，不在为 0.0</span></span>
+<span id="cb10-15"><a href="#cb10-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-16"><a href="#cb10-16" aria-hidden="true" tabindex="-1"></a>grad_input <span class="op">=</span> prob.view(<span class="op">-</span><span class="dv">1</span>, v)  <span class="co"># [B * S, v]</span></span>
+<span id="cb10-17"><a href="#cb10-17" aria-hidden="true" tabindex="-1"></a>arange_1d <span class="op">=</span> torch.arange(B <span class="op">*</span> S, device<span class="op">=</span>grad_input.device)</span>
+<span id="cb10-18"><a href="#cb10-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-19"><a href="#cb10-19" aria-hidden="true" tabindex="-1"></a>grad_input[arange_1d, masked_target.view(<span class="op">-</span><span class="dv">1</span>)] <span class="op">-=</span> prob_update.view(<span class="op">-</span><span class="dv">1</span>)</span>
+<span id="cb10-20"><a href="#cb10-20" aria-hidden="true" tabindex="-1"></a><span class="co"># 逻辑说明：</span></span>
+<span id="cb10-21"><a href="#cb10-21" aria-hidden="true" tabindex="-1"></a><span class="co"># 1. 若 target 在本地：masked_target 为有效的 local id，prob_update 为 1.0，对应位置执行 p - 1.0。</span></span>
+<span id="cb10-22"><a href="#cb10-22" aria-hidden="true" tabindex="-1"></a><span class="co"># 2. 若 target 不在本地：masked_target 虽被置 0，但 prob_update 为 0.0，0 号位置执行 p - 0.0，保持不变。</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+<section id="ignore_index" class="level3" data-number="5.3.3">
+<h3 data-number="5.3.3" class="anchored" data-anchor-id="ignore_index"><span class="header-section-number">5.3.3</span> ignore_index</h3>
+<p>对于设置了 <code>ignore_index</code> 的位置，其对应的 loss 和 logits gradient 均必须为零。最终 loss 的归一化计算公式为：</p>
+<p><span class="math display">\[L = \frac{\sum_{n \in \text{valid}} \ell_n}{\max(1, N_{\text{valid}})}\]</span></p>
+<p>由于 TP 各个 rank 处理的是完全同一批序列 token，各 rank 接收到的 <code>ignore_index</code> 掩码与有效 token 数量 <span class="math inline">\(N_{\text{valid}}\)</span> 完全一致，因此 loss 缩放与掩码操作均可在本地直接计算，无需额外的同步通信。</p>
+<p>当前实现位置：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>VocabParallelEmbedding:</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>  model<span class="op">/</span>tensor_parallel_layers.py</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>VocabParallelCrossEntropy:</span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>  model<span class="op">/</span>tensor_parallel_layers.py</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+</section>
+<section id="sec-vp-benefit" class="level2" data-number="5.4">
+<h2 data-number="5.4" class="anchored" data-anchor-id="sec-vp-benefit"><span class="header-section-number">5.4</span> 收益验证</h2>
+<p>前面的推导说明，VP 直接作用于随词表大小 <span class="math inline">\(V\)</span> 增长的 embedding、LM head、logits 和交叉熵中间状态。为了观察这部分收益如何随 <span class="math inline">\(V\)</span> 变化，固定 8 层 Transformer 和 2048 sequence length，只扫描 vocab size：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> v <span class="kw">in</span> 6400 12800 25600 51200<span class="kw">;</span> <span class="cf">do</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>  <span class="va">CUDA_DEVICE_MAX_CONNECTIONS</span><span class="op">=</span>1 <span class="ex">python</span> <span class="at">-m</span> evaluation.parallel benchmark <span class="dt">\</span></span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>    <span class="at">--kind</span> memory <span class="dt">\</span></span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">--tp_size</span> 2 <span class="dt">\</span></span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">--pp_size</span> 1 <span class="dt">\</span></span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>    <span class="at">--</span> <span class="dt">\</span></span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">--modes</span> ddp tp tp_vp <span class="dt">\</span></span>
+<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a>    <span class="at">--batch_policy</span> fixed_per_rank <span class="dt">\</span></span>
+<span id="cb12-9"><a href="#cb12-9" aria-hidden="true" tabindex="-1"></a>    <span class="at">--num_hidden_layers</span> 8 <span class="dt">\</span></span>
+<span id="cb12-10"><a href="#cb12-10" aria-hidden="true" tabindex="-1"></a>    <span class="at">--seq_len</span> 2048 <span class="dt">\</span></span>
+<span id="cb12-11"><a href="#cb12-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">--hidden_size</span> 768 <span class="dt">\</span></span>
+<span id="cb12-12"><a href="#cb12-12" aria-hidden="true" tabindex="-1"></a>    <span class="at">--num_attention_heads</span> 8 <span class="dt">\</span></span>
+<span id="cb12-13"><a href="#cb12-13" aria-hidden="true" tabindex="-1"></a>    <span class="at">--num_key_value_heads</span> 4 <span class="dt">\</span></span>
+<span id="cb12-14"><a href="#cb12-14" aria-hidden="true" tabindex="-1"></a>    <span class="at">--vocab_size</span> <span class="st">"</span><span class="va">$v</span><span class="st">"</span> <span class="dt">\</span></span>
+<span id="cb12-15"><a href="#cb12-15" aria-hidden="true" tabindex="-1"></a>    <span class="at">--micro_batch_size</span> 4 <span class="dt">\</span></span>
+<span id="cb12-16"><a href="#cb12-16" aria-hidden="true" tabindex="-1"></a>    <span class="at">--num_microbatches</span> 1 <span class="dt">\</span></span>
+<span id="cb12-17"><a href="#cb12-17" aria-hidden="true" tabindex="-1"></a>    <span class="at">--dtype</span> bfloat16 <span class="dt">\</span></span>
+<span id="cb12-18"><a href="#cb12-18" aria-hidden="true" tabindex="-1"></a>    <span class="at">--warmup_iters</span> 10 <span class="dt">\</span></span>
+<span id="cb12-19"><a href="#cb12-19" aria-hidden="true" tabindex="-1"></a>    <span class="at">--benchmark_iters</span> 5 <span class="dt">\</span></span>
+<span id="cb12-20"><a href="#cb12-20" aria-hidden="true" tabindex="-1"></a>    <span class="at">--output_csv</span> <span class="st">"results/tp/vp_vocab_</span><span class="va">${v}</span><span class="st">.csv"</span> <span class="dt">\</span></span>
+<span id="cb12-21"><a href="#cb12-21" aria-hidden="true" tabindex="-1"></a>    <span class="at">--output_plot</span> <span class="st">"results/tp/vp_vocab_</span><span class="va">${v}</span><span class="st">.png"</span></span>
+<span id="cb12-22"><a href="#cb12-22" aria-hidden="true" tabindex="-1"></a><span class="cf">done</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>峰值 allocated memory 如下：</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Vocab size</th>
+<th style="text-align: right;">DDP</th>
+<th style="text-align: right;">TP</th>
+<th style="text-align: right;">TP + VP</th>
+<th style="text-align: right;">VP 相对 TP 节省</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">6,400</td>
+<td style="text-align: right;">4148.79 MiB</td>
+<td style="text-align: right;">2781.92 MiB</td>
+<td style="text-align: right;">2554.47 MiB</td>
+<td style="text-align: right;">227.45 MiB（8.2%）</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">12,800</td>
+<td style="text-align: right;">4625.41 MiB</td>
+<td style="text-align: right;">3237.01 MiB</td>
+<td style="text-align: right;">2782.34 MiB</td>
+<td style="text-align: right;">454.67 MiB（14.0%）</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">25,600</td>
+<td style="text-align: right;">5577.66 MiB</td>
+<td style="text-align: right;">4147.36 MiB</td>
+<td style="text-align: right;">3237.44 MiB</td>
+<td style="text-align: right;">909.92 MiB（21.9%）</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">51,200</td>
+<td style="text-align: right;">7476.97 MiB</td>
+<td style="text-align: right;">5971.36 MiB</td>
+<td style="text-align: right;">4144.78 MiB</td>
+<td style="text-align: right;">1826.58 MiB（30.6%）</td>
+</tr>
+</tbody>
+</table>
+<p>可以看到 vocab size 每次翻倍时，VP 节省的绝对显存也几乎翻倍：约 227、455、910 和 1827 MiB。Transformer block 的其他显存保持不变时，VP 的相对收益也随 <span class="math inline">\(V\)</span> 增大，从 8.2% 上升到 30.6%。</p>
+<p>对应的 end-to-end step time 为：</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th style="text-align: right;">Vocab size</th>
+<th style="text-align: right;">TP</th>
+<th style="text-align: right;">TP + VP</th>
+<th style="text-align: right;">时间变化</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">6,400</td>
+<td style="text-align: right;">129.46 ms</td>
+<td style="text-align: right;">132.94 ms</td>
+<td style="text-align: right;">+2.7%</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">12,800</td>
+<td style="text-align: right;">133.59 ms</td>
+<td style="text-align: right;">136.28 ms</td>
+<td style="text-align: right;">+2.0%</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">25,600</td>
+<td style="text-align: right;">144.10 ms</td>
+<td style="text-align: right;">142.03 ms</td>
+<td style="text-align: right;">-1.4%</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">51,200</td>
+<td style="text-align: right;">165.04 ms</td>
+<td style="text-align: right;">155.96 ms</td>
+<td style="text-align: right;">-5.5%</td>
+</tr>
+</tbody>
+</table>
+<p>VP 确实引入了额外通信：Vocab Parallel Embedding 需要合并各 rank 的局部输出，Parallel Cross Entropy 也要同步 target logit、全局最大值和 sum-exp。但是这些 collective 传输的是 <code>[B,S,H]</code> 的 embedding 输出或 Cross Entropy 中 <code>[B,S]</code> 的统计量，通信 tensor 的 shape 并不随 vocab size 增长。</p>
+<p>与此同时，每个 rank 的 LM head 输出宽度从 <span class="math inline">\(V\)</span> 降为 <span class="math inline">\(V/T\)</span>，本地 logits 以及交叉熵中的指数、归约和梯度计算也只覆盖自己的 vocab shard，这部分计算和显存访问会随 <span class="math inline">\(V\)</span> 增长，因此切分后减少的计算也随 <span class="math inline">\(V\)</span> 增长。在较小词表上，新增通信带来约 2%～3% 的时间开销。词表增大后，本地计算减少带来的收益逐渐抵消通信，实测 step time 甚至略有下降。这里的几百分点仍可能受到 kernel 和短时 benchmark 波动影响，但整体趋势说明 VP 并不是单纯用通信换显存，它同时切小了词表维度上的计算。</p>
+
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "已复制");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "已复制");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+<nav class="page-navigation">
+  <div class="nav-page nav-page-previous">
+      <a href="../src/sequence_parallel_optimization.html" class="pagination-link" aria-label="Sequence Parallelism：显存边界、异步通信与重计算">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Sequence Parallelism：显存边界、异步通信与重计算</span></span>
+      </a>          
+  </div>
+  <div class="nav-page nav-page-next">
+      <a href="../src/unified_benchmark.html" class="pagination-link" aria-label="统一 Benchmark、限制与源码索引">
+        <span class="nav-page-text"><span class="chapter-number">6</span>&nbsp; <span class="chapter-title">统一 Benchmark、限制与源码索引</span></span> <i class="bi bi-arrow-right-short"></i>
+      </a>
+  </div>
+</nav>
+</div> <!-- /content -->
+
+
+
+
+<footer class="footer"><div class="nav-footer"><div class="nav-footer-center"><div class="toc-actions d-sm-block d-md-none"><ul><li><a href="https://github.com/ANKer661/minimind-tron/edit/main/book/src/vocab_parallel.qmd" class="toc-action"><i class="bi bi-github"></i>编辑该页面</a></li><li><a href="https://github.com/ANKer661/minimind-tron/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></div></div></footer></body></html>

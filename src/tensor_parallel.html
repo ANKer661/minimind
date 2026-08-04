@@ -8,7 +8,7 @@
 
 <meta name="description" content="从 MiniMind 出发，理解并实现大模型并行训练策略。">
 
-<title>从 MiniMind 到 Tensor、Sequence 与 Vocab Parallelism – MiniMind Parallelism Book</title>
+<title>2&nbsp; Tensor Parallelism – MiniMind Parallelism Book</title>
 <style>
 /* Default styles provided by pandoc.
 ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
@@ -72,6 +72,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <script src="../site_libs/quarto-search/fuse.min.js"></script>
 <script src="../site_libs/quarto-search/quarto-search.js"></script>
 <meta name="quarto:offset" content="../">
+<link href="../src/sequence_parallel.html" rel="next">
 <link href="../index.html" rel="prev">
 <script src="../site_libs/quarto-html/quarto.js" type="module"></script>
 <script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
@@ -156,7 +157,7 @@ window.Quarto = {
       <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="展开或折叠侧边栏导航" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
         <i class="bi bi-layout-text-sidebar-reverse"></i>
       </button>
-        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../src/tensor_parallel.html"><span class="chapter-title">从 MiniMind 到 Tensor、Sequence 与 Vocab Parallelism</span></a></li></ol></nav>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../src/tensor_parallel.html">从 MiniMind 到 Tensor、Sequence 与 Vocab Parallelism</a></li><li class="breadcrumb-item"><a href="../src/tensor_parallel.html"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Tensor Parallelism</span></a></li></ol></nav>
         <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="展开或折叠侧边栏导航" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
         </a>
       <button type="button" class="btn quarto-search-button" aria-label="搜索" onclick="window.quartoOpenSearch();">
@@ -186,14 +187,51 @@ window.Quarto = {
     <ul class="list-unstyled mt-1">
         <li class="sidebar-item">
   <div class="sidebar-item-container"> 
-  <a href="../index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">前言</span></a>
+  <a href="../index.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">前言</span></span></a>
   </div>
 </li>
-        <li class="sidebar-item">
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true">
+ <span class="menu-text">从 MiniMind 到 Tensor、Sequence 与 Vocab Parallelism</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
   <div class="sidebar-item-container"> 
-  <a href="../src/tensor_parallel.html" class="sidebar-item-text sidebar-link active"><span class="chapter-title">从 MiniMind 到 Tensor、Sequence 与 Vocab Parallelism</span></a>
+  <a href="../src/tensor_parallel.html" class="sidebar-item-text sidebar-link active">
+ <span class="menu-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Tensor Parallelism</span></span></a>
   </div>
 </li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/sequence_parallel.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Sequence Parallelism：布局与梯度</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/sequence_parallel_optimization.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Sequence Parallelism：显存边界、异步通信与重计算</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/vocab_parallel.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">5</span>&nbsp; <span class="chapter-title">Vocab Parallelism</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/unified_benchmark.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">6</span>&nbsp; <span class="chapter-title">统一 Benchmark、限制与源码索引</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
     </ul>
     </div>
 </nav>
@@ -204,126 +242,57 @@ window.Quarto = {
     <h2 id="toc-title">目录</h2>
    
   <ul>
-  <li><a href="#全局路线图" id="toc-全局路线图" class="nav-link active" data-scroll-target="#全局路线图">全局路线图</a></li>
-  <li><a href="#记号表" id="toc-记号表" class="nav-link" data-scroll-target="#记号表">记号表</a></li>
-  <li><a href="#通信原语速查" id="toc-通信原语速查" class="nav-link" data-scroll-target="#通信原语速查">通信原语速查</a>
+  <li><a href="#全局路线图" id="toc-全局路线图" class="nav-link active" data-scroll-target="#全局路线图"><span class="header-section-number">2.1</span> 全局路线图</a></li>
+  <li><a href="#记号表" id="toc-记号表" class="nav-link" data-scroll-target="#记号表"><span class="header-section-number">2.2</span> 记号表</a></li>
+  <li><a href="#通信原语速查" id="toc-通信原语速查" class="nav-link" data-scroll-target="#通信原语速查"><span class="header-section-number">2.3</span> 通信原语速查</a>
   <ul class="collapse">
-  <li><a href="#collective-all-gather" id="toc-collective-all-gather" class="nav-link" data-scroll-target="#collective-all-gather">All-Gather：每人一份，拼成完整</a></li>
-  <li><a href="#all-reduce每人一部分操作后大家都一样" id="toc-all-reduce每人一部分操作后大家都一样" class="nav-link" data-scroll-target="#all-reduce每人一部分操作后大家都一样">All-Reduce：每人一部分，操作后大家都一样</a></li>
-  <li><a href="#collective-reduce-scatter" id="toc-collective-reduce-scatter" class="nav-link" data-scroll-target="#collective-reduce-scatter">Reduce-Scatter：求和 + 切分一步做完</a></li>
-  <li><a href="#三种原语一览" id="toc-三种原语一览" class="nav-link" data-scroll-target="#三种原语一览">三种原语一览</a></li>
+  <li><a href="#collective-all-gather" id="toc-collective-all-gather" class="nav-link" data-scroll-target="#collective-all-gather"><span class="header-section-number">2.3.1</span> All-Gather：每人一份，拼成完整</a></li>
+  <li><a href="#all-reduce每人一部分操作后大家都一样" id="toc-all-reduce每人一部分操作后大家都一样" class="nav-link" data-scroll-target="#all-reduce每人一部分操作后大家都一样"><span class="header-section-number">2.3.2</span> All-Reduce：每人一部分，操作后大家都一样</a></li>
+  <li><a href="#collective-reduce-scatter" id="toc-collective-reduce-scatter" class="nav-link" data-scroll-target="#collective-reduce-scatter"><span class="header-section-number">2.3.3</span> Reduce-Scatter：求和 + 切分一步做完</a></li>
+  <li><a href="#三种原语一览" id="toc-三种原语一览" class="nav-link" data-scroll-target="#三种原语一览"><span class="header-section-number">2.3.4</span> 三种原语一览</a></li>
   </ul></li>
-  <li><a href="#part-itensor-parallelism" id="toc-part-itensor-parallelism" class="nav-link" data-scroll-target="#part-itensor-parallelism">Part I：Tensor Parallelism</a>
+  <li><a href="#从两层-mlp-开始" id="toc-从两层-mlp-开始" class="nav-link" data-scroll-target="#从两层-mlp-开始"><span class="header-section-number">2.4</span> 从两层 MLP 开始</a></li>
+  <li><a href="#如何切w1" id="toc-如何切w1" class="nav-link" data-scroll-target="#如何切w1"><span class="header-section-number">2.5</span> 如何切W1</a>
   <ul class="collapse">
-  <li><a href="#从两层-mlp-开始" id="toc-从两层-mlp-开始" class="nav-link" data-scroll-target="#从两层-mlp-开始">1. 从两层 MLP 开始</a></li>
-  <li><a href="#如何切w1" id="toc-如何切w1" class="nav-link" data-scroll-target="#如何切w1">2. 如何切W1</a>
+  <li><a href="#上下切-w1非线性前需要同步" id="toc-上下切-w1非线性前需要同步" class="nav-link" data-scroll-target="#上下切-w1非线性前需要同步"><span class="header-section-number">2.5.1</span> 上下切 W1：非线性前需要同步</a></li>
+  <li><a href="#左右切-w1activation-保持分片" id="toc-左右切-w1activation-保持分片" class="nav-link" data-scroll-target="#左右切-w1activation-保持分片"><span class="header-section-number">2.5.2</span> 左右切 W1：activation 保持分片</a></li>
+  </ul></li>
+  <li><a href="#分片的-activation-如何进入第二层" id="toc-分片的-activation-如何进入第二层" class="nav-link" data-scroll-target="#分片的-activation-如何进入第二层"><span class="header-section-number">2.6</span> 分片的 activation 如何进入第二层</a></li>
+  <li><a href="#sec-tp-linear" id="toc-sec-tp-linear" class="nav-link" data-scroll-target="#sec-tp-linear"><span class="header-section-number">2.7</span> Column Parallel 与 Row Parallel</a></li>
+  <li><a href="#分片之后梯度如何正确传回输入" id="toc-分片之后梯度如何正确传回输入" class="nav-link" data-scroll-target="#分片之后梯度如何正确传回输入"><span class="header-section-number">2.8</span> 分片之后，梯度如何正确传回输入</a></li>
+  <li><a href="#collective-如何接入-autograd" id="toc-collective-如何接入-autograd" class="nav-link" data-scroll-target="#collective-如何接入-autograd"><span class="header-section-number">2.9</span> Collective 如何接入 Autograd</a>
   <ul class="collapse">
-  <li><a href="#上下切-w1非线性前需要同步" id="toc-上下切-w1非线性前需要同步" class="nav-link" data-scroll-target="#上下切-w1非线性前需要同步">2.1 上下切 W1：非线性前需要同步</a></li>
-  <li><a href="#左右切-w1activation-保持分片" id="toc-左右切-w1activation-保持分片" class="nav-link" data-scroll-target="#左右切-w1activation-保持分片">2.2 左右切 W1：activation 保持分片</a></li>
+  <li><a href="#自定义-torch.autograd.function" id="toc-自定义-torch.autograd.function" class="nav-link" data-scroll-target="#自定义-torch.autograd.function"><span class="header-section-number">2.9.1</span> 自定义 torch.autograd.Function</a></li>
   </ul></li>
-  <li><a href="#分片的-activation-如何进入第二层" id="toc-分片的-activation-如何进入第二层" class="nav-link" data-scroll-target="#分片的-activation-如何进入第二层">3. 分片的 activation 如何进入第二层</a></li>
-  <li><a href="#sec-tp-linear" id="toc-sec-tp-linear" class="nav-link" data-scroll-target="#sec-tp-linear">4. Column Parallel 与 Row Parallel</a></li>
-  <li><a href="#分片之后梯度如何正确传回输入" id="toc-分片之后梯度如何正确传回输入" class="nav-link" data-scroll-target="#分片之后梯度如何正确传回输入">5. 分片之后，梯度如何正确传回输入</a></li>
-  <li><a href="#collective-如何接入-autograd" id="toc-collective-如何接入-autograd" class="nav-link" data-scroll-target="#collective-如何接入-autograd">6. Collective 如何接入 Autograd</a>
+  <li><a href="#attentiontransformer-block-的另一核心组件" id="toc-attentiontransformer-block-的另一核心组件" class="nav-link" data-scroll-target="#attentiontransformer-block-的另一核心组件"><span class="header-section-number">2.10</span> Attention：Transformer block 的另一核心组件</a>
   <ul class="collapse">
-  <li><a href="#自定义-torch.autograd.function" id="toc-自定义-torch.autograd.function" class="nav-link" data-scroll-target="#自定义-torch.autograd.function">6.1 自定义 torch.autograd.Function</a></li>
+  <li><a href="#qkv-按-head-切分" id="toc-qkv-按-head-切分" class="nav-link" data-scroll-target="#qkv-按-head-切分"><span class="header-section-number">2.10.1</span> Q/K/V 按 head 切分</a></li>
+  <li><a href="#output-projection-合并" id="toc-output-projection-合并" class="nav-link" data-scroll-target="#output-projection-合并"><span class="header-section-number">2.10.2</span> Output Projection 合并</a></li>
   </ul></li>
-  <li><a href="#attentiontransformer-block-的另一核心组件" id="toc-attentiontransformer-block-的另一核心组件" class="nav-link" data-scroll-target="#attentiontransformer-block-的另一核心组件">7. Attention：Transformer block 的另一核心组件</a>
+  <li><a href="#gqarope-和-norm" id="toc-gqarope-和-norm" class="nav-link" data-scroll-target="#gqarope-和-norm"><span class="header-section-number">2.11</span> GQA、RoPE 和 Norm</a>
   <ul class="collapse">
-  <li><a href="#qkv-按-head-切分" id="toc-qkv-按-head-切分" class="nav-link" data-scroll-target="#qkv-按-head-切分">7.1 Q/K/V 按 head 切分</a></li>
-  <li><a href="#output-projection-合并" id="toc-output-projection-合并" class="nav-link" data-scroll-target="#output-projection-合并">7.2 Output Projection 合并</a></li>
+  <li><a href="#gqa-不改变-tp-主体设计" id="toc-gqa-不改变-tp-主体设计" class="nav-link" data-scroll-target="#gqa-不改变-tp-主体设计"><span class="header-section-number">2.11.1</span> GQA 不改变 TP 主体设计</a></li>
+  <li><a href="#rope-不需要跨-rank-通信" id="toc-rope-不需要跨-rank-通信" class="nav-link" data-scroll-target="#rope-不需要跨-rank-通信"><span class="header-section-number">2.11.2</span> RoPE 不需要跨 rank 通信</a></li>
+  <li><a href="#sec-qk-norm-grad" id="toc-sec-qk-norm-grad" class="nav-link" data-scroll-target="#sec-qk-norm-grad"><span class="header-section-number">2.11.3</span> Q/K Norm 为什么需要梯度同步</a></li>
   </ul></li>
-  <li><a href="#gqarope-和-norm" id="toc-gqarope-和-norm" class="nav-link" data-scroll-target="#gqarope-和-norm">8. GQA、RoPE 和 Norm</a>
+  <li><a href="#tpcontext把通信范围和分片编号传给每一层" id="toc-tpcontext把通信范围和分片编号传给每一层" class="nav-link" data-scroll-target="#tpcontext把通信范围和分片编号传给每一层"><span class="header-section-number">2.12</span> TPContext：把通信范围和分片编号传给每一层</a></li>
+  <li><a href="#sec-tp-checkpoint-shard" id="toc-sec-tp-checkpoint-shard" class="nav-link" data-scroll-target="#sec-tp-checkpoint-shard"><span class="header-section-number">2.13</span> Dense Checkpoint 如何变成 TP Shard</a></li>
+  <li><a href="#sec-tp-validation" id="toc-sec-tp-validation" class="nav-link" data-scroll-target="#sec-tp-validation"><span class="header-section-number">2.14</span> 如何验证 TP 没有改变数值语义</a>
   <ul class="collapse">
-  <li><a href="#gqa-不改变-tp-主体设计" id="toc-gqa-不改变-tp-主体设计" class="nav-link" data-scroll-target="#gqa-不改变-tp-主体设计">8.1 GQA 不改变 TP 主体设计</a></li>
-  <li><a href="#rope-不需要跨-rank-通信" id="toc-rope-不需要跨-rank-通信" class="nav-link" data-scroll-target="#rope-不需要跨-rank-通信">8.2 RoPE 不需要跨 rank 通信</a></li>
-  <li><a href="#sec-qk-norm-grad" id="toc-sec-qk-norm-grad" class="nav-link" data-scroll-target="#sec-qk-norm-grad">8.3 Q/K Norm 为什么需要梯度同步</a></li>
+  <li><a href="#forward" id="toc-forward" class="nav-link" data-scroll-target="#forward"><span class="header-section-number">2.14.1</span> Forward</a></li>
+  <li><a href="#backward" id="toc-backward" class="nav-link" data-scroll-target="#backward"><span class="header-section-number">2.14.2</span> Backward</a></li>
+  <li><a href="#多步-adamw" id="toc-多步-adamw" class="nav-link" data-scroll-target="#多步-adamw"><span class="header-section-number">2.14.3</span> 多步 AdamW</a></li>
   </ul></li>
-  <li><a href="#tpcontext把通信范围和分片编号传给每一层" id="toc-tpcontext把通信范围和分片编号传给每一层" class="nav-link" data-scroll-target="#tpcontext把通信范围和分片编号传给每一层">9. TPContext：把通信范围和分片编号传给每一层</a></li>
-  <li><a href="#sec-tp-checkpoint-shard" id="toc-sec-tp-checkpoint-shard" class="nav-link" data-scroll-target="#sec-tp-checkpoint-shard">10. Dense Checkpoint 如何变成 TP Shard</a></li>
-  <li><a href="#sec-tp-validation" id="toc-sec-tp-validation" class="nav-link" data-scroll-target="#sec-tp-validation">11. 如何验证 TP 没有改变数值语义</a>
-  <ul class="collapse">
-  <li><a href="#forward" id="toc-forward" class="nav-link" data-scroll-target="#forward">11.1 Forward</a></li>
-  <li><a href="#backward" id="toc-backward" class="nav-link" data-scroll-target="#backward">11.2 Backward</a></li>
-  <li><a href="#多步-adamw" id="toc-多步-adamw" class="nav-link" data-scroll-target="#多步-adamw">11.3 多步 AdamW</a></li>
-  </ul></li>
-  <li><a href="#sec-tp-benchmark" id="toc-sec-tp-benchmark" class="nav-link" data-scroll-target="#sec-tp-benchmark">12. TP Benchmark</a></li>
-  </ul></li>
-  <li><a href="#part-iisequence-parallelism" id="toc-part-iisequence-parallelism" class="nav-link" data-scroll-target="#part-iisequence-parallelism">Part II：Sequence Parallelism</a>
-  <ul class="collapse">
-  <li><a href="#为什么需要-sequence-parallelism" id="toc-为什么需要-sequence-parallelism" class="nav-link" data-scroll-target="#为什么需要-sequence-parallelism">13. 为什么需要 Sequence Parallelism</a></li>
-  <li><a href="#sp-如何拆分完整的-hidden-states" id="toc-sp-如何拆分完整的-hidden-states" class="nav-link" data-scroll-target="#sp-如何拆分完整的-hidden-states">14. SP 如何拆分完整的 hidden states</a>
-  <ul class="collapse">
-  <li><a href="#all-reduce-可以拆成两个阶段" id="toc-all-reduce-可以拆成两个阶段" class="nav-link" data-scroll-target="#all-reduce-可以拆成两个阶段">14.1 All-Reduce 可以拆成两个阶段</a></li>
-  <li><a href="#完整数据流本地计算插入两个阶段之间" id="toc-完整数据流本地计算插入两个阶段之间" class="nav-link" data-scroll-target="#完整数据流本地计算插入两个阶段之间">14.2 完整数据流：本地计算插入两个阶段之间</a></li>
-  <li><a href="#通信开销是否因此增加" id="toc-通信开销是否因此增加" class="nav-link" data-scroll-target="#通信开销是否因此增加">14.3 通信开销是否因此增加？</a></li>
-  <li><a href="#sec-sp-layout" id="toc-sec-sp-layout" class="nav-link" data-scroll-target="#sec-sp-layout">14.4 落到实现中的 Tensor Layout</a></li>
-  </ul></li>
-  <li><a href="#sp-如何在两种-tensor-layout-之间切换" id="toc-sp-如何在两种-tensor-layout-之间切换" class="nav-link" data-scroll-target="#sp-如何在两种-tensor-layout-之间切换">15. SP 如何在两种 Tensor Layout 之间切换</a>
-  <ul class="collapse">
-  <li><a href="#sec-sp-entry" id="toc-sec-sp-entry" class="nav-link" data-scroll-target="#sec-sp-entry">15.1 一次性的入口：本地切分</a></li>
-  <li><a href="#sec-sp-enter-tp" id="toc-sec-sp-enter-tp" class="nav-link" data-scroll-target="#sec-sp-enter-tp">15.2 反复出现的循环（一）：All-Gather 进入 TP 区域</a></li>
-  <li><a href="#sec-sp-leave-tp" id="toc-sec-sp-leave-tp" class="nav-link" data-scroll-target="#sec-sp-leave-tp">15.3 反复出现的循环（二）：Reduce-Scatter 离开 TP 区域</a></li>
-  <li><a href="#完整循环all-gather-与-reduce-scatter-如何配合" id="toc-完整循环all-gather-与-reduce-scatter-如何配合" class="nav-link" data-scroll-target="#完整循环all-gather-与-reduce-scatter-如何配合">15.4 完整循环：All-Gather 与 Reduce-Scatter 如何配合</a></li>
-  <li><a href="#sec-sp-lm-head" id="toc-sec-sp-lm-head" class="nav-link" data-scroll-target="#sec-sp-lm-head">15.5 一次性的出口：All-Gather 进入 LM Head</a></li>
-  </ul></li>
-  <li><a href="#复制参数的梯度同步逻辑" id="toc-复制参数的梯度同步逻辑" class="nav-link" data-scroll-target="#复制参数的梯度同步逻辑">16. 复制参数的梯度同步逻辑</a>
-  <ul class="collapse">
-  <li><a href="#判断的核心标准" id="toc-判断的核心标准" class="nav-link" data-scroll-target="#判断的核心标准">16.1 判断的核心标准</a></li>
-  <li><a href="#需同步参数分类" id="toc-需同步参数分类" class="nav-link" data-scroll-target="#需同步参数分类">16.2 需同步参数分类</a></li>
-  </ul></li>
-  <li><a href="#sec-sp-block-lifecycle" id="toc-sec-sp-block-lifecycle" class="nav-link" data-scroll-target="#sec-sp-block-lifecycle">17. 一个 SP Transformer Block 的 Tensor 生命周期</a></li>
-  <li><a href="#sec-sp-benchmark" id="toc-sec-sp-benchmark" class="nav-link" data-scroll-target="#sec-sp-benchmark">18. 基础 SP Benchmark</a></li>
-  <li><a href="#sec-sp-memory-limit" id="toc-sec-sp-memory-limit" class="nav-link" data-scroll-target="#sec-sp-memory-limit">19. 为什么基础 SP 的显存收益有限</a>
-  <ul class="collapse">
-  <li><a href="#activation-理论减少量推导" id="toc-activation-理论减少量推导" class="nav-link" data-scroll-target="#activation-理论减少量推导">19.1 Activation 理论减少量推导</a></li>
-  <li><a href="#理论估算与实测对比" id="toc-理论估算与实测对比" class="nav-link" data-scroll-target="#理论估算与实测对比">19.2 理论估算与实测对比</a></li>
-  </ul></li>
-  <li><a href="#如何避免保存-full-sequence-activation" id="toc-如何避免保存-full-sequence-activation" class="nav-link" data-scroll-target="#如何避免保存-full-sequence-activation">20. 如何避免保存 Full-Sequence Activation</a>
-  <ul class="collapse">
-  <li><a href="#sec-tp-async" id="toc-sec-tp-async" class="nav-link" data-scroll-target="#sec-tp-async">20.1 普通 TP：异步 dgrad all-reduce</a></li>
-  <li><a href="#sec-sp-recompute" id="toc-sec-sp-recompute" class="nav-link" data-scroll-target="#sec-sp-recompute">20.2 SP：只保存 local shard</a></li>
-  </ul></li>
-  <li><a href="#sec-async-recompute-benchmark" id="toc-sec-async-recompute-benchmark" class="nav-link" data-scroll-target="#sec-async-recompute-benchmark">21. Async 与 Recompute Benchmark</a>
-  <ul class="collapse">
-  <li><a href="#普通-tpasync-能隐藏多少通信" id="toc-普通-tpasync-能隐藏多少通信" class="nav-link" data-scroll-target="#普通-tpasync-能隐藏多少通信">21.1 普通 TP：Async 能隐藏多少通信</a></li>
-  <li><a href="#sec-sp-recompute-result" id="toc-sec-sp-recompute-result" class="nav-link" data-scroll-target="#sec-sp-recompute-result">21.2 SP：Recompute 的时间—显存交换</a></li>
-  </ul></li>
-  </ul></li>
-  <li><a href="#part-iiivocab-parallelism" id="toc-part-iiivocab-parallelism" class="nav-link" data-scroll-target="#part-iiivocab-parallelism">Part III：Vocab Parallelism</a>
-  <ul class="collapse">
-  <li><a href="#为什么还需要-vocab-parallelism" id="toc-为什么还需要-vocab-parallelism" class="nav-link" data-scroll-target="#为什么还需要-vocab-parallelism">22. 为什么还需要 Vocab Parallelism</a></li>
-  <li><a href="#vp-的模型边界" id="toc-vp-的模型边界" class="nav-link" data-scroll-target="#vp-的模型边界">23. VP 的模型边界</a>
-  <ul class="collapse">
-  <li><a href="#vocab-parallel-embedding" id="toc-vocab-parallel-embedding" class="nav-link" data-scroll-target="#vocab-parallel-embedding">23.1 Vocab Parallel Embedding</a></li>
-  <li><a href="#vocab-parallel-lm-head" id="toc-vocab-parallel-lm-head" class="nav-link" data-scroll-target="#vocab-parallel-lm-head">23.2 Vocab Parallel LM Head</a></li>
-  </ul></li>
-  <li><a href="#sec-vp-ce" id="toc-sec-vp-ce" class="nav-link" data-scroll-target="#sec-vp-ce">24. Vocab Parallel Cross Entropy</a>
-  <ul class="collapse">
-  <li><a href="#forward不恢复完整-logits" id="toc-forward不恢复完整-logits" class="nav-link" data-scroll-target="#forward不恢复完整-logits">24.1 Forward：不恢复完整 Logits</a></li>
-  <li><a href="#backward本地无分支更新" id="toc-backward本地无分支更新" class="nav-link" data-scroll-target="#backward本地无分支更新">24.2 Backward：本地无分支更新</a></li>
-  <li><a href="#ignore_index" id="toc-ignore_index" class="nav-link" data-scroll-target="#ignore_index">24.3 ignore_index</a></li>
-  </ul></li>
-  <li><a href="#sec-vp-benefit" id="toc-sec-vp-benefit" class="nav-link" data-scroll-target="#sec-vp-benefit">25. 收益验证</a></li>
-  </ul></li>
-  <li><a href="#part-iv统一-benchmark限制与源码索引" id="toc-part-iv统一-benchmark限制与源码索引" class="nav-link" data-scroll-target="#part-iv统一-benchmark限制与源码索引">Part IV：统一 Benchmark、限制与源码索引</a>
-  <ul class="collapse">
-  <li><a href="#sec-unified-benchmark" id="toc-sec-unified-benchmark" class="nav-link" data-scroll-target="#sec-unified-benchmark">26. 统一 Benchmark</a>
-  <ul class="collapse">
-  <li><a href="#sec-tp-memory" id="toc-sec-tp-memory" class="nav-link" data-scroll-target="#sec-tp-memory">26.1 显存降低</a></li>
-  <li><a href="#sec-tp-throughput" id="toc-sec-tp-throughput" class="nav-link" data-scroll-target="#sec-tp-throughput">26.2 吞吐</a></li>
-  </ul></li>
-  <li><a href="#当前限制与源码索引" id="toc-当前限制与源码索引" class="nav-link" data-scroll-target="#当前限制与源码索引">26. 当前限制与源码索引</a></li>
-  </ul></li>
+  <li><a href="#sec-tp-benchmark" id="toc-sec-tp-benchmark" class="nav-link" data-scroll-target="#sec-tp-benchmark"><span class="header-section-number">2.15</span> TP Benchmark</a></li>
   </ul>
 <div class="toc-actions"><ul><li><a href="https://github.com/ANKer661/minimind-tron/edit/main/book/src/tensor_parallel.qmd" class="toc-action"><i class="bi bi-github"></i>编辑该页面</a></li><li><a href="https://github.com/ANKer661/minimind-tron/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></nav>
     </div>
 <!-- main -->
 <main class="content" id="quarto-document-content">
 
-<header id="title-block-header" class="quarto-title-block default">
+<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../src/tensor_parallel.html">从 MiniMind 到 Tensor、Sequence 与 Vocab Parallelism</a></li><li class="breadcrumb-item"><a href="../src/tensor_parallel.html"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Tensor Parallelism</span></a></li></ol></nav>
 <div class="quarto-title">
-<h1 class="title"><span class="chapter-title">从 MiniMind 到 Tensor、Sequence 与 Vocab Parallelism</span></h1>
+<h1 class="title"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Tensor Parallelism</span></h1>
 </div>
 
 
@@ -342,32 +311,31 @@ window.Quarto = {
 
 <p>Dense Transformer 将每一层的完整参数、激活和优化器状态都放在同一张 GPU 上。随着 hidden size、intermediate size 和词表不断增大，单卡显存首先成为限制；即使增加 GPU，如果每张卡仍保存一份完整模型，也无法容纳更大的单层。</p>
 <p>本教程从最基础的两层 MLP 出发，逐步推导出三种并行策略：<strong>Tensor Parallelism</strong>把权重切到多张 GPU 上；<strong>Sequence Parallelism</strong>在 TP 的基础上进一步切分激活值；<strong>Vocab Parallelism</strong>切分随词表增长的 embedding、LM head 和 logits。三者可以叠加，彼此正交。</p>
-<section id="全局路线图" class="level2">
-<h2 class="anchored" data-anchor-id="全局路线图">全局路线图</h2>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>Part I   Tensor Parallelism 基础</span>
+<section id="全局路线图" class="level2" data-number="2.1">
+<h2 data-number="2.1" class="anchored" data-anchor-id="全局路线图"><span class="header-section-number">2.1</span> 全局路线图</h2>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>Tensor Parallelism 基础</span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>         把同一层的权重切到多张 GPU，从两层 MLP 找到切分规律，</span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>         再推广到 Attention。讲完就用 Dense 模型做数值验证，</span>
 <span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>         紧接着是 TP 的显存<span class="op">/</span>吞吐 benchmark。</span>
 <span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>Part II  Sequence Parallelism</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>Sequence Parallelism</span>
 <span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>         TP 切开了权重，但 RMSNorm <span class="op">/</span> Dropout <span class="op">/</span> residual 这些逐 token</span>
 <span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>         操作，每张卡还在重复算同一份完整数据。SP 把这部分也切开。</span>
 <span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>         讲完同样先验证数值正确性，再看 SP 相比纯 TP 的额外收益。</span>
 <span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>Part III Vocab Parallelism</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>Vocab Parallelism</span>
 <span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>         embedding、LM head 和 logits 随词表大小增长，独立于 TP<span class="op">/</span>SP</span>
 <span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>         已经切分的部分继续占用显存，VP 沿词表维度切分它们。</span>
 <span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>         讲完看 VP 的显存收益。</span>
 <span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>Part IV  统一 Benchmark、限制与源码索引</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>统一 Benchmark、限制与源码索引</span>
 <span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>         在一致条件下比较 TP <span class="op">/</span> SP <span class="op">/</span> VP 的显存和训练时间，</span>
 <span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>         再列出当前实现的边界条件和源码索引。</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>TP 决定”权重怎么切”，SP 决定”激活值怎么切”，VP 决定”词表怎么切”。读完 Part I 之后，Part II 和 Part III 都是在问同一个问题——“TP 还没切到的地方，显存占用能不能继续降下去”——只是对象不同。</p>
-<p>每个 Part 在对应位置保留一个 <strong>Benchmark</strong> 占位，用来记录它需要回答的局部问题；最终数据、图表和结论统一放到 Part IV。</p>
+<p>TP 决定”权重怎么切”，SP 决定”激活值怎么切”，VP 决定”词表怎么切”。读完 Tensor Parallelism 之后，后面的 SP 和 VP 都是在问同一个问题：“TP 还没切到的地方，显存占用能不能继续降下去”。</p>
 <hr>
 </section>
-<section id="记号表" class="level2">
-<h2 class="anchored" data-anchor-id="记号表">记号表</h2>
+<section id="记号表" class="level2" data-number="2.2">
+<h2 data-number="2.2" class="anchored" data-anchor-id="记号表"><span class="header-section-number">2.2</span> 记号表</h2>
 <p>推导过程会反复使用下面这组符号。第一次看到某个符号时不必强记，可以随时回来查表。</p>
 <table class="caption-top table">
 <thead>
@@ -454,8 +422,8 @@ window.Quarto = {
 </blockquote>
 <hr>
 </section>
-<section id="通信原语速查" class="level1">
-<h1>通信原语速查</h1>
+<section id="通信原语速查" class="level2" data-number="2.3">
+<h2 data-number="2.3" class="anchored" data-anchor-id="通信原语速查"><span class="header-section-number">2.3</span> 通信原语速查</h2>
 <p>在进入任何推导之前，先认识本教程反复使用的三种 collective。它们都不改变数据的”总量”，只改变数据在多张卡之间的分布方式。</p>
 <p>下面用 4 个格子 <code>[a, b, c, d]</code> 在 2 张卡（rank 0 / rank 1）间分布举例，比抽象的 shape 更容易建立直觉。</p>
 <div class="cell" data-layout-align="default">
@@ -479,8 +447,8 @@ window.Quarto = {
 <blockquote class="blockquote">
 <p>全文的图统一约定：<strong>橙色方框 = 通信操作（跨卡）</strong>，<strong>蓝色方框 = 本地计算（不跨卡）</strong>。扫一眼颜色就能看出数据流里哪一步需要等待网络、哪一步只是本地 GEMM。</p>
 </blockquote>
-<section id="collective-all-gather" class="level2">
-<h2 class="anchored" data-anchor-id="collective-all-gather">All-Gather：每人一份，拼成完整</h2>
+<section id="collective-all-gather" class="level3" data-number="2.3.1">
+<h3 data-number="2.3.1" class="anchored" data-anchor-id="collective-all-gather"><span class="header-section-number">2.3.1</span> All-Gather：每人一份，拼成完整</h3>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>rank <span class="dv">0</span> 持有：  [a, b]</span>
 <span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>rank <span class="dv">1</span> 持有：  [c, d]</span>
 <span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
@@ -512,8 +480,8 @@ window.Quarto = {
 </div>
 <p>All-Gather 会 rank 搬运数据：每个 rank 提供自己的 shard，最后每个 rank 都得到按顺序拼接后的完整 tensor。</p>
 </section>
-<section id="all-reduce每人一部分操作后大家都一样" class="level2">
-<h2 class="anchored" data-anchor-id="all-reduce每人一部分操作后大家都一样">All-Reduce：每人一部分，操作后大家都一样</h2>
+<section id="all-reduce每人一部分操作后大家都一样" class="level3" data-number="2.3.2">
+<h3 data-number="2.3.2" class="anchored" data-anchor-id="all-reduce每人一部分操作后大家都一样"><span class="header-section-number">2.3.2</span> All-Reduce：每人一部分，操作后大家都一样</h3>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>rank <span class="dv">0</span> 持有部分和：  P0 <span class="op">=</span> [<span class="dv">1</span>, <span class="dv">2</span>]</span>
 <span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>rank <span class="dv">1</span> 持有部分和：  P1 <span class="op">=</span> [<span class="dv">3</span>, <span class="dv">4</span>]</span>
 <span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a></span>
@@ -545,8 +513,8 @@ window.Quarto = {
 </div>
 <p>每个 rank 手上的 <span class="math inline">\(P_t\)</span> 只是”最终结果”的一部分贡献，单独看是不完整、不正确的， 只有把所有 rank 的部分贡献组合起来，才是真正的答案，除了 SUM 也可以有其他操作如 MAX。</p>
 </section>
-<section id="collective-reduce-scatter" class="level2">
-<h2 class="anchored" data-anchor-id="collective-reduce-scatter">Reduce-Scatter：求和 + 切分一步做完</h2>
+<section id="collective-reduce-scatter" class="level3" data-number="2.3.3">
+<h3 data-number="2.3.3" class="anchored" data-anchor-id="collective-reduce-scatter"><span class="header-section-number">2.3.3</span> Reduce-Scatter：求和 + 切分一步做完</h3>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>rank <span class="dv">0</span> 持有部分和：  P0 <span class="op">=</span> [<span class="dv">1</span>, <span class="dv">2</span>, <span class="dv">3</span>, <span class="dv">4</span>]</span>
 <span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>rank <span class="dv">1</span> 持有部分和：  P1 <span class="op">=</span> [<span class="dv">5</span>, <span class="dv">6</span>, <span class="dv">7</span>, <span class="dv">8</span>]</span>
 <span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a></span>
@@ -581,8 +549,8 @@ window.Quarto = {
 </div>
 <p>从数学结果看，它等价于先执行 All-Reduce，再由每个 rank 在本地保留规约结果中属于自己的 shard。Reduce-Scatter 把求和与结果分发合并成一次 collective，避免先让所有 rank 得到完整结果、再丢掉其中大部分。</p>
 </section>
-<section id="三种原语一览" class="level2">
-<h2 class="anchored" data-anchor-id="三种原语一览">三种原语一览</h2>
+<section id="三种原语一览" class="level3" data-number="2.3.4">
+<h3 data-number="2.3.4" class="anchored" data-anchor-id="三种原语一览"><span class="header-section-number">2.3.4</span> 三种原语一览</h3>
 <table class="caption-top table">
 <colgroup>
 <col style="width: 25%">
@@ -621,13 +589,11 @@ window.Quarto = {
 </table>
 <p>后面每次在图里看到橙色方框，都可以回到这张表核对：输入是 shard 还是部分贡献，输出是完整 tensor 还是规约结果的 shard。</p>
 <hr>
-</section>
-</section>
-<section id="part-itensor-parallelism" class="level1">
-<h1>Part I：Tensor Parallelism</h1>
 <p>Tensor Parallelism（TP）的出发点是把同一层的权重切到多张 GPU 上，让每个 rank 只完成一部分矩阵乘，再通过通信还原与 Dense 层相同的结果。这部分先从最简单的两层 MLP 找到 TP 的切分规律，再逐步推广到 Attention，最后落到 MiniMind 的实现、数值验证与 benchmark。</p>
-<section id="从两层-mlp-开始" class="level2">
-<h2 class="anchored" data-anchor-id="从两层-mlp-开始">1. 从两层 MLP 开始</h2>
+</section>
+</section>
+<section id="从两层-mlp-开始" class="level2" data-number="2.4">
+<h2 data-number="2.4" class="anchored" data-anchor-id="从两层-mlp-开始"><span class="header-section-number">2.4</span> 从两层 MLP 开始</h2>
 <p>本章的原理推导统一采用数学记号：</p>
 <p><span class="math display">\[
 Y=XW.
@@ -661,10 +627,10 @@ W_{1,0} &amp; W_{1,1}
 \end{bmatrix}.
 \]</span></p>
 </section>
-<section id="如何切w1" class="level2">
-<h2 class="anchored" data-anchor-id="如何切w1">2. 如何切W1</h2>
-<section id="上下切-w1非线性前需要同步" class="level3">
-<h3 class="anchored" data-anchor-id="上下切-w1非线性前需要同步">2.1 上下切 W1：非线性前需要同步</h3>
+<section id="如何切w1" class="level2" data-number="2.5">
+<h2 data-number="2.5" class="anchored" data-anchor-id="如何切w1"><span class="header-section-number">2.5</span> 如何切W1</h2>
+<section id="上下切-w1非线性前需要同步" class="level3" data-number="2.5.1">
+<h3 data-number="2.5.1" class="anchored" data-anchor-id="上下切-w1非线性前需要同步"><span class="header-section-number">2.5.1</span> 上下切 W1：非线性前需要同步</h3>
 <p><span class="math inline">\(W_1:[H,I]\)</span> 上下切时，输入 <span class="math inline">\(X\)</span> 也左右切开：</p>
 <p><span class="math display">\[
 W_1=
@@ -688,8 +654,8 @@ Z=XW_1=X_0W_{1,0}+X_1W_{1,1}=P_0+P_1.
 \]</span></p>
 <p>因此必须先对 <code>[S,B,I]</code> 的 <span class="math inline">\(P_0,P_1\)</span> 做 all-reduce，再执行 activation。同步之后，每个 rank 都保存完整 intermediate。</p>
 </section>
-<section id="左右切-w1activation-保持分片" class="level3">
-<h3 class="anchored" data-anchor-id="左右切-w1activation-保持分片">2.2 左右切 W1：activation 保持分片</h3>
+<section id="左右切-w1activation-保持分片" class="level3" data-number="2.5.2">
+<h3 data-number="2.5.2" class="anchored" data-anchor-id="左右切-w1activation-保持分片"><span class="header-section-number">2.5.2</span> 左右切 W1：activation 保持分片</h3>
 <p><span class="math inline">\(W_1\)</span> 左右切时，每个 rank 使用完整 <span class="math inline">\(X\)</span> 计算一部分 intermediate：</p>
 <p><span class="math display">\[
 W_1=
@@ -718,8 +684,8 @@ A_0 &amp; A_1
 <p>这条路径在 activation 前不需要通信，每个 rank 只保存 <code>[S,B,I/2]</code>。因此第一层选择左右切。</p>
 </section>
 </section>
-<section id="分片的-activation-如何进入第二层" class="level2">
-<h2 class="anchored" data-anchor-id="分片的-activation-如何进入第二层">3. 分片的 activation 如何进入第二层</h2>
+<section id="分片的-activation-如何进入第二层" class="level2" data-number="2.6">
+<h2 data-number="2.6" class="anchored" data-anchor-id="分片的-activation-如何进入第二层"><span class="header-section-number">2.6</span> 分片的 activation 如何进入第二层</h2>
 <p>左右切 <span class="math inline">\(W_1\)</span> 后，两个 rank 分别持有 <span class="math inline">\(A_0\)</span>、<span class="math inline">\(A_1\)</span>。如果将 <span class="math inline">\(W_2\)</span> 上下切开，那么第二层可以直接消费这两个 shard：</p>
 <p><span class="math display">\[
 W_2=
@@ -785,8 +751,8 @@ W_{2,1}
 </div>
 <p>整个 forward 只在 MLP 末尾通信一次 <code>[S,B,H]</code>。</p>
 </section>
-<section id="sec-tp-linear" class="level2">
-<h2 class="anchored" data-anchor-id="sec-tp-linear">4. Column Parallel 与 Row Parallel</h2>
+<section id="sec-tp-linear" class="level2" data-number="2.7">
+<h2 data-number="2.7" class="anchored" data-anchor-id="sec-tp-linear"><span class="header-section-number">2.7</span> Column Parallel 与 Row Parallel</h2>
 <p>在 <span class="math inline">\(Y=XW\)</span> 的约定下，<span class="math inline">\(W\)</span>的形状是 <code>[in_features, out_features]</code>，因此：</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>左右切权重：Column Parallel</span>
 <span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>上下切权重：Row Parallel</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
@@ -812,8 +778,8 @@ Y=P_0+P_1+b_2,
 <p>至此，两层 MLP 的 forward 已经与 Dense 模型等价：输入和输出在各 rank 上保持完整，中间的参数与 activation 被切分，整个 forward 只需在 Row Parallel 输出处执行一次 all-reduce。</p>
 <p>但训练不能只保证 forward 等价。接下来还需要检查，梯度能否沿着这条分片路径正确传回输入。</p>
 </section>
-<section id="分片之后梯度如何正确传回输入" class="level2">
-<h2 class="anchored" data-anchor-id="分片之后梯度如何正确传回输入">5. 分片之后，梯度如何正确传回输入</h2>
+<section id="分片之后梯度如何正确传回输入" class="level2" data-number="2.8">
+<h2 data-number="2.8" class="anchored" data-anchor-id="分片之后梯度如何正确传回输入"><span class="header-section-number">2.8</span> 分片之后，梯度如何正确传回输入</h2>
 <p>Forward 与 Dense MLP 等价，还不足以保证训练正确；backward 还必须让梯度沿分片路径正确传回，并恢复与 Dense 模型相同的输入梯度。先从每个 rank 都相同的 <span class="math inline">\(\mathrm{d}Y\)</span> 开始。由</p>
 <p><span class="math display">\[
 Y=A_0W_{2,0}+A_1W_{2,1}
@@ -884,8 +850,8 @@ W_{1,1}^{\mathsf T}
 <p>可以看到 Column 和 Row 需要的操作是对偶的：col前向 copy 反向 all-reduce，row 前向 all-reduce 反向 copy。</p>
 <p>这样切分总体的通信只需要前向一次，反向一次。</p>
 </section>
-<section id="collective-如何接入-autograd" class="level2">
-<h2 class="anchored" data-anchor-id="collective-如何接入-autograd">6. Collective 如何接入 Autograd</h2>
+<section id="collective-如何接入-autograd" class="level2" data-number="2.9">
+<h2 data-number="2.9" class="anchored" data-anchor-id="collective-如何接入-autograd"><span class="header-section-number">2.9</span> Collective 如何接入 Autograd</h2>
 <p>前面的推导只需要两种跨 TP 区域的 autograd 算子：</p>
 <table class="caption-top table">
 <colgroup>
@@ -918,8 +884,8 @@ W_{1,1}^{\mathsf T}
 </tbody>
 </table>
 <p>前一个算子在 forward 中只是把每个 rank 已有的相同输入原样交给 Column Parallel；反向时，各权重 shard 产生的 <span class="math inline">\(\mathrm{d}X_t\)</span> 必须求和。后一个算子在 forward 中求和得到完整输出；反向时，每个 rank 直接使用相同的 <span class="math inline">\(\mathrm{d}Y\)</span> 计算自己的 activation-gradient shard。</p>
-<section id="自定义-torch.autograd.function" class="level3">
-<h3 class="anchored" data-anchor-id="自定义-torch.autograd.function">6.1 自定义 torch.autograd.Function</h3>
+<section id="自定义-torch.autograd.function" class="level3" data-number="2.9.1">
+<h3 data-number="2.9.1" class="anchored" data-anchor-id="自定义-torch.autograd.function"><span class="header-section-number">2.9.1</span> 自定义 torch.autograd.Function</h3>
 <p>自定义 <code>torch.autograd.Function</code> 的关键接口是：</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> CustomFunction(torch.autograd.Function):</span>
 <span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>    <span class="at">@staticmethod</span></span>
@@ -951,8 +917,8 @@ W_{1,1}^{\mathsf T}
 <p>当前实现位于 <code>model/tensor_parallel_mappings.py</code> 中的 <code>CopyToModelParallelRegion</code> 和 <code>ReduceFromModelParallelRegion</code>。</p>
 </section>
 </section>
-<section id="attentiontransformer-block-的另一核心组件" class="level2">
-<h2 class="anchored" data-anchor-id="attentiontransformer-block-的另一核心组件">7. Attention：Transformer block 的另一核心组件</h2>
+<section id="attentiontransformer-block-的另一核心组件" class="level2" data-number="2.10">
+<h2 data-number="2.10" class="anchored" data-anchor-id="attentiontransformer-block-的另一核心组件"><span class="header-section-number">2.10</span> Attention：Transformer block 的另一核心组件</h2>
 <p>只切 MLP 还不能切分完整的 Transformer block。另一个主要参数和计算来源是 Attention，它的 Dense 数据流可以概括为：</p>
 <div class="cell" data-layout-align="default">
 <div class="cell-output-display">
@@ -993,8 +959,8 @@ W_{1,1}^{\mathsf T}
 <span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> 保持 attention output 分片</span>
 <span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> 通过 output projection 合并</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>这条路径能否成立，取决于 Q/K/V projection 的 output shard 是否恰好对应若干完整的 head。下面先从 tensor shape 检查这一点。</p>
-<section id="qkv-按-head-切分" class="level3">
-<h3 class="anchored" data-anchor-id="qkv-按-head-切分">7.1 Q/K/V 按 head 切分</h3>
+<section id="qkv-按-head-切分" class="level3" data-number="2.10.1">
+<h3 data-number="2.10.1" class="anchored" data-anchor-id="qkv-按-head-切分"><span class="header-section-number">2.10.1</span> Q/K/V 按 head 切分</h3>
 <p>设 Query head 数为 <span class="math inline">\(N_q\)</span>，KV head 数为 <span class="math inline">\(N_{kv}\)</span>，每个 head 的维度为 <span class="math inline">\(D\)</span>，TP size 为 <span class="math inline">\(T\)</span>。Dense Q/K/V projection 的输出形状分别是：</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>Q: [S,B,N_q D]</span>
 <span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>K: [S,B,N_kv D]</span>
@@ -1038,8 +1004,8 @@ W_{1,1}^{\mathsf T}
 </ul>
 <p>这些操作只在单个 head 内发生，不依赖其他 rank 上的 head，因此 Attention 计算本身不需要跨 rank 通信。</p>
 </section>
-<section id="output-projection-合并" class="level3">
-<h3 class="anchored" data-anchor-id="output-projection-合并">7.2 Output Projection 合并</h3>
+<section id="output-projection-合并" class="level3" data-number="2.10.2">
+<h3 data-number="2.10.2" class="anchored" data-anchor-id="output-projection-合并"><span class="header-section-number">2.10.2</span> Output Projection 合并</h3>
 <p>先看单卡上的 Dense Attention。设第 <span class="math inline">\(h\)</span> 个 head 的输出为 <span class="math inline">\(C_h\)</span>，形状为 <code>[S, B, D]</code>。所有 heads 沿最后一维拼接：</p>
 <p><span class="math display">\[
 C=
@@ -1149,10 +1115,10 @@ Y=P_0+P_1.
 </div>
 </section>
 </section>
-<section id="gqarope-和-norm" class="level2">
-<h2 class="anchored" data-anchor-id="gqarope-和-norm">8. GQA、RoPE 和 Norm</h2>
-<section id="gqa-不改变-tp-主体设计" class="level3">
-<h3 class="anchored" data-anchor-id="gqa-不改变-tp-主体设计">8.1 GQA 不改变 TP 主体设计</h3>
+<section id="gqarope-和-norm" class="level2" data-number="2.11">
+<h2 data-number="2.11" class="anchored" data-anchor-id="gqarope-和-norm"><span class="header-section-number">2.11</span> GQA、RoPE 和 Norm</h2>
+<section id="gqa-不改变-tp-主体设计" class="level3" data-number="2.11.1">
+<h3 data-number="2.11.1" class="anchored" data-anchor-id="gqa-不改变-tp-主体设计"><span class="header-section-number">2.11.1</span> GQA 不改变 TP 主体设计</h3>
 <p>MiniMind 默认：</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>num_attention_heads <span class="op">=</span> <span class="dv">8</span></span>
 <span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>num_key_value_heads <span class="op">=</span> <span class="dv">4</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
@@ -1162,12 +1128,12 @@ Y=P_0+P_1.
 <span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>num_key_value_heads <span class="op">%</span> tp_size <span class="op">==</span> <span class="dv">0</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>每个 rank 就能同时持有一部分 Q heads 和 KV heads，并在本地完成 <code>repeat_kv</code>。</p>
 </section>
-<section id="rope-不需要跨-rank-通信" class="level3">
-<h3 class="anchored" data-anchor-id="rope-不需要跨-rank-通信">8.2 RoPE 不需要跨 rank 通信</h3>
+<section id="rope-不需要跨-rank-通信" class="level3" data-number="2.11.2">
+<h3 data-number="2.11.2" class="anchored" data-anchor-id="rope-不需要跨-rank-通信"><span class="header-section-number">2.11.2</span> RoPE 不需要跨 rank 通信</h3>
 <p>RoPE 是 per-head 操作。每个 rank 对自己的 local Q/K heads 使用相同位置编码即可。</p>
 </section>
-<section id="sec-qk-norm-grad" class="level3">
-<h3 class="anchored" data-anchor-id="sec-qk-norm-grad">8.3 Q/K Norm 为什么需要梯度同步</h3>
+<section id="sec-qk-norm-grad" class="level3" data-number="2.11.3">
+<h3 data-number="2.11.3" class="anchored" data-anchor-id="sec-qk-norm-grad"><span class="header-section-number">2.11.3</span> Q/K Norm 为什么需要梯度同步</h3>
 <p>Q/K Norm 权重只包含 <code>head_dim</code> 个参数，并在 TP ranks 间复制。</p>
 <p>但每个 rank 处理不同 heads，因此各 rank 得到的参数梯度只是部分贡献。需要：</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>q_norm.weight.grad: <span class="bu">all</span><span class="op">-</span><span class="bu">reduce</span> <span class="bu">sum</span></span>
@@ -1176,8 +1142,8 @@ Y=P_0+P_1.
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb19"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>param.register_hook(<span class="kw">lambda</span> grad: _reduce(grad, group))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </section>
 </section>
-<section id="tpcontext把通信范围和分片编号传给每一层" class="level2">
-<h2 class="anchored" data-anchor-id="tpcontext把通信范围和分片编号传给每一层">9. TPContext：把通信范围和分片编号传给每一层</h2>
+<section id="tpcontext把通信范围和分片编号传给每一层" class="level2" data-number="2.12">
+<h2 data-number="2.12" class="anchored" data-anchor-id="tpcontext把通信范围和分片编号传给每一层"><span class="header-section-number">2.12</span> TPContext：把通信范围和分片编号传给每一层</h2>
 <p>前面的推导一直使用 rank 0 和 rank 1，默认它们共同组成一个 TP group。落到实现中，Column Parallel 和 Row Parallel 的每一层都需要知道两件事：</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb20"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>这次 collective 应该和哪些 rank 通信？</span>
 <span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>当前进程持有第几个权重 shard？</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
@@ -1194,8 +1160,8 @@ Y=P_0+P_1.
 <p>即使此时 TP group 恰好等于 WORLD group，并行层仍显式使用 <code>TPContext.group</code>。这样扩展到多个 TP group 时，层内通信不需要改变。</p>
 <p>当前实现位于 <code>model/tensor_parallel_layers.py</code> 中的 <code>TPContext</code>。</p>
 </section>
-<section id="sec-tp-checkpoint-shard" class="level2">
-<h2 class="anchored" data-anchor-id="sec-tp-checkpoint-shard">10. Dense Checkpoint 如何变成 TP Shard</h2>
+<section id="sec-tp-checkpoint-shard" class="level2" data-number="2.13">
+<h2 data-number="2.13" class="anchored" data-anchor-id="sec-tp-checkpoint-shard"><span class="header-section-number">2.13</span> Dense Checkpoint 如何变成 TP Shard</h2>
 <p>并行模型知道怎样保存 shard，但已有 checkpoint 通常仍由 Dense 模型产生。要让加载后的第 <span class="math inline">\(t\)</span> 个 rank 恰好持有推导中的第 <span class="math inline">\(t\)</span> 个权重块，需要把数学上的左右/上下切分映射到 PyTorch 的参数布局。</p>
 <p>加载时根据参数名称切片：</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb23"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a>q<span class="op">/</span>k<span class="op">/</span>v<span class="op">/</span>gate<span class="op">/</span>up weight: dim<span class="op">=</span><span class="dv">0</span></span>
@@ -1242,8 +1208,8 @@ Y=P_0+P_1.
 <span id="cb25-31"><a href="#cb25-31" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> tp_state_dict</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>每个 shard 在加载前调用 <code>.contiguous()</code>，避免 chunk 得到的 view 不满足后续 kernel 或 collective 的连续内存要求。</p>
 </section>
-<section id="sec-tp-validation" class="level2">
-<h2 class="anchored" data-anchor-id="sec-tp-validation">11. 如何验证 TP 没有改变数值语义</h2>
+<section id="sec-tp-validation" class="level2" data-number="2.14">
+<h2 data-number="2.14" class="anchored" data-anchor-id="sec-tp-validation"><span class="header-section-number">2.14</span> 如何验证 TP 没有改变数值语义</h2>
 <p>分布式程序能够运行、tensor shape 正确，并不代表它与 Dense 模型等价。Shard 顺序、bias 位置或 backward 中漏掉一次求和，都可能让程序在不报错的情况下产生错误结果。因此，性能测试之前必须先把 TP 与 Dense 放在相同条件下逐层对齐。</p>
 <p>验证分成三个层次：</p>
 <pre class="text"><code>Forward：
@@ -1254,7 +1220,7 @@ Backward：
 
 多步 AdamW：
   微小浮点误差经过 optimizer state 累积后是否出现系统性发散</code></pre>
-<p>脚本同时构造 Dense MiniMind 和 TP MiniMind。Dense 模型的完整参数通过 <a href="#sec-tp-checkpoint-shard">§10</a> 的规则切成各 rank 所需的 shard，并保证两者使用相同输入、labels 和初始权重。为了减少 fused kernel 的额外数值差异并排除 dropout 的随机性，验证固定使用：</p>
+<p>脚本同时构造 Dense MiniMind 和 TP MiniMind。Dense 模型的完整参数通过 <a href="#sec-tp-checkpoint-shard" class="quarto-xref"><span>小节 2.13</span></a> 中的规则切成各 rank 所需的 shard，并保证两者使用相同输入、labels 和初始权重。为了减少 fused kernel 的额外数值差异并排除 dropout 的随机性，验证固定使用：</p>
 <pre class="text"><code>dropout = 0
 flash_attn = False
 dtype = float32</code></pre>
@@ -1272,8 +1238,8 @@ dtype = float32</code></pre>
 <span id="cb28-11"><a href="#cb28-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dtype</span> float32 <span class="dt">\</span></span>
 <span id="cb28-12"><a href="#cb28-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">--optimizer_steps</span> 200 <span class="dt">\</span></span>
 <span id="cb28-13"><a href="#cb28-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">--log_interval</span> 20</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<section id="forward" class="level3">
-<h3 class="anchored" data-anchor-id="forward">11.1 Forward</h3>
+<section id="forward" class="level3" data-number="2.14.1">
+<h3 data-number="2.14.1" class="anchored" data-anchor-id="forward"><span class="header-section-number">2.14.1</span> Forward</h3>
 <p>Forward 首先比较最终 logits 和 loss：</p>
 <pre class="text"><code>logits：
   检查每个 token、每个 vocab 位置的最大绝对误差
@@ -1282,10 +1248,10 @@ loss：
   检查完整输出经过 loss reduction 后是否仍然一致</code></pre>
 <pre class="text"><code>forward max logits diff: 6.556511e-07
 forward loss diff:       0.000000e+00</code></pre>
-<p>logits 的最大误差约为 <span class="math inline">\(6.6\times10^{-7}\)</span>，loss 差异在当前打印精度下为零。这里不要求 bitwise identical：TP 改变了部分矩阵乘和 collective 中的浮点运算顺序，最后几位出现差异是正常的。这个结果说明 <a href="#sec-tp-linear">§4</a> 中的权重切分以及 Attention 中的 head 切分在 forward 结束时重新组成了与 Dense 一致的输出。</p>
+<p>logits 的最大误差约为 <span class="math inline">\(6.6\times10^{-7}\)</span>，loss 差异在当前打印精度下为零。这里不要求 bitwise identical：TP 改变了部分矩阵乘和 collective 中的浮点运算顺序，最后几位出现差异是正常的。这个结果说明 <a href="#sec-tp-linear" class="quarto-xref"><span>小节 2.7</span></a> 中的权重切分以及 Attention 中的 head 切分在 forward 结束时重新组成了与 Dense 一致的输出。</p>
 </section>
-<section id="backward" class="level3">
-<h3 class="anchored" data-anchor-id="backward">11.2 Backward</h3>
+<section id="backward" class="level3" data-number="2.14.2">
+<h3 data-number="2.14.2" class="anchored" data-anchor-id="backward"><span class="header-section-number">2.14.2</span> Backward</h3>
 <p>Forward 对齐还不够。Collective 的 backward 是否正确、Column 与 Row Parallel 的梯度该在哪一维比较，以及复制参数是否同步，需要能通过 backward 暴露出来。</p>
 <p>不同参数使用不同的参考：</p>
 <pre class="text"><code>Column Parallel 参数：
@@ -1375,10 +1341,10 @@ Row Parallel 参数：
 </table>
 <p>所有参数中的最大梯度绝对误差为：</p>
 <pre class="text"><code>backward max grad diff: 2.817251e-08</code></pre>
-<p>Column shard、Row shard 和复制参数三类梯度都与对应的 Dense 参考对齐，relative L2 error 约为 <span class="math inline">\(10^{-6}\)</span>。特别是 Q/K Norm：参数本身虽然复制在各 rank 上，但每个 rank 只处理 local heads；它的梯度能够对齐，说明 <a href="#sec-qk-norm-grad">§8.3</a> 中额外的梯度求和没有遗漏。</p>
+<p>Column shard、Row shard 和复制参数三类梯度都与对应的 Dense 参考对齐，relative L2 error 约为 <span class="math inline">\(10^{-6}\)</span>。特别是 Q/K Norm：参数本身虽然复制在各 rank 上，但每个 rank 只处理 local heads；它的梯度能够对齐，说明 <a href="#sec-qk-norm-grad" class="quarto-xref"><span>小节 2.11.3</span></a> 中额外的梯度求和没有遗漏。</p>
 </section>
-<section id="多步-adamw" class="level3">
-<h3 class="anchored" data-anchor-id="多步-adamw">11.3 多步 AdamW</h3>
+<section id="多步-adamw" class="level3" data-number="2.14.3">
+<h3 data-number="2.14.3" class="anchored" data-anchor-id="多步-adamw"><span class="header-section-number">2.14.3</span> 多步 AdamW</h3>
 <p>单次 backward 正确后，最后再让 Dense 和 TP 使用相同的 AdamW 配置，在同一批输入上连续更新 200 步，让微小浮点差异反复进入 AdamW 的一阶、二阶状态，观察它们是否演化成结构性的偏差。</p>
 <p>每隔 20 步比较更新后的 logits：</p>
 <pre class="text"><code>mean absolute error
@@ -1461,8 +1427,8 @@ relative L2 error</code></pre>
 <p>这里的误差没有持续放大，同时三类梯度已经逐项对齐，因此可以进入下一步 benchmark。若某次 collective 或复制参数同步缺失，应该会在首次 backward 的单步梯度中先出现远大于浮点舍入量级的系统性偏差。</p>
 </section>
 </section>
-<section id="sec-tp-benchmark" class="level2">
-<h2 class="anchored" data-anchor-id="sec-tp-benchmark">12. TP Benchmark</h2>
+<section id="sec-tp-benchmark" class="level2" data-number="2.15">
+<h2 data-number="2.15" class="anchored" data-anchor-id="sec-tp-benchmark"><span class="header-section-number">2.15</span> TP Benchmark</h2>
 <p>前面已经说明，TP 将 Attention 和 MLP 的大矩阵切到多个 rank 上。那么这些切分实际节省了多少单卡显存，又为此付出了多少通信时间？</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb35"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> evaluation.parallel benchmark <span class="dt">\</span></span>
 <span id="cb35-2"><a href="#cb35-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--kind</span> memory <span class="dt">\</span></span>
@@ -1563,2193 +1529,9 @@ M_{\mathrm{TP}}(L)=F_T+L\left(\frac{a}{T}+r\right).
 \]</span></p>
 <p>其中 <span class="math inline">\(r\)</span> 包含未切分的 activation 和复制参数，因此即使固定项可以忽略，最终比例通常也不会达到理想的 <span class="math inline">\(1/T\)</span>。换句话说，固定项解释了为什么较浅模型的 TP 收益更小，而每层仍然复制的部分决定了显存比例最终能下降到哪里。</p>
 <p>需要这个比例与具体实验配置有关，<span class="math inline">\(a\)</span>、<span class="math inline">\(r\)</span>、<span class="math inline">\(F_D\)</span> 和 <span class="math inline">\(F_T\)</span> 都会随 batch size、sequence length、hidden size、vocab size、dtype、optimizer 和具体 kernel 实现变化。例如增大 batch size 或 sequence length 会提高 activation 的占比，而普通 TP 并不会切分所有 activation；增大 hidden size 时，大矩阵参数通常比 hidden states 增长得更快；增大 vocab size 又会放大 embedding、LM head 和 logits 等模型边界状态。配置变化后，TP 能切分与仍然复制的显存比例也会随之改变。</p>
-<p>显存下降的代价是更长的 step time。本实验中 TP 比 DDP 慢约 50%～61%，这部分差距主要来自 Column Parallel 与 Row Parallel 在 forward/backward 中引入的 collective。后面的 <a href="#sec-tp-async">§20.1</a> 会尝试隐藏其中一部分通信；在此之前，Part II 先处理另一个更直接的问题：TP 区域之间仍然重复保存的完整 hidden states。</p>
-</section>
-</section>
-<section id="part-iisequence-parallelism" class="level1">
-<h1>Part II：Sequence Parallelism</h1>
-<p>Part I 的 TP 切开了 Attention heads 和 MLP intermediate dimension 的权重，但两个并行区域之间仍保留完整的 hidden states。Sequence Parallelism（SP）在 TP 的基础上，把这部分逐 token 操作的激活值也切开。</p>
-<section id="为什么需要-sequence-parallelism" class="level2">
-<h2 class="anchored" data-anchor-id="为什么需要-sequence-parallelism">13. 为什么需要 Sequence Parallelism</h2>
-<p>TP 已经切分了 Attention heads 和 MLP intermediate dimension，但这并不意味着整个 Transformer block 的激活都随 TP size 缩小。沿着一个 hidden states tensor 走出 TP 区域，可以看到它在进入下一个 TP 区域前又恢复成了完整的 <code>[S,B,H]</code>：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb36"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb36-1"><a href="#cb36-1" aria-hidden="true" tabindex="-1"></a>每个 TP rank: [S, B, H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<div class="cell" data-layout-align="default">
-<div class="cell-output-display">
-<div>
-<p></p><figure class="figure"><p></p>
-<div>
-<pre class="mermaid mermaid-js">flowchart LR
-    classDef tp fill:#5f3dc4,stroke:#3b2585,color:#ffffff,stroke-width:2px;
-    classDef data fill:#1971c2,stroke:#0b4a85,color:#ffffff,stroke-width:1px;
-    classDef local fill:#2b8a3e,stroke:#176329,color:#ffffff,stroke-width:1px;
-
-    TP1["TP 区域 A&lt;br/&gt;输出经过 all-reduce"]:::tp
-
-    subgraph BETWEEN["两个 TP 区域之间"]
-        direction TB
-
-        subgraph R0["rank 0"]
-            H0["H0&lt;br/&gt;[S,B,H]"]:::data
-            L0["RMSNorm&lt;br/&gt;Dropout&lt;br/&gt;residual add"]:::local
-            H0 --&gt; L0
-        end
-
-        subgraph R1["rank 1"]
-            H1["H1&lt;br/&gt;[S,B,H]"]:::data
-            L1["RMSNorm&lt;br/&gt;Dropout&lt;br/&gt;residual add"]:::local
-            H1 --&gt; L1
-        end
-    end
-
-    TP2["TP 区域 B&lt;br/&gt;读取相同输入"]:::tp
-
-    TP1 --&gt; H0
-    TP1 --&gt; H1
-    L0 --&gt; TP2
-    L1 --&gt; TP2
-</pre>
-</div>
-<p></p></figure><p></p>
-</div>
-</div>
-</div>
-<p>图中的 <span class="math inline">\(H_0\)</span> 和 <span class="math inline">\(H_1\)</span> 是数值相同的两份完整 tensor。它们来自 Row Parallel Linear 的输出：每个 rank 先产生一份完整 shape 的部分结果，</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb37"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a>P_t: [S, B, H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>普通 TP 在离开并行区域时执行 all-reduce：</p>
-<p><span class="math display">\[
-Y=\sum_{t=0}^{T-1}P_t,
-\]</span></p>
-<p>于是每个 rank 都得到完整的 <span class="math inline">\(Y\)</span>。但紧接着的 RMSNorm、Dropout 和 residual add 都是逐 token 操作，让所有 rank 保存并处理全部 <span class="math inline">\(S\)</span> 个 token 没有必要。是否可以让每个 rank 只负责一段互不重复的 sequence？</p>
-<p>先不考虑具体使用哪种 collective，把离开 TP 区域和重新进入 TP 区域时的两次布局转换分别记为 <span class="math inline">\(f\)</span> 和 <span class="math inline">\(g\)</span>。我们希望得到下面的数据流：</p>
-<div class="cell" data-layout-align="default">
-<div class="cell-output-display">
-<div>
-<p></p><figure class="figure"><p></p>
-<div>
-<pre class="mermaid mermaid-js">flowchart LR
-    classDef tp fill:#5f3dc4,stroke:#3b2585,color:#ffffff,stroke-width:2px;
-    classDef transform fill:#e8590c,stroke:#8a2e00,color:#ffffff,stroke-width:2px;
-    classDef data fill:#1971c2,stroke:#0b4a85,color:#ffffff,stroke-width:1px;
-    classDef local fill:#2b8a3e,stroke:#176329,color:#ffffff,stroke-width:1px;
-
-    TP1["TP 区域 A"]:::tp
-    F["f&lt;br/&gt;完整 → sequence shards"]:::transform
-
-    subgraph SP["两个 TP 区域之间"]
-        direction TB
-
-        subgraph R0["rank 0"]
-            S0["sequence shard 0&lt;br/&gt;[S/2,B,H]"]:::data
-            L0["本地逐 token 操作"]:::local
-            S0 --&gt; L0
-        end
-
-        subgraph R1["rank 1"]
-            S1["sequence shard 1&lt;br/&gt;[S/2,B,H]"]:::data
-            L1["本地逐 token 操作"]:::local
-            S1 --&gt; L1
-        end
-    end
-
-    G["g&lt;br/&gt;sequence shards → 完整"]:::transform
-    TP2["TP 区域 B"]:::tp
-
-    TP1 --&gt; F
-    F --&gt; S0
-    F --&gt; S1
-    L0 --&gt; G
-    L1 --&gt; G
-    G --&gt; TP2
-</pre>
-</div>
-<p></p></figure><p></p>
-</div>
-</div>
-</div>
-<p>此时两个 rank 不再保存相同的完整 hidden states，而是各自处理一段 sequence。接下来从普通 TP 的 all-reduce 出发，推导 <span class="math inline">\(f\)</span> 和 <span class="math inline">\(g\)</span> 应该由什么通信操作实现。</p>
-</section>
-<section id="sp-如何拆分完整的-hidden-states" class="level2">
-<h2 class="anchored" data-anchor-id="sp-如何拆分完整的-hidden-states">14. SP 如何拆分完整的 hidden states</h2>
-<p>要让每个 rank 只保留一段 sequence，最直接的做法是在 all-reduce 之后，再各自沿 sequence 维切分完整的 <span class="math inline">\(Y\)</span>。但每个 rank 明明只需要 <span class="math inline">\(1/T\)</span> 的结果，却仍要先通信得到完整 tensor，再把其余部分丢掉。</p>
-<p>于是要问：能不能跳过”先合并、再手动切开”这条弯路，直接一步到位地让每个 rank 拿到自己该有的那一段？</p>
-<section id="all-reduce-可以拆成两个阶段" class="level3">
-<h3 class="anchored" data-anchor-id="all-reduce-可以拆成两个阶段">14.1 All-Reduce 可以拆成两个阶段</h3>
-<p>答案是可以。all-reduce 本身可以拆成两个阶段：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb38"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb38-1"><a href="#cb38-1" aria-hidden="true" tabindex="-1"></a><span class="bu">all</span><span class="op">-</span><span class="bu">reduce</span> <span class="op">=</span> <span class="bu">reduce</span><span class="op">-</span>scatter <span class="op">+</span> <span class="bu">all</span><span class="op">-</span>gather</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>如果对这两个 collective 还不熟悉，可以先回看开头的 <a href="#collective-reduce-scatter">Reduce-Scatter</a> 和 <a href="#collective-all-gather">All-Gather</a>。</p>
-<p>这个等式成立的关键是：all-reduce 的求和是逐元素进行的，只要所有 rank 按相同方式切分 <span class="math inline">\(P_t\)</span>，就可以先分别求出最终结果的各个 block，再把这些已经求和的 block 拼接起来。先以两个 rank 为例，沿 sequence 维把 <span class="math inline">\(P_0\)</span>、<span class="math inline">\(P_1\)</span> 分成上下两块：</p>
-<p><span class="math display">\[
-P_0=
-\begin{bmatrix}
-P_0^{(0)}\cr
-P_0^{(1)}
-\end{bmatrix},
-\qquad
-P_1=
-\begin{bmatrix}
-P_1^{(0)}\cr
-P_1^{(1)}
-\end{bmatrix}.
-\]</span></p>
-<p>Reduce-scatter 先对相同位置的 block 求和，再把不同 block 留在不同 rank：</p>
-<p><span class="math display">\[
-\begin{aligned}
-\text{rank 0}:&amp;\quad Y^{(0)}=P_0^{(0)}+P_1^{(0)},\cr
-\text{rank 1}:&amp;\quad Y^{(1)}=P_0^{(1)}+P_1^{(1)}.
-\end{aligned}
-\]</span></p>
-<p>随后执行 all-gather，两个 rank 都得到：</p>
-<p><span class="math display">\[
-Y=
-\begin{bmatrix}
-Y^{(0)}\cr
-Y^{(1)}
-\end{bmatrix}
-=P_0+P_1,
-\]</span></p>
-<p>这与直接对 <span class="math inline">\(P_0\)</span>、<span class="math inline">\(P_1\)</span> 执行 all-reduce 完全相同。推广到 <span class="math inline">\(T\)</span> 个 rank，把每个 <span class="math inline">\(P_t\)</span> 沿 sequence 维切成 <span class="math inline">\(T\)</span> 块：</p>
-<p><span class="math display">\[
-P_t=
-\begin{bmatrix}
-P_t^{(0)}\cr
-P_t^{(1)}\cr
-\vdots\cr
-P_t^{(T-1)}
-\end{bmatrix},
-\qquad
-Y^{(j)}=\sum_{t=0}^{T-1}P_t^{(j)}.
-\]</span></p>
-<p>Reduce-scatter 结束后，rank <span class="math inline">\(j\)</span> 持有 <span class="math inline">\(Y^{(j)}\)</span>，shape 为 <code>[S/T,B,H]</code>：每个 rank 只拿到自己该负责的那一段 sequence，不再是一份完整拷贝。</p>
-</section>
-<section id="完整数据流本地计算插入两个阶段之间" class="level3">
-<h3 class="anchored" data-anchor-id="完整数据流本地计算插入两个阶段之间">14.2 完整数据流：本地计算插入两个阶段之间</h3>
-<p>既然 reduce-scatter 结束后每个 rank 已经拿到了自己的 sequence shard，两个 TP 区域之间的 RMSNorm、Dropout 和 residual add 就可以直接在这个 shard 上进行。下面把这些逐 token 的本地操作合记为 <span class="math inline">\(f\)</span>：</p>
-<div class="cell" data-layout-align="default">
-<div class="cell-output-display">
-<div>
-<p></p><figure class="figure"><p></p>
-<div>
-<pre class="mermaid mermaid-js">flowchart LR
-    classDef tp fill:#5f3dc4,stroke:#3b2585,color:#ffffff,stroke-width:2px;
-    classDef comm fill:#e8590c,stroke:#8a2e00,color:#ffffff,stroke-width:2px;
-    classDef data fill:#1971c2,stroke:#0b4a85,color:#ffffff,stroke-width:1px;
-    classDef local fill:#2b8a3e,stroke:#176329,color:#ffffff,stroke-width:1px;
-
-    subgraph TP1["TP 区域 A：Row Parallel"]
-        direction TB
-
-        subgraph A0["rank 0"]
-            P0["P₀&lt;br/&gt;[P₀⁽⁰⁾ ; P₀⁽¹⁾]"]:::tp
-        end
-
-        subgraph A1["rank 1"]
-            P1["P₁&lt;br/&gt;[P₁⁽⁰⁾ ; P₁⁽¹⁾]"]:::tp
-        end
-    end
-
-    RS["reduce-scatter"]:::comm
-
-    subgraph SP["SP 区域：沿 sequence 分工"]
-        direction TB
-
-        subgraph R0["rank 0"]
-            S0["Y⁽⁰⁾ = P₀⁽⁰⁾ + P₁⁽⁰⁾&lt;br/&gt;[S/2,B,H]"]:::data
-            L0["RMSNorm&lt;br/&gt;Dropout&lt;br/&gt;residual add"]:::local
-            O0["local output&lt;br/&gt;f(Y⁽⁰⁾)"]:::data
-            S0 --&gt; L0 --&gt; O0
-        end
-
-        subgraph R1["rank 1"]
-            S1["Y⁽¹⁾ = P₀⁽¹⁾ + P₁⁽¹⁾&lt;br/&gt;[S/2,B,H]"]:::data
-            L1["RMSNorm&lt;br/&gt;Dropout&lt;br/&gt;residual add"]:::local
-            O1["local output&lt;br/&gt;f(Y⁽¹⁾)"]:::data
-            S1 --&gt; L1 --&gt; O1
-        end
-    end
-
-    AG["all-gather"]:::comm
-
-    subgraph TP2["进入下一个 TP 区域"]
-        direction TB
-
-        subgraph T0["rank 0"]
-            F0["full hidden states&lt;br/&gt;[f(Y⁽⁰⁾) ; f(Y⁽¹⁾)]"]:::data
-            C0["Column Parallel&lt;br/&gt;weight shard 0"]:::tp
-            F0 --&gt; C0
-        end
-
-        subgraph T1["rank 1"]
-            F1["full hidden states&lt;br/&gt;[f(Y⁽⁰⁾) ; f(Y⁽¹⁾)]"]:::data
-            C1["Column Parallel&lt;br/&gt;weight shard 1"]:::tp
-            F1 --&gt; C1
-        end
-    end
-
-    P0 --&gt; RS
-    P1 --&gt; RS
-    RS --&gt; S0
-    RS --&gt; S1
-    O0 --&gt; AG
-    O1 --&gt; AG
-    AG --&gt; F0
-    AG --&gt; F1
-</pre>
-</div>
-<p></p></figure><p></p>
-</div>
-</div>
-</div>
-<p>通过 SP，两个 TP 区域之间的逐 token 计算被放到了不同 rank 上：reduce-scatter 交出分片、本地算完 <span class="math inline">\(f\)</span>、all-gather 拼回完整序列，衔接下一个 TP 区域的 Column Parallel。</p>
-</section>
-<section id="通信开销是否因此增加" class="level3">
-<h3 class="anchored" data-anchor-id="通信开销是否因此增加">14.3 通信开销是否因此增加？</h3>
-<p>那么代价是什么呢？把一次 all-reduce 拆成两次 collective 会不会增加通信开销？ 这里用 <span class="math inline">\(T=4\)</span> 个 rank 完整走一遍 ring all-reduce 的流程。</p>
-<p>把每个 rank 手上的 <span class="math inline">\(P_t\)</span> 沿 sequence 维切成 4 块，用字母区分”最终归哪个 rank”、下标区分”最初来自哪个 rank”：</p>
-<table class="caption-top table">
-<thead>
-<tr class="header">
-<th>Rank</th>
-<th>初始持有的 4 个 block</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td>R0</td>
-<td>a0, b0, c0, d0</td>
-</tr>
-<tr class="even">
-<td>R1</td>
-<td>a1, b1, c1, d1</td>
-</tr>
-<tr class="odd">
-<td>R2</td>
-<td>a2, b2, c2, d2</td>
-</tr>
-<tr class="even">
-<td>R3</td>
-<td>a3, b3, c3, d3</td>
-</tr>
-</tbody>
-</table>
-<p>4 个 rank 围成一个环：R0 → R1 → R2 → R3 → R0。目标是让 R0 拿到完整的 “a” 块（<span class="math inline">\(a_0+a_1+a_2+a_3\)</span>），R1 拿到完整的 “b”，R2 拿到完整的 “c”，R3 拿到完整的 “d”。</p>
-<p>规则很简单：<strong>每一步，每个 rank 把自己当前”活跃”的那一格发给下一个 rank，对方收到后加到自己那一列上</strong>。第一轮的”活跃格”就是各自的初始值。发出去的格子用”–“标记，之后不用再管：</p>
-<table class="caption-top table">
-<thead>
-<tr class="header">
-<th>Rank</th>
-<th>a</th>
-<th>b</th>
-<th>c</th>
-<th>d</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td>R0</td>
-<td>a0</td>
-<td>b0</td>
-<td>c0+c3</td>
-<td>–</td>
-</tr>
-<tr class="even">
-<td>R1</td>
-<td>–</td>
-<td>b1</td>
-<td>c1</td>
-<td>d0+d1</td>
-</tr>
-<tr class="odd">
-<td>R2</td>
-<td>a1+a2</td>
-<td>–</td>
-<td>c2</td>
-<td>d2</td>
-</tr>
-<tr class="even">
-<td>R3</td>
-<td>a3</td>
-<td>b2+b3</td>
-<td>–</td>
-<td>d3</td>
-</tr>
-</tbody>
-</table>
-<p>同样的规则再走一轮：</p>
-<table class="caption-top table">
-<thead>
-<tr class="header">
-<th>Rank</th>
-<th>a</th>
-<th>b</th>
-<th>c</th>
-<th>d</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td>R0</td>
-<td>a0</td>
-<td>b0+b2+b3</td>
-<td>–</td>
-<td>–</td>
-</tr>
-<tr class="even">
-<td>R1</td>
-<td>–</td>
-<td>b1</td>
-<td>c0+c1+c3</td>
-<td>–</td>
-</tr>
-<tr class="odd">
-<td>R2</td>
-<td>–</td>
-<td>–</td>
-<td>c2</td>
-<td>d0+d1+d2</td>
-</tr>
-<tr class="even">
-<td>R3</td>
-<td>a1+a2+a3</td>
-<td>–</td>
-<td>–</td>
-<td>d3</td>
-</tr>
-</tbody>
-</table>
-<p>再走一轮，每一列刚好凑齐 4 个 rank 的贡献：</p>
-<table class="caption-top table">
-<thead>
-<tr class="header">
-<th>Rank</th>
-<th>a</th>
-<th>b</th>
-<th>c</th>
-<th>d</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td>R0</td>
-<td><strong>a0+a1+a2+a3</strong></td>
-<td>–</td>
-<td>–</td>
-<td>–</td>
-</tr>
-<tr class="even">
-<td>R1</td>
-<td>–</td>
-<td><strong>b0+b1+b2+b3</strong></td>
-<td>–</td>
-<td>–</td>
-</tr>
-<tr class="odd">
-<td>R2</td>
-<td>–</td>
-<td>–</td>
-<td><strong>c0+c1+c2+c3</strong></td>
-<td>–</td>
-</tr>
-<tr class="even">
-<td>R3</td>
-<td>–</td>
-<td>–</td>
-<td>–</td>
-<td><strong>d0+d1+d2+d3</strong></td>
-</tr>
-</tbody>
-</table>
-<p>3 步之后，4 个 rank 各自恰好持有一块完整求和的结果，这正是 reduce-scatter 的定义。 每一步 4 条链路都在同时传输，每条链路每步只搬运一个 <span class="math inline">\(N/4\)</span> 大小的 block（<span class="math inline">\(N=SBH\)</span>）， 因此每个 rank 总共发送 <span class="math inline">\(3\times N/4=(T-1)N/T\)</span>（<span class="math inline">\(T=4\)</span>）。</p>
-<p>推广到任意 <span class="math inline">\(T\)</span>：环上 <span class="math inline">\(T\)</span> 条链路、跑 <span class="math inline">\(T-1\)</span> 步，每步每条链路传一个 <span class="math inline">\(N/T\)</span> 的 block，总发送量是 <span class="math inline">\(\dfrac{T-1}{T}N\)</span>。</p>
-<p>All-Gather 沿用同一个环，只是这次传的是已经算完的结果，不需要再做加法：R0 把完整的 “a” 块转发给 R1、R1 转发给 R2，其余同理。同样走 3 步，通信量同样是 <span class="math inline">\(\dfrac{T-1}{T}N\)</span>。</p>
-<table class="caption-top table">
-<thead>
-<tr class="header">
-<th>操作</th>
-<th style="text-align: right;">每个 rank 发送量</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td>reduce-scatter</td>
-<td style="text-align: right;"><span class="math inline">\(\dfrac{T-1}{T}N\)</span></td>
-</tr>
-<tr class="even">
-<td>all-gather</td>
-<td style="text-align: right;"><span class="math inline">\(\dfrac{T-1}{T}N\)</span></td>
-</tr>
-<tr class="odd">
-<td>ring all-reduce（两阶段之和）</td>
-<td style="text-align: right;"><span class="math inline">\(2\dfrac{T-1}{T}N\)</span></td>
-</tr>
-</tbody>
-</table>
-<p>拆分前后总共都是 <span class="math inline">\(2(T-1)\)</span> 轮、<span class="math inline">\(2(T-1)N/T\)</span> 个元素，通信量是一样的。</p>
-<p>所以”先环形传播求和，再环形传播广播”本来就是 ring all-reduce 内部真实的两个阶段。 SP把算法本来就存在的这个中间点暴露出来，插入可以本地计算的 <span class="math inline">\(f\)</span>，去掉了 rank 间重复的计算：</p>
-<p><strong>但有个前提</strong>：这个推导假设走的是大 tensor 常见的 ring / bandwidth-optimal 实现。 真实开销还有一层没覆盖：拆成两次独立 collective，意味着多一次 kernel launch 和同步点，这部分延迟和 tensor 大小无关，是固定成本。</p>
-</section>
-<section id="sec-sp-layout" class="level3">
-<h3 class="anchored" data-anchor-id="sec-sp-layout">14.4 落到实现中的 Tensor Layout</h3>
-<p>设 TP size 为 <span class="math inline">\(T\)</span>。Reduce-scatter 沿 sequence 维分发结果后，rank <span class="math inline">\(t\)</span> 持有：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb39"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb39-1"><a href="#cb39-1" aria-hidden="true" tabindex="-1"></a>[S<span class="op">/</span>T, B, H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>SP 复用原来的 TP group。同一组 rank 在 Attention 和 MLP 内按 hidden dimension 协作，在两个 TP 区域之间则按 sequence dimension 分工。当前实现采用连续等分，因此要求：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb40"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb40-1"><a href="#cb40-1" aria-hidden="true" tabindex="-1"></a>S <span class="op">%</span> T <span class="op">==</span> <span class="dv">0</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p><code>TPContext</code> 使用下面的字段控制是否在 TP 区域之间保留 sequence-sharded layout：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb41"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb41-1"><a href="#cb41-1" aria-hidden="true" tabindex="-1"></a>sequence_parallel: <span class="bu">bool</span> <span class="op">=</span> <span class="va">False</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>一个 Transformer block 中的 tensor layout 因此变为：</p>
-<table class="caption-top table">
-<colgroup>
-<col style="width: 33%">
-<col style="width: 33%">
-<col style="width: 33%">
-</colgroup>
-<thead>
-<tr class="header">
-<th>区域</th>
-<th>Tensor layout</th>
-<th>本地工作</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td>Norm / Dropout / Residual</td>
-<td><code>[S/T,B,H]</code></td>
-<td>每个 rank 处理不同 token</td>
-</tr>
-<tr class="even">
-<td>Column Parallel Linear</td>
-<td>输入恢复为 <code>[S,B,H]</code></td>
-<td>每个 rank 计算不同输出 shard</td>
-</tr>
-<tr class="odd">
-<td>Row Parallel Linear 输出</td>
-<td><code>[S/T,B,H]</code></td>
-<td>reduce-scatter 后回到 sequence shard</td>
-</tr>
-</tbody>
-</table>
-</section>
-</section>
-<section id="sp-如何在两种-tensor-layout-之间切换" class="level2">
-<h2 class="anchored" data-anchor-id="sp-如何在两种-tensor-layout-之间切换">15. SP 如何在两种 Tensor Layout 之间切换</h2>
-<p>到这里，SP forward 需要的两种布局已经出现：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb42"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb42-1"><a href="#cb42-1" aria-hidden="true" tabindex="-1"></a>TP 区域内:                     [S, B, H]</span>
-<span id="cb42-2"><a href="#cb42-2" aria-hidden="true" tabindex="-1"></a>TP 区域之间（也就是 SP 区域）:   [S<span class="op">/</span>T, B, H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>训练时还必须为每个布局变换定义对应的 backward，否则 forward 的 shape 即使正确，梯度也无法回到原来的数据分布。</p>
-<p>这里有三类性质不同的切换，值得先分清楚：</p>
-<pre class="text"><code>一次性入口：模型最开始的 Split
-        只发生一次，把完整 sequence Embedding 第一次切成 shard，送进第一个 TP 区域
-
-反复发生：All-Gather 与 Reduce-Scatter
-        每个 TP 区域进出时都会用到的一对操作
-
-一次性出口：模型最后进入 LM Head 前的 All-Gather
-        只发生一次，把 SP shard 重新拼回完整 sequence，
-        喂给在 rank 复制的 lm_head</code></pre>
-<p>和 TP 里那对 <code>CopyToModelParallelRegion</code> / <code>ReduceFromModelParallelRegion</code> 类似，这里的 all-gather 和 reduce-scatter 也是对偶的一对：一个的 forward 恰好是另一个的 backward。</p>
-<table class="caption-top table">
-<thead>
-<tr class="header">
-<th>发生场景</th>
-<th>Forward</th>
-<th>Backward</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td>一次（模型入口）</td>
-<td>split</td>
-<td>all-gather</td>
-</tr>
-<tr class="even">
-<td>每个 TP 区域入口（反复）</td>
-<td>all-gather</td>
-<td>reduce-scatter</td>
-</tr>
-<tr class="odd">
-<td>每个 TP 区域出口（反复）</td>
-<td>reduce-scatter</td>
-<td>all-gather</td>
-</tr>
-<tr class="even">
-<td>一次（模型出口，进 LM Head）</td>
-<td>all-gather</td>
-<td>split</td>
-</tr>
-</tbody>
-</table>
-<p>同一个 All-Gather 在表里出现了两次、backward 却不一样，<a href="#sec-sp-enter-tp">§15.2</a> 和 <a href="#sec-sp-lm-head">§15.5</a> 会分别解释这两种 backward 各自成立的原因。</p>
-<p>这些算子位于：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb44"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb44-1"><a href="#cb44-1" aria-hidden="true" tabindex="-1"></a>model<span class="op">/</span>tensor_parallel_mappings.py</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<section id="sec-sp-entry" class="level3">
-<h3 class="anchored" data-anchor-id="sec-sp-entry">15.1 一次性的入口：本地切分</h3>
-<p>Embedding 输出最初是完整的 <code>[S,B,H]</code>，而且每个 TP rank 都已经拥有相同的数据。为了让后续 block 从一开始就工作在 SP 布局上，每个 rank 只需根据自己的 <code>tp_rank</code>，在本地留下对应的 sequence shard：</p>
-<pre class="text"><code>rank 0: [a,b,c,d] -&gt; [a,b]
-rank 1: [a,b,c,d] -&gt; [c,d]</code></pre>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb46"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb46-1"><a href="#cb46-1" aria-hidden="true" tabindex="-1"></a>forward:</span>
-<span id="cb46-2"><a href="#cb46-2" aria-hidden="true" tabindex="-1"></a>  [S,B,H] <span class="op">-&gt;</span> split <span class="op">-&gt;</span> [S<span class="op">/</span>T,B,H]</span>
-<span id="cb46-3"><a href="#cb46-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb46-4"><a href="#cb46-4" aria-hidden="true" tabindex="-1"></a>backward:</span>
-<span id="cb46-5"><a href="#cb46-5" aria-hidden="true" tabindex="-1"></a>  [S<span class="op">/</span>T,B,H] <span class="op">-&gt;</span> <span class="bu">all</span><span class="op">-</span>gather <span class="op">-&gt;</span> [S,B,H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>这里没有 rank 之间的数据传输。源码中的 autograd 类虽然名为 <code>ScatterToSequenceParallelRegion</code>，但它的 forward 只是索引和 <code>contiguous</code>；真正的跨 rank 通信发生在 backward 的 All-Gather。</p>
-<p>求梯度时，embedding 权重的梯度需要看到完整 sequence 上的激活梯度，而每个 rank 的梯度只来自一个 sequence shard， 所以 backward 必须先把各 rank 手上的 sequence shard 梯度 <code>all-gather</code> 回完整形状，再往回传。</p>
-</section>
-<section id="sec-sp-enter-tp" class="level3">
-<h3 class="anchored" data-anchor-id="sec-sp-enter-tp">15.2 反复出现的循环（一）：All-Gather 进入 TP 区域</h3>
-<p>进入 Column Parallel Linear 时，因为计算需要完整的输入，所以第一步必须把按 Sequence 切片的数据拼完整：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb47"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb47-1"><a href="#cb47-1" aria-hidden="true" tabindex="-1"></a>[S<span class="op">/</span>T, B, H] <span class="op">-&gt;</span> All<span class="op">-</span>Gather <span class="op">-&gt;</span> [S, B, H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<section id="为什么-backward-一定是-reduce-scatter" class="level4">
-<h4 class="anchored" data-anchor-id="为什么-backward-一定是-reduce-scatter">为什么 Backward 一定是 Reduce-Scatter？</h4>
-<p>我们用 TP size = 2 的例子直观地推一下（以 Rank 0 原来持有的 sequence shard <span class="math inline">\(X^{(0)}\)</span> 为例）：</p>
-<ol type="1">
-<li><strong>前向广播</strong>：All-gather 拼出完整 <span class="math inline">\(X\)</span> 后，Rank 0 和 Rank 1 都拿到了包含 <span class="math inline">\(X^{(0)}\)</span> 的完整数据，各自过自己的 weight shard（<span class="math inline">\(W_0\)</span> 和 <span class="math inline">\(W_1\)</span>）。</li>
-<li><strong>两边都有梯度</strong>：到了 Backward，因为 <span class="math inline">\(X^{(0)}\)</span> 既参与了 <span class="math inline">\(W_0\)</span> 的计算，也参与了 <span class="math inline">\(W_1\)</span> 的计算，所以两个 rank 都会算出一份针对 <span class="math inline">\(X^{(0)}\)</span> 的梯度（<span class="math inline">\(dX_0^{(0)}\)</span> 和 <span class="math inline">\(dX_1^{(0)}\)</span>）。</li>
-<li><strong>求和并归位</strong>：根据链式法则，数据源头 <span class="math inline">\(X^{(0)}\)</span> 的最终梯度必须是两边叠加的结果：</li>
-</ol>
-<p><span class="math display">\[dX^{(0)} = dX_0^{(0)} + dX_1^{(0)}\]</span></p>
-<p>Reduce-Scatter 在求和的同时，只把 <span class="math inline">\(X^{(0)}\)</span> 对应的结果交还给 Rank 0；其他 sequence shard 的完整梯度则返回各自所属的 rank。</p>
-<p>所以，这个 All-Gather 的 backward <strong>必须且只能是 Reduce-Scatter</strong>。</p>
-<div class="cell" data-layout-align="default">
-<div class="cell-output-display">
-<div>
-<p></p><figure class="figure"><p></p>
-<div>
-<pre class="mermaid mermaid-js">flowchart TB
-    classDef rank0 fill:#1c7ed6,stroke:#1864ab,color:#ffffff,stroke-width:1px;
-    classDef rank1 fill:#d9480f,stroke:#b5370f,color:#ffffff,stroke-width:1px;
-    classDef comm fill:#f59f00,stroke:#d9480f,color:#ffffff,stroke-width:2px;
-
-    %% 输入节点（左右对称）
-    X0["Rank 0 输入&lt;br/&gt;Sequence Shard X⁽⁰⁾"]:::rank0
-    X1["Rank 1 输入&lt;br/&gt;Sequence Shard X⁽¹⁾"]:::rank1
-
-    %% 1. 中间 All-Gather 节点
-    AG["All-Gather 通信&lt;br/&gt;拼接得到完整 X = [X⁽⁰⁾, X⁽¹⁾]"]:::comm
-
-    %% 2. 前向计算节点
-    W0["Rank 0 计算&lt;br/&gt;Column Parallel W₀"]:::rank0
-    W1["Rank 1 计算&lt;br/&gt;Column Parallel W₁"]:::rank1
-
-    %% 3. 反向梯度节点
-    dX0["Rank 0 局部梯度&lt;br/&gt;dX₀ = [dX₀⁽⁰⁾, dX₀⁽¹⁾]"]:::rank0
-    dX1["Rank 1 局部梯度&lt;br/&gt;dX₁ = [dX₁⁽⁰⁾, dX₁⁽¹⁾]"]:::rank1
-
-    %% 4. 中间 Reduce-Scatter 节点
-    RS["Reduce-Scatter 通信&lt;br/&gt;(梯度求和 + shard 归位)"]:::comm
-
-    %% 5. 最终归位梯度
-    Out0["Rank 0 领回完整梯度&lt;br/&gt;dX⁽⁰⁾ = dX₀⁽⁰⁾ + dX₁⁽⁰⁾"]:::rank0
-    Out1["Rank 1 领回完整梯度&lt;br/&gt;dX⁽¹⁾ = dX₀⁽¹⁾ + dX₁⁽¹⁾"]:::rank1
-
-    %% Forward 数据流
-    X0 --&gt; AG
-    X1 --&gt; AG
-    AG --&gt; W0
-    AG --&gt; W1
-
-    %% Forward 到 Backward 的过渡
-    W0 -.-|Backward| dX0
-    W1 -.-|Backward| dX1
-
-    %% Backward 数据流
-    dX0 --&gt; RS
-    dX1 --&gt; RS
-    RS --&gt; Out0
-    RS --&gt; Out1
-
-</pre>
-</div>
-<p></p></figure><p></p>
-</div>
-</div>
-</div>
-<p><strong>注意</strong>：同一个 All-Gather 在模型最后进入 LM head 时还会再出现一次，但那次下游不是分片计算，backward 也就不能再用 Reduce-Scatter——具体原因见 <a href="#sec-sp-lm-head">§15.5</a>。 代码里是用这个显式的开关来区分语义的：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb48"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb48-1"><a href="#cb48-1" aria-hidden="true" tabindex="-1"></a>tensor_parallel_output_grad: <span class="bu">bool</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-</section>
-</section>
-<section id="sec-sp-leave-tp" class="level3">
-<h3 class="anchored" data-anchor-id="sec-sp-leave-tp">15.3 反复出现的循环（二）：Reduce-Scatter 离开 TP 区域</h3>
-<p>Row Parallel Linear 恰好是个镜像对称的过程：每个 rank 算出的都是完整 sequence 上的部分结果（partial result）：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb49"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb49-1"><a href="#cb49-1" aria-hidden="true" tabindex="-1"></a>P_t: [S, B, H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>这里通过一次 Reduce-Scatter，刚好把<strong>跨卡求和</strong>和<strong>按 sequence 切分</strong>两件事一次性做完，完美退出 TP 区域：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb50"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb50-1"><a href="#cb50-1" aria-hidden="true" tabindex="-1"></a>forward:</span>
-<span id="cb50-2"><a href="#cb50-2" aria-hidden="true" tabindex="-1"></a>  partial [S,B,H] <span class="op">-&gt;</span> <span class="bu">reduce</span><span class="op">-</span>scatter <span class="op">-&gt;</span> [S<span class="op">/</span>T,B,H]</span>
-<span id="cb50-3"><a href="#cb50-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb50-4"><a href="#cb50-4" aria-hidden="true" tabindex="-1"></a>backward:</span>
-<span id="cb50-5"><a href="#cb50-5" aria-hidden="true" tabindex="-1"></a>  [S<span class="op">/</span>T,B,H]       <span class="op">-&gt;</span> <span class="bu">all</span><span class="op">-</span>gather     <span class="op">-&gt;</span> [S,B,H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<section id="再看-tp-size-2-的反向逻辑" class="level4">
-<h4 class="anchored" data-anchor-id="再看-tp-size-2-的反向逻辑">再看 TP size = 2 的反向逻辑</h4>
-<ol type="1">
-<li><strong>前向求和切分</strong>：前向传播做的是 <span class="math inline">\(P = P_0 + P_1\)</span>，然后切分成 Sequence Shard 分发给各个 Rank。</li>
-<li><strong>反向拼回完整 Sequence</strong>：到了 Backward，下游传回来的梯度 <span class="math inline">\(dY^{(0)}\)</span> 和 <span class="math inline">\(dY^{(1)}\)</span> 都只有 <code>[S/T, B, H]</code>。要想算前向的梯度，必须先通过一次 <strong>All-Gather</strong> 把完整 sequence 上的梯度 <span class="math inline">\(dP\)</span>（<code>[S, B, H]</code>）给拼出来。</li>
-<li><strong>加法节点的反向</strong>：因为前向是 <span class="math inline">\(P = P_0 + P_1\)</span>（标准的加法节点），按照求导法则，加法节点的梯度是直接复制（Copy）给每一个输入项。所以拼出来的完整梯度 <span class="math inline">\(dP\)</span>，Rank 0 和 Rank 1 <strong>各自要原封不动地拿走一份</strong>（<span class="math inline">\(dP_0 = dP_1 = dP\)</span>），再去更新各自的 Row Parallel 权重。</li>
-</ol>
-<div class="cell" data-layout-align="default">
-<div class="cell-output-display">
-<div>
-<p></p><figure class="figure"><p></p>
-<div>
-<pre class="mermaid mermaid-js">flowchart TB
-    classDef rank0 fill:#1c7ed6,stroke:#1864ab,color:#ffffff,stroke-width:1px;
-    classDef rank1 fill:#d9480f,stroke:#b5370f,color:#ffffff,stroke-width:1px;
-    classDef comm fill:#f59f00,stroke:#d9480f,color:#ffffff,stroke-width:2px;
-    classDef logic fill:#2b8a3e,stroke:#176329,color:#ffffff,stroke-width:1px;
-
-    %% 1. 前向计算 (Row Parallel Partial 结果)
-    P0["Rank 0 局部结果 P₀&lt;br/&gt;[S, B, H]"]:::rank0
-    P1["Rank 1 局部结果 P₁&lt;br/&gt;[S, B, H]"]:::rank1
-
-    %% 2. 前向 Reduce-Scatter
-    RS["Reduce-Scatter 通信&lt;br/&gt;(求和 P = P₀ + P₁ + 保留对应 shard)"]:::comm
-
-    %% 3. 前向输出 (回到 Sequence Parallel)
-    Y0["Rank 0 输出 Y⁽⁰⁾&lt;br/&gt;[S/T, B, H]"]:::rank0
-    Y1["Rank 1 输出 Y⁽¹⁾&lt;br/&gt;[S/T, B, H]"]:::rank1
-
-    %% 4. 反向输入 (下游梯度)
-    dY0["Rank 0 传入梯度 dY⁽⁰⁾&lt;br/&gt;[S/T, B, H]"]:::rank0
-    dY1["Rank 1 传入梯度 dY⁽¹⁾&lt;br/&gt;[S/T, B, H]"]:::rank1
-
-    %% 5. 反向 All-Gather
-    AG["All-Gather 通信&lt;br/&gt;(拼接还原完整梯度 dP)"]:::comm
-
-    %% 6. 梯度的加法分配逻辑
-    dP_COPY["因前向 P = P₀ + P₁&lt;br/&gt;加法节点反向：梯度原样复制&lt;br/&gt;dP₀ = dP, dP₁ = dP"]:::logic
-
-    %% 7. 两个 Rank 各拿一份 dP
-    dP0["Rank 0 拿到完整梯度 dP₀&lt;br/&gt;[S, B, H]"]:::rank0
-    dP1["Rank 1 拿到完整梯度 dP₁&lt;br/&gt;[S, B, H]"]:::rank1
-
-    %% Forward 数据流
-    P0 --&gt; RS
-    P1 --&gt; RS
-    RS --&gt; Y0
-    RS --&gt; Y1
-
-    %% Forward 到 Backward 的过渡
-    Y0 -. Backward .-&gt; dY0
-    Y1 -. Backward .-&gt; dY1
-
-    %% Backward 数据流
-    dY0 --&gt; AG
-    dY1 --&gt; AG
-    AG --&gt; dP_COPY
-    dP_COPY --&gt; dP0
-    dP_COPY --&gt; dP1
-
-</pre>
-</div>
-<p></p></figure><p></p>
-</div>
-</div>
-</div>
-</section>
-</section>
-<section id="完整循环all-gather-与-reduce-scatter-如何配合" class="level3">
-<h3 class="anchored" data-anchor-id="完整循环all-gather-与-reduce-scatter-如何配合">15.4 完整循环：All-Gather 与 Reduce-Scatter 如何配合</h3>
-<p><a href="#sec-sp-enter-tp">§15.2</a> 和 <a href="#sec-sp-leave-tp">§15.3</a> 合在一起，就是每个 TP 区域进出时发生的数据 layout 变化的循环：</p>
-<div class="cell" data-layout-align="default">
-<div class="cell-output-display">
-<div>
-<p></p><figure class="figure"><p></p>
-<div>
-<pre class="mermaid mermaid-js">flowchart LR
-    classDef comm fill:#e8590c,stroke:#8a2e00,color:#ffffff,stroke-width:2px;
-    classDef data fill:#1971c2,stroke:#0b4a85,color:#ffffff,stroke-width:1px;
-
-    SP0["rank 0&lt;br/&gt;SP shard [S/2,B,H]"]:::data
-    SP1["rank 1&lt;br/&gt;SP shard [S/2,B,H]"]:::data
-    AG["all-gather"]:::comm
-    TP0["rank 0&lt;br/&gt;full sequence + weight shard 0"]:::data
-    TP1["rank 1&lt;br/&gt;full sequence + weight shard 1"]:::data
-    RS["reduce-scatter"]:::comm
-    OUT0["rank 0&lt;br/&gt;output shard [S/2,B,H]"]:::data
-    OUT1["rank 1&lt;br/&gt;output shard [S/2,B,H]"]:::data
-
-    SP0 --&gt; AG
-    SP1 --&gt; AG
-    AG --&gt; TP0
-    AG --&gt; TP1
-    TP0 --&gt; RS
-    TP1 --&gt; RS
-    RS --&gt; OUT0
-    RS --&gt; OUT1
-</pre>
-</div>
-<p></p></figure><p></p>
-</div>
-</div>
-</div>
-<p>Rank 顺序决定每个 rank 持有哪一段连续 sequence。所有 collective 必须使用相同 TP group，并提前满足相同的 shape、dtype 和 rank 顺序约定。</p>
-</section>
-<section id="sec-sp-lm-head" class="level3">
-<h3 class="anchored" data-anchor-id="sec-sp-lm-head">15.5 一次性的出口：All-Gather 进入 LM Head</h3>
-<p>和 <a href="#sec-sp-entry">§15.1</a> 的入口本地切分相对，模型最后也有一次只发生一次的布局切换。</p>
-<p>当最后一层 Transformer Block 算完，需要把 hidden 交给 lm head 去预测下一个词。 最后一个 Row Parallel 输出的 hidden states 先 all-gather 恢复成完整的 <code>[S,B,H]</code>， 紧接着喂给的是<strong>没有切分、在所有 TP rank 间完全复制</strong>的 lm_head 权重：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb51"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb51-1"><a href="#cb51-1" aria-hidden="true" tabindex="-1"></a>forward:</span>
-<span id="cb51-2"><a href="#cb51-2" aria-hidden="true" tabindex="-1"></a>  [S<span class="op">/</span>T,B,H] <span class="op">-&gt;</span> <span class="bu">all</span><span class="op">-</span>gather <span class="op">-&gt;</span> [S,B,H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>这一步的 all-gather 和 <a href="#sec-sp-enter-tp">§15.2</a> 中的 all-gather 长得一模一样，但下游完全不同：<a href="#sec-sp-enter-tp">§15.2</a> 的下游是”每个 rank 只算一部分”的 TP 分片计算，这里的下游是”每个 rank 算一模一样的一整份”——lm_head 权重是复制的，输入（刚 all-gather 出来的完整 hidden states）、labels、loss scale 在所有 rank 上也都相同。于是每个 rank 独立算出来的完整 logits、loss，乃至这一步的梯度 <code>dX</code>，也必然完全相同：每个 rank 手里已经是完整的梯度。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb52"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb52-1"><a href="#cb52-1" aria-hidden="true" tabindex="-1"></a>backward: split</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>既然 <span class="math inline">\(T\)</span> 个 rank 算出的 <code>dX</code> 其实是同一份完整梯度的 <span class="math inline">\(T\)</span> 份重复，就不需要”汇总”，只需要每个 rank 从这份大家都有的完整梯度里，切出（split）自己那一段 sequence shard 就行。 如果误用 reduce-scatter，会把这份本来就正确、完整的梯度先加 <span class="math inline">\(T\)</span> 次再切，等于错误地放大了 <span class="math inline">\(T\)</span> 倍。 这正是 <a href="#sec-sp-enter-tp">§15.2</a> 提到的 <code>tensor_parallel_output_grad</code> 开关要区分的另一半语义。</p>
-<p>把 <a href="#sec-sp-entry">§15.1</a> 和 <a href="#sec-sp-lm-head">§15.5</a> 放在一起看，SP 只在模型内部生效：外部仍然是 <code>input_ids [B,S]</code> 输入、logits <code>[B,S,V]</code> 输出，调用方不需要感知内部 sequence sharding 的存在。</p>
-</section>
-</section>
-<section id="复制参数的梯度同步逻辑" class="level2">
-<h2 class="anchored" data-anchor-id="复制参数的梯度同步逻辑">16. 复制参数的梯度同步逻辑</h2>
-<p>在张量并行（TP）中，<code>ColumnParallelLinear</code> 和 <code>RowParallelLinear</code> 的权重被切分到各个 Rank 上。得益于 TP 内部配套的通信原语（All-Reduce / Reduce-Scatter），这些切分参数的梯度能够被正确聚合，无需我们额外操心。</p>
-<p>但模型中还存在另一类参数：它们在每个 TP Rank 上都<strong>完整复制</strong>了一份，例如 LayerNorm 的权重、Embedding 矩阵、LM Head 等。一个很自然的直觉是：“既然是复制参数，那把各个 Rank 的梯度 All-Reduce 求和一下，总归没错吧？”</p>
-<p><strong>然而，这个直觉并不总是对的。</strong> 如果盲目对<strong>所有</strong>复制参数执行 All-Reduce，有时会导致梯度被放大数倍（并行度倍数），模型训练瞬间崩溃；而有些复制参数如果漏掉了 All-Reduce，各 Rank 的参数在更新后会发生分叉，丧失并行训练的正确性。</p>
-<p>那么，判断一个复制参数到底“该不该同步”的核心依据是什么？</p>
-<section id="判断的核心标准" class="level3">
-<h3 class="anchored" data-anchor-id="判断的核心标准">16.1 判断的核心标准</h3>
-<p>判断是否需要执行 <code>All-Reduce Sum</code>，只看一点：</p>
-<blockquote class="blockquote">
-<p><strong>在反向传播计算该参数的梯度时，各个 Rank 拿到的激活梯度（Activation Gradient）是“全量的”，还是“被切分的/局部的”？</strong></p>
-<ul>
-<li><strong>局部梯度</strong>（每个 Rank 只贡献了部分 Token 或部分 Head） → <strong>必须 All-Reduce Sum</strong>。否则各 Rank 的权重在一次更新后就会分叉。</li>
-<li><strong>全局相同梯度</strong>（每个 Rank 都拿到了完整相同的激活梯度） → <strong>绝对不能 All-Reduce</strong>。否则梯度会被错误放大 <span class="math inline">\(T\)</span> 倍（<span class="math inline">\(T\)</span> 为并行度）。</li>
-</ul>
-</blockquote>
-<hr>
-</section>
-<section id="需同步参数分类" class="level3">
-<h3 class="anchored" data-anchor-id="需同步参数分类">16.2 需同步参数分类</h3>
-<p>依据上述标准，复制参数可划分为以下三类：</p>
-<div class="cell" data-layout-align="default">
-<div class="cell-output-display">
-<div>
-<p></p><figure class="figure"><p></p>
-<div>
-<pre class="mermaid mermaid-js">flowchart TD
-    A[复制参数&lt;br&gt;Replicated Parameters] --&gt; B{反向传播时&lt;br&gt;激活梯度是？}
-
-    B --&gt;|全局完整梯度| C[LM Head / Embedding]
-    B --&gt;|局部梯度（序列切分）| D[SP 影响参数&lt;br&gt;LayerNorm / RowParallel Bias / Final Norm]
-    B --&gt;|局部梯度（Head 切分）| E[TP 影响参数&lt;br&gt;Q-Norm / K-Norm]
-
-    C --&gt; F[不需要 All-Reduce&lt;br&gt;梯度天然全局一致]
-    D --&gt; G[需要 All-Reduce Sum&lt;br&gt;各 Rank 只算部分 Token 贡献]
-    E --&gt; H[需要 All-Reduce Sum&lt;br&gt;各 Rank 只算部分 Head 贡献]
-</pre>
-</div>
-<p></p></figure><p></p>
-</div>
-</div>
-</div>
-<section id="必须同步受-sp-或-tp-head-切分影响的参数" class="level4">
-<h4 class="anchored" data-anchor-id="必须同步受-sp-或-tp-head-切分影响的参数">1. 必须同步：受 SP 或 TP Head 切分影响的参数</h4>
-<p>这类参数在各 Rank 上虽然完整存在，但每个 Rank 在 Backward 时只计算了它的一部分贡献：</p>
-<p><strong>SP 切分影响（Token 维度）</strong>：</p>
-<ul>
-<li><strong>参数</strong>：<code>input_layernorm.weight</code>、<code>post_attention_layernorm.weight</code>、<code>final_norm.weight</code>、<code>Row Parallel bias</code></li>
-<li><strong>原因</strong>：开启 SP 后，每个 Rank 在前向传播时只处理 <code>[S/T, B, H]</code> 的 Token 片段。反向传播时，每个 Rank 计算出的参数梯度<strong>仅代表当前 Rank 负责的那部分 Token 的贡献</strong>，因此必须通过 <code>All-Reduce Sum</code> 累加全局 Token 的梯度。</li>
-</ul>
-<p><strong>TP 切分影响（Head 维度）</strong>：</p>
-<ul>
-<li><strong>参数</strong>：<code>q_norm.weight</code>、<code>k_norm.weight</code></li>
-<li><strong>原因</strong>：即便输入序列是完整的，TP 也会将 Attention Head 切分给不同 Rank（例如 Rank 0 算 Head 0~3，Rank 1 算 Head 4~7）。每个 Rank 算出的 Q/K Norm 梯度<strong>仅包含了本地 Head 的贡献</strong>，因此无论是否开启 SP，都必须在 TP Group 内做 <code>All-Reduce Sum</code>。</li>
-</ul>
-</section>
-<section id="无需同步天然获得全局一致梯度的参数" class="level4">
-<h4 class="anchored" data-anchor-id="无需同步天然获得全局一致梯度的参数">2. 无需同步：天然获得全局一致梯度的参数</h4>
-<p>这两类参数同样是完整复制在每个 Rank 上，但<strong>绝对不能</strong>执行 All-Reduce，否则会把梯度错误放大大模型并行度 <span class="math inline">\(T\)</span> 倍：</p>
-<ul>
-<li><strong>LM Head（显式拼接）</strong>： 在进入 LM Head 前，前向传播已显式执行了 All-Gather，隐藏层状态被还原为完整的 <code>[S, B, H]</code>。所有 Rank 拿着<strong>完全相同的输入</strong>、<strong>相同的参数</strong>和<strong>相同的 Labels</strong> 进行独立计算，反向传播时天然得到<strong>完全一模一样且完整</strong>的 LM Head 梯度。</li>
-<li><strong>Embedding（隐式抵消）</strong>： 前向传播时，每个 rank 都根据完整的 <code>input_ids</code> 计算出全量隐藏状态，随后在本地保留 <code>[S/T, B, H]</code> 的对应 shard，进入 TP 区域。 在反向传播时，<strong>这个本地切分算子的 backward（即 All-Gather）会在梯度到达 Embedding 之前，将序列维度重新拼完整</strong>。因此，Embedding 在反向传播时被动接收到了全量 Sequence 的激活梯度，算出的参数梯度天然就是全量且一致的。</li>
-</ul>
-<p>当前实现通过在目标参数上注册 Hook 来完成梯度归约：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb53"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb53-1"><a href="#cb53-1" aria-hidden="true" tabindex="-1"></a>parameter.register_hook(</span>
-<span id="cb53-2"><a href="#cb53-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">lambda</span> grad: _reduce(grad, tp_group)</span>
-<span id="cb53-3"><a href="#cb53-3" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-</section>
-</section>
-</section>
-<section id="sec-sp-block-lifecycle" class="level2">
-<h2 class="anchored" data-anchor-id="sec-sp-block-lifecycle">17. 一个 SP Transformer Block 的 Tensor 生命周期</h2>
-<p><a href="#sec-sp-layout">§14.4</a> 已经概括了三类区域中的 tensor layout。现在把这些布局变化放回一个完整的 MiniMind Transformer block，观察 hidden states 如何依次经过 Attention、MLP 和两条 residual 路径。</p>
-<p>仍以 <span class="math inline">\(T=2\)</span> 为例。Block 的输入和输出都保持：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb54"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb54-1"><a href="#cb54-1" aria-hidden="true" tabindex="-1"></a>[S<span class="op">/</span><span class="dv">2</span>,B,H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>Attention 路径：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb55"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb55-1"><a href="#cb55-1" aria-hidden="true" tabindex="-1"></a>sequence shard [S<span class="op">/</span><span class="dv">2</span>,B,H]</span>
-<span id="cb55-2"><a href="#cb55-2" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local <span class="bu">input</span> RMSNorm</span>
-<span id="cb55-3"><a href="#cb55-3" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> <span class="bu">all</span><span class="op">-</span>gather full sequence</span>
-<span id="cb55-4"><a href="#cb55-4" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local Q<span class="op">/</span>K<span class="op">/</span>V heads</span>
-<span id="cb55-5"><a href="#cb55-5" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local Attention</span>
-<span id="cb55-6"><a href="#cb55-6" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> Row Parallel o_proj partial output</span>
-<span id="cb55-7"><a href="#cb55-7" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> <span class="bu">reduce</span><span class="op">-</span>scatter [S<span class="op">/</span><span class="dv">2</span>,B,H]</span>
-<span id="cb55-8"><a href="#cb55-8" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local residual add</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>MLP 路径：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb56"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb56-1"><a href="#cb56-1" aria-hidden="true" tabindex="-1"></a>sequence shard [S<span class="op">/</span><span class="dv">2</span>,B,H]</span>
-<span id="cb56-2"><a href="#cb56-2" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local post<span class="op">-</span>attention RMSNorm</span>
-<span id="cb56-3"><a href="#cb56-3" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> <span class="bu">all</span><span class="op">-</span>gather full sequence</span>
-<span id="cb56-4"><a href="#cb56-4" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> Column Parallel first Linear</span>
-<span id="cb56-5"><a href="#cb56-5" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local activation</span>
-<span id="cb56-6"><a href="#cb56-6" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> Row Parallel second Linear partial output</span>
-<span id="cb56-7"><a href="#cb56-7" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> <span class="bu">reduce</span><span class="op">-</span>scatter [S<span class="op">/</span><span class="dv">2</span>,B,H]</span>
-<span id="cb56-8"><a href="#cb56-8" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local residual add</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<div class="cell" data-layout-align="default">
-<div class="cell-output-display">
-<div>
-<p></p><figure class="figure"><p></p>
-<div>
-<pre class="mermaid mermaid-js">flowchart LR
-    classDef comm fill:#e8590c,stroke:#8a2e00,color:#ffffff,stroke-width:2px;
-    classDef data fill:#1971c2,stroke:#0b4a85,color:#ffffff,stroke-width:1px;
-
-    IN["Block input&lt;br/&gt;[S/2,B,H]"]:::data
-    N1["Local input RMSNorm"]:::data
-    G1["all-gather&lt;br/&gt;[S,B,H]"]:::comm
-    ATT["TP Attention&lt;br/&gt;local heads"]:::data
-    O["Row Parallel o_proj"]:::data
-    RS1["reduce-scatter&lt;br/&gt;[S/2,B,H]"]:::comm
-    ADD1["Local residual add"]:::data
-    N2["Local post-attention RMSNorm"]:::data
-    G2["all-gather&lt;br/&gt;[S,B,H]"]:::comm
-    MLP["Column Linear + activation&lt;br/&gt;local intermediate shard"]:::data
-    D["Row Parallel second Linear"]:::data
-    RS2["reduce-scatter&lt;br/&gt;[S/2,B,H]"]:::comm
-    ADD2["Local residual add"]:::data
-    OUT["Block output&lt;br/&gt;[S/2,B,H]"]:::data
-
-    IN --&gt; N1 --&gt; G1 --&gt; ATT --&gt; O --&gt; RS1 --&gt; ADD1
-    IN -. residual .-&gt; ADD1
-    ADD1 --&gt; N2 --&gt; G2 --&gt; MLP --&gt; D --&gt; RS2 --&gt; ADD2
-    ADD1 -. residual .-&gt; ADD2
-    ADD2 --&gt; OUT
-</pre>
-</div>
-<p></p></figure><p></p>
-</div>
-</div>
-</div>
-<p>上图只追踪 hidden states 的布局变化，因此在 Attention 和 MLP 的入口各画了一次从 <code>[S/T,B,H]</code> 到 <code>[S,B,H]</code> 的 all-gather。实际实现中，每个 Column Parallel Linear 都会独立发起这次 all-gather：Attention 的 Q、K、V projection 各有一次，而本章抽象的两层 MLP 只有第一层是 Column Parallel：</p>
-<table class="caption-top table">
-<thead>
-<tr class="header">
-<th>子层</th>
-<th style="text-align: right;">Forward all-gather</th>
-<th style="text-align: right;">Forward reduce-scatter</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td>Attention</td>
-<td style="text-align: right;">3</td>
-<td style="text-align: right;">1</td>
-</tr>
-<tr class="even">
-<td>两层 MLP</td>
-<td style="text-align: right;">1</td>
-<td style="text-align: right;">1</td>
-</tr>
-<tr class="odd">
-<td>每个 block 合计</td>
-<td style="text-align: right;">4</td>
-<td style="text-align: right;">2</td>
-</tr>
-</tbody>
-</table>
-<p>MiniMind 源码中的 SwigLU MLP 有两个 projection （gate_proj 和 up_proj），因此实际上会比这里的普通 MLP 再多一次 all-gather。</p>
-</section>
-<section id="sec-sp-benchmark" class="level2">
-<h2 class="anchored" data-anchor-id="sec-sp-benchmark">18. 基础 SP Benchmark</h2>
-<p>SP 没有改变模型的数学语义，数值验证仍可沿用 <a href="#sec-tp-validation">§11</a> 的方法，只需增加 <code>--sequence_parallel</code>。这里直接回到 <a href="#sec-tp-benchmark">§12</a> 的相同配置，观察将 TP 区域之间的 hidden states 切成 sequence shards 后，显存和时间如何变化。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb57"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb57-1"><a href="#cb57-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> evaluation.parallel benchmark <span class="dt">\</span></span>
-<span id="cb57-2"><a href="#cb57-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--kind</span> memory <span class="dt">\</span></span>
-<span id="cb57-3"><a href="#cb57-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--tp_size</span> 2 <span class="dt">\</span></span>
-<span id="cb57-4"><a href="#cb57-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--pp_size</span> 1 <span class="dt">\</span></span>
-<span id="cb57-5"><a href="#cb57-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--</span> <span class="dt">\</span></span>
-<span id="cb57-6"><a href="#cb57-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--modes</span> ddp tp <span class="dt">\</span></span>
-<span id="cb57-7"><a href="#cb57-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--batch_policy</span> fixed_per_rank <span class="dt">\</span></span>
-<span id="cb57-8"><a href="#cb57-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_hidden_layers</span> 8 16 32 64 <span class="dt">\</span></span>
-<span id="cb57-9"><a href="#cb57-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">--seq_len</span> 2048 <span class="dt">\</span></span>
-<span id="cb57-10"><a href="#cb57-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">--hidden_size</span> 768 <span class="dt">\</span></span>
-<span id="cb57-11"><a href="#cb57-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_attention_heads</span> 8 <span class="dt">\</span></span>
-<span id="cb57-12"><a href="#cb57-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_key_value_heads</span> 4 <span class="dt">\</span></span>
-<span id="cb57-13"><a href="#cb57-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">--vocab_size</span> 6400 <span class="dt">\</span></span>
-<span id="cb57-14"><a href="#cb57-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">--micro_batch_size</span> 2 <span class="dt">\</span></span>
-<span id="cb57-15"><a href="#cb57-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_microbatches</span> 1 <span class="dt">\</span></span>
-<span id="cb57-16"><a href="#cb57-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dtype</span> bfloat16 <span class="dt">\</span></span>
-<span id="cb57-17"><a href="#cb57-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">--warmup_iters</span> 2 <span class="dt">\</span></span>
-<span id="cb57-18"><a href="#cb57-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">--benchmark_iters</span> 5 <span class="dt">\</span></span>
-<span id="cb57-19"><a href="#cb57-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">--sequence_parallel</span> <span class="dt">\</span></span>
-<span id="cb57-20"><a href="#cb57-20" aria-hidden="true" tabindex="-1"></a>  <span class="at">--output_csv</span> results/tp/tpsp2_layers.csv <span class="dt">\</span></span>
-<span id="cb57-21"><a href="#cb57-21" aria-hidden="true" tabindex="-1"></a>  <span class="at">--output_plot</span> results/tp/tpsp2_layers.png</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<table class="caption-top table">
-<colgroup>
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-</colgroup>
-<thead>
-<tr class="header">
-<th style="text-align: right;">Layers</th>
-<th style="text-align: right;">TP only 显存</th>
-<th style="text-align: right;">TP + SP 显存</th>
-<th style="text-align: right;">显存下降</th>
-<th style="text-align: right;">TP only step</th>
-<th style="text-align: right;">TP + SP step</th>
-<th style="text-align: right;">时间增加</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td style="text-align: right;">8</td>
-<td style="text-align: right;">1509.53 MiB</td>
-<td style="text-align: right;">1447.99 MiB</td>
-<td style="text-align: right;">4.1%</td>
-<td style="text-align: right;">66.47 ms</td>
-<td style="text-align: right;">74.53 ms</td>
-<td style="text-align: right;">12.1%</td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">16</td>
-<td style="text-align: right;">2717.69 MiB</td>
-<td style="text-align: right;">2608.19 MiB</td>
-<td style="text-align: right;">4.0%</td>
-<td style="text-align: right;">129.90 ms</td>
-<td style="text-align: right;">144.38 ms</td>
-<td style="text-align: right;">11.1%</td>
-</tr>
-<tr class="odd">
-<td style="text-align: right;">32</td>
-<td style="text-align: right;">5129.40 MiB</td>
-<td style="text-align: right;">4925.45 MiB</td>
-<td style="text-align: right;">4.0%</td>
-<td style="text-align: right;">255.60 ms</td>
-<td style="text-align: right;">284.55 ms</td>
-<td style="text-align: right;">11.3%</td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">64</td>
-<td style="text-align: right;">9956.83 MiB</td>
-<td style="text-align: right;">9560.83 MiB</td>
-<td style="text-align: right;">4.0%</td>
-<td style="text-align: right;">502.83 ms</td>
-<td style="text-align: right;">565.00 ms</td>
-<td style="text-align: right;">12.4%</td>
-</tr>
-</tbody>
-</table>
-<p>基础 SP 的单卡峰值显存只比 TP only 低约 4%，远没有达到把所有 activation 都缩小到 <span class="math inline">\(1/T\)</span> 时可能产生的直觉收益；与此同时，额外的 all-gather 和 reduce-scatter 使 step time 增加了约 11%～12%。</p>
-<p>这个结果说明，<a href="#sec-sp-block-lifecycle">§17</a> 中的 sequence-sharded layout 的确减少了 Norm、Dropout 和 residual 区域的重复 activation，但还有更大的 tensor 没有被这套布局覆盖。下一节将沿着 Column Parallel Linear 的 tensor 生命周期寻找它们。</p>
-</section>
-<section id="sec-sp-memory-limit" class="level2">
-<h2 class="anchored" data-anchor-id="sec-sp-memory-limit">19. 为什么基础 SP 的显存收益有限</h2>
-<p>基础 SP 已经具备正确的数值逻辑与语义，但它仅缩小了 <strong>TP 区域边界处</strong>（Norm、Dropout 和 Residual 路径）的 Activation。</p>
-<p>在同步版本的 Column Parallel Linear 中，前向传播依然需要执行：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb58"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb58-1"><a href="#cb58-1" aria-hidden="true" tabindex="-1"></a>full_x <span class="op">=</span> gather_from_sequence_parallel_region(local_x, group)</span>
-<span id="cb58-2"><a href="#cb58-2" aria-hidden="true" tabindex="-1"></a>output <span class="op">=</span> F.linear(full_x, weight)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>PyTorch Autograd 为了在反向传播（Backward）中计算权重的梯度：</p>
-<p><span class="math display">\[dW = dY^T X\]</span></p>
-<p>会保存 Gather 后的完整张量 <code>full_x: [S, B, H]</code>。因此，Sequence Shard 虽在 Norm、Dropout 和 Residual 区域生效，但一进入 Linear 计算，主要的 Activation 又恢复为完整 Sequence，并持续占用显存直至反向传播结束。</p>
-<section id="activation-理论减少量推导" class="level3">
-<h3 class="anchored" data-anchor-id="activation-理论减少量推导">19.1 Activation 理论减少量推导</h3>
-<p>在基础 SP 下，真正得到省去的 Activation 仅包含每个 Transformer Block 中的两个 RMSNorm 输入，以及模型末端的最终 RMSNorm 输入。</p>
-<section id="层内-rmsnorm-的显存节省" class="level4">
-<h4 class="anchored" data-anchor-id="层内-rmsnorm-的显存节省">1. 层内 RMSNorm 的显存节省</h4>
-<p>每层两个 RMSNorm 输入 Activation 的理论减少量公式为（BF16精度）：</p>
-<p><span class="math display">\[M_{\text{saved}} \approx 2\text{ bytes} \times B \times S\left(1-\frac{1}{T}\right) \times H \times 2 \times L\]</span></p>
-<p>代入 <a href="#sec-sp-benchmark">§18</a> 的具体配置（<span class="math inline">\(B=2, S=2048, T=2, H=768\)</span>）， 对于 <span class="math inline">\(L\)</span> 层的模型，层内 RMSNorm 输入 Activation 的理论减少量为：</p>
-<p><span class="math display">\[2\text{ bytes} \times 2 \times 2048 \times \frac{1}{2} \times 2 \times 768 \times L = 6L\text{ MiB}\]</span></p>
-<p><span class="math display">\[\Delta M_{\text{layer}} = 6L\text{ MiB}\]</span></p>
-</section>
-<section id="模型末端-rmsnorm-的显存节省" class="level4">
-<h4 class="anchored" data-anchor-id="模型末端-rmsnorm-的显存节省">2. 模型末端 RMSNorm 的显存节省</h4>
-<p>模型末端的最终 Norm 独立于 Transformer 层之外：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb59"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb59-1"><a href="#cb59-1" aria-hidden="true" tabindex="-1"></a>hidden_states <span class="op">=</span> <span class="va">self</span>.norm(hidden_states)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>Minimind 的 RMSNorm 实现中，为保证数值稳定性会显式产生 FP32 的中间张量：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb60"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb60-1"><a href="#cb60-1" aria-hidden="true" tabindex="-1"></a><span class="cf">return</span> (weight <span class="op">*</span> <span class="va">self</span>.norm(x.<span class="bu">float</span>())).type_as(x)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>训练时，Autograd 需要为输入梯度计算和 Weight 梯度计算保留 <code>x.float()</code> 及其归一化结果。这两个张量均为 <code>[S, B, H]</code> 形状的 FP32 张量（单张量占用 <span class="math inline">\(4\text{ bytes}\)</span>）。</p>
-<p>在当前配置下，序列维度从 <span class="math inline">\(S=2048\)</span> 切分为 <span class="math inline">\(S/T=1024\)</span>，省去的显存量为：</p>
-<p><span class="math display">\[\begin{aligned} \Delta M_{\text{final\_norm}}  &amp;= 2 \times \left[ 4\text{ bytes} \times B \times S\left(1 - \frac{1}{T}\right) \times H \right] \\ &amp;= 2 \times \left[ 4\text{ bytes} \times 2 \times 1024 \times 768 \right] \\ &amp;= 12,582,912\text{ Bytes} = 12\text{ MiB} \end{aligned}\]</span></p>
-</section>
-</section>
-<section id="理论估算与实测对比" class="level3">
-<h3 class="anchored" data-anchor-id="理论估算与实测对比">19.2 理论估算与实测对比</h3>
-<p>综合上述两部分，当前实现下基础 SP 节省的 Activation 总显存估算为：</p>
-<p><span class="math display">\[\Delta M_{\text{estimated}} \approx 6L + 12\text{ MiB}\]</span></p>
-<p>将该估算值与 <a href="#sec-sp-benchmark">§18</a> 中的实测显存差值进行对比：</p>
-<table class="caption-top table">
-<colgroup>
-<col style="width: 25%">
-<col style="width: 25%">
-<col style="width: 25%">
-<col style="width: 25%">
-</colgroup>
-<thead>
-<tr class="header">
-<th>Layers (<span class="math inline">\(L\)</span>)</th>
-<th>估算减少量 (<span class="math inline">\(6L+12\text{ MiB}\)</span>)</th>
-<th>实测差值 (<span class="math inline">\(\text{TP only} - \text{TP + SP}\)</span>)</th>
-<th>偏差</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td><strong>8</strong></td>
-<td>60 MiB</td>
-<td>61.54 MiB</td>
-<td>+1.54 MiB</td>
-</tr>
-<tr class="even">
-<td><strong>16</strong></td>
-<td>108 MiB</td>
-<td>109.50 MiB</td>
-<td>+1.50 MiB</td>
-</tr>
-<tr class="odd">
-<td><strong>32</strong></td>
-<td>204 MiB</td>
-<td>203.95 MiB</td>
-<td>-0.05 MiB</td>
-</tr>
-<tr class="even">
-<td><strong>64</strong></td>
-<td>396 MiB</td>
-<td>396.00 MiB</td>
-<td>0.00 MiB</td>
-</tr>
-</tbody>
-</table>
-<p><strong>结论</strong>：理论估算与实测结果高度吻合。</p>
-<p>这说明基础 SP 确实按 <span class="math inline">\(1/T\)</span> 缩小了 Norm 区域的输入 Activation，但这些 Activation 只是 model 中所有 Activation 的一部分，Column Parallel Linear 仍须为 Backward 保存全量 Sequence 的 Activation，若要进一步降低显存占用，就需要引入重计算，改写 Linear 保存至 Backward 的 Activation 结构。</p>
-</section>
-</section>
-<section id="如何避免保存-full-sequence-activation" class="level2">
-<h2 class="anchored" data-anchor-id="如何避免保存-full-sequence-activation">20. 如何避免保存 Full-Sequence Activation</h2>
-<p><a href="#sec-sp-memory-limit">§19</a> 中的问题来自 autograd 跨越 forward/backward 保存了 <code>full_x</code>。 如果 forward 只保存 local shard，并在 backward 需要 <span class="math inline">\(dW\)</span> 时重新 all-gather，就能用额外通信换取 activation 显存； 同时，既然已经需要自己修改 Linear，我们还可以尝试把 dgrad 通信与 wgrad GEMM 重叠，减少通信带来的 overhead。</p>
-<p><code>LinearWithAsyncCommunication</code> 因此同时处理两个问题：</p>
-<ol type="1">
-<li>普通 TP 中，让 dgrad all-reduce 尝试与 wgrad GEMM 重叠；</li>
-<li>SP 中只保存 local sequence shard，在 backward 时重新构造完整 input。</li>
-</ol>
-<p>对应的配置是：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb61"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb61-1"><a href="#cb61-1" aria-hidden="true" tabindex="-1"></a>async_communication: <span class="bu">bool</span> <span class="op">=</span> <span class="va">False</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<section id="sec-tp-async" class="level3">
-<h3 class="anchored" data-anchor-id="sec-tp-async">20.1 普通 TP：异步 dgrad all-reduce</h3>
-<p>Column Parallel Linear 的 backward 可以写成：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb62"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb62-1"><a href="#cb62-1" aria-hidden="true" tabindex="-1"></a><span class="fl">1.</span> 接收 dY_local（上层传来的局部梯度）</span>
-<span id="cb62-2"><a href="#cb62-2" aria-hidden="true" tabindex="-1"></a><span class="fl">2.</span> 计算本地 dgrad</span>
-<span id="cb62-3"><a href="#cb62-3" aria-hidden="true" tabindex="-1"></a><span class="fl">3.</span> 发起异步 All<span class="op">-</span>Reduce，跨 TP Rank 累加 dgrad</span>
-<span id="cb62-4"><a href="#cb62-4" aria-hidden="true" tabindex="-1"></a><span class="fl">4.</span> 计算本地 wgrad：dW_local <span class="op">=</span> X<span class="op">^</span>T <span class="op">@</span> dY_local</span>
-<span id="cb62-5"><a href="#cb62-5" aria-hidden="true" tabindex="-1"></a><span class="fl">5.</span> 计算本地 bias 梯度</span>
-<span id="cb62-6"><a href="#cb62-6" aria-hidden="true" tabindex="-1"></a><span class="fl">6.</span> 等待 All<span class="op">-</span>Reduce</span>
-<span id="cb62-7"><a href="#cb62-7" aria-hidden="true" tabindex="-1"></a><span class="fl">7.</span> 返回完整 dgrad </span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-</section>
-<section id="sec-sp-recompute" class="level3">
-<h3 class="anchored" data-anchor-id="sec-sp-recompute">20.2 SP：只保存 local shard</h3>
-<p>SP forward：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb63"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb63-1"><a href="#cb63-1" aria-hidden="true" tabindex="-1"></a>local_x [S<span class="op">/</span>T,B,H]</span>
-<span id="cb63-2"><a href="#cb63-2" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> <span class="bu">all</span><span class="op">-</span>gather full_x [S,B,H]</span>
-<span id="cb63-3"><a href="#cb63-3" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> GEMM</span>
-<span id="cb63-4"><a href="#cb63-4" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> autograd 只保存 local_x 和 weight</span>
-<span id="cb63-5"><a href="#cb63-5" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> forward 结束后释放 full_x</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>SP backward：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb64"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb64-1"><a href="#cb64-1" aria-hidden="true" tabindex="-1"></a><span class="fl">1.</span> <span class="cf">async</span> <span class="bu">all</span><span class="op">-</span>gather local_x，重新构造 full_x</span>
-<span id="cb64-2"><a href="#cb64-2" aria-hidden="true" tabindex="-1"></a><span class="fl">2.</span> 计算 local dgrad</span>
-<span id="cb64-3"><a href="#cb64-3" aria-hidden="true" tabindex="-1"></a><span class="fl">3.</span> <span class="cf">async</span> <span class="bu">reduce</span><span class="op">-</span>scatter dgrad</span>
-<span id="cb64-4"><a href="#cb64-4" aria-hidden="true" tabindex="-1"></a><span class="fl">4.</span> wait <span class="bu">all</span><span class="op">-</span>gather</span>
-<span id="cb64-5"><a href="#cb64-5" aria-hidden="true" tabindex="-1"></a><span class="fl">5.</span> 使用 full_x 计算 wgrad</span>
-<span id="cb64-6"><a href="#cb64-6" aria-hidden="true" tabindex="-1"></a><span class="fl">6.</span> wait <span class="bu">reduce</span><span class="op">-</span>scatter</span>
-<span id="cb64-7"><a href="#cb64-7" aria-hidden="true" tabindex="-1"></a><span class="fl">7.</span> 返回 local sequence grad</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<div class="cell" data-layout-align="default">
-<div class="cell-output-display">
-<div>
-<p></p><figure class="figure"><p></p>
-<div>
-<pre class="mermaid mermaid-js">flowchart LR
-    classDef comm fill:#e8590c,stroke:#8a2e00,color:#ffffff,stroke-width:2px;
-    classDef data fill:#1971c2,stroke:#0b4a85,color:#ffffff,stroke-width:1px;
-
-    subgraph BASIC["基础 SP"]
-        direction TB
-        L1["local shard"]:::data --&gt; G1["forward all-gather"]:::comm
-        G1 --&gt; F1["Linear"]:::data
-        F1 --&gt; S1["保存 full input 到 backward"]:::data
-    end
-
-    subgraph RECOMPUTE["SP Recompute"]
-        direction TB
-        L2["local shard"]:::data --&gt; G2["forward all-gather"]:::comm
-        G2 --&gt; F2["Linear"]:::data
-        F2 --&gt; S2["只保存 local shard"]:::data
-        S2 --&gt; G3["backward all-gather"]:::comm
-        G3 --&gt; B2["计算 wgrad / dgrad"]:::data
-    end
-
-    BASIC ~~~ RECOMPUTE
-</pre>
-</div>
-<p></p></figure><p></p>
-</div>
-</div>
-</div>
-<p>这是一项明确的用时间换空间，使用额外的通信来减少需要储存的 tensor 尺寸。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb65"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb65-1"><a href="#cb65-1" aria-hidden="true" tabindex="-1"></a>减少：跨 forward<span class="op">/</span>backward 保存的 full <span class="bu">input</span></span>
-<span id="cb65-2"><a href="#cb65-2" aria-hidden="true" tabindex="-1"></a>增加：backward 中重建 full <span class="bu">input</span> 的 <span class="bu">all</span><span class="op">-</span>gather</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>按照两层 MLP 抽象，每个 block 的 SP backward 通信次数为：</p>
-<table class="caption-top table">
-<colgroup>
-<col style="width: 33%">
-<col style="width: 33%">
-<col style="width: 33%">
-</colgroup>
-<thead>
-<tr class="header">
-<th>路径</th>
-<th>Column Parallel backward</th>
-<th>Row Parallel backward</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td>基础 SP</td>
-<td>4 次 reduce-scatter</td>
-<td>2 次 all-gather</td>
-</tr>
-<tr class="even">
-<td>SP Recompute</td>
-<td>4 次重建 input 的 all-gather + 4 次 dgrad reduce-scatter</td>
-<td>2 次 all-gather</td>
-</tr>
-</tbody>
-</table>
-<p>MiniMind 源码中的额外 MLP projection 会让上述 Column Parallel 通信次数从 4 变为 5。融合投影可以减少通信次数，但会改变参数布局和 checkpoint 转换逻辑，不属于当前实现。</p>
-<p>TP+SP 的数值验证仍沿用 <a href="#sec-tp-validation">Part I §11</a> 的方法，比较 forward logits/loss、关键参数梯度和多步 AdamW；这里不再重复展开相同的验证步骤。</p>
-</section>
-</section>
-<section id="sec-async-recompute-benchmark" class="level2">
-<h2 class="anchored" data-anchor-id="sec-async-recompute-benchmark">21. Async 与 Recompute Benchmark</h2>
-<p><a href="#sec-tp-async">§20.1</a> 和 <a href="#sec-sp-recompute">§20.2</a> 对 <code>LinearWithAsyncCommunication</code> 提出了两个目标：普通 TP 用通信—计算重叠缩短时间，SP 则通过 backward 重建 full-sequence input 进一步节省显存。这一节将对两者进行 benchmark，验证它们的实际收益。</p>
-<section id="普通-tpasync-能隐藏多少通信" class="level3">
-<h3 class="anchored" data-anchor-id="普通-tpasync-能隐藏多少通信">21.1 普通 TP：Async 能隐藏多少通信</h3>
-<p>先运行同步 TP 基线：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb66"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb66-1"><a href="#cb66-1" aria-hidden="true" tabindex="-1"></a><span class="va">CUDA_DEVICE_MAX_CONNECTIONS</span><span class="op">=</span>1 <span class="ex">python</span> <span class="at">-m</span> evaluation.parallel benchmark <span class="dt">\</span></span>
-<span id="cb66-2"><a href="#cb66-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--kind</span> memory <span class="dt">\</span></span>
-<span id="cb66-3"><a href="#cb66-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--tp_size</span> 2 <span class="dt">\</span></span>
-<span id="cb66-4"><a href="#cb66-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--pp_size</span> 1 <span class="dt">\</span></span>
-<span id="cb66-5"><a href="#cb66-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--</span> <span class="dt">\</span></span>
-<span id="cb66-6"><a href="#cb66-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--modes</span> ddp tp <span class="dt">\</span></span>
-<span id="cb66-7"><a href="#cb66-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--batch_policy</span> fixed_per_rank <span class="dt">\</span></span>
-<span id="cb66-8"><a href="#cb66-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_hidden_layers</span> 2 4 8 16 32 <span class="dt">\</span></span>
-<span id="cb66-9"><a href="#cb66-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">--seq_len</span> 2048 <span class="dt">\</span></span>
-<span id="cb66-10"><a href="#cb66-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">--hidden_size</span> 768 <span class="dt">\</span></span>
-<span id="cb66-11"><a href="#cb66-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_attention_heads</span> 8 <span class="dt">\</span></span>
-<span id="cb66-12"><a href="#cb66-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_key_value_heads</span> 4 <span class="dt">\</span></span>
-<span id="cb66-13"><a href="#cb66-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">--vocab_size</span> 6400 <span class="dt">\</span></span>
-<span id="cb66-14"><a href="#cb66-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">--micro_batch_size</span> 4 <span class="dt">\</span></span>
-<span id="cb66-15"><a href="#cb66-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_microbatches</span> 1 <span class="dt">\</span></span>
-<span id="cb66-16"><a href="#cb66-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dtype</span> bfloat16 <span class="dt">\</span></span>
-<span id="cb66-17"><a href="#cb66-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">--warmup_iters</span> 10 <span class="dt">\</span></span>
-<span id="cb66-18"><a href="#cb66-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">--benchmark_iters</span> 5</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>异步版本保持其余参数不变，只增加：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb67"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb67-1"><a href="#cb67-1" aria-hidden="true" tabindex="-1"></a><span class="ex">--async_communication</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<table class="caption-top table">
-<thead>
-<tr class="header">
-<th style="text-align: right;">Layers</th>
-<th style="text-align: right;">同步 TP</th>
-<th style="text-align: right;">Async TP</th>
-<th style="text-align: right;">Step time 下降</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td style="text-align: right;">2</td>
-<td style="text-align: right;">35.82 ms</td>
-<td style="text-align: right;">35.27 ms</td>
-<td style="text-align: right;">1.5%</td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">4</td>
-<td style="text-align: right;">66.55 ms</td>
-<td style="text-align: right;">65.39 ms</td>
-<td style="text-align: right;">1.7%</td>
-</tr>
-<tr class="odd">
-<td style="text-align: right;">8</td>
-<td style="text-align: right;">127.84 ms</td>
-<td style="text-align: right;">125.64 ms</td>
-<td style="text-align: right;">1.7%</td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">16</td>
-<td style="text-align: right;">249.51 ms</td>
-<td style="text-align: right;">245.38 ms</td>
-<td style="text-align: right;">1.7%</td>
-</tr>
-<tr class="odd">
-<td style="text-align: right;">32</td>
-<td style="text-align: right;">493.13 ms</td>
-<td style="text-align: right;">484.62 ms</td>
-<td style="text-align: right;">1.7%</td>
-</tr>
-</tbody>
-</table>
-<p>Async 不改变保存的 tensor，因此两组实验的峰值显存完全相同。Step time 的下降也不大，在本次配置中约为 1.5%～1.7%。但端到端收益小，并不能直接说明 overlap 没有发生；还需要回到 <a href="#sec-tp-async">§20.1</a> 的目标，观察 dgrad all-reduce 与 wgrad GEMM 在 GPU 时间线上是否真正交叠。</p>
-<p>同步实现中，all-reduce 与 GEMM 串行执行：</p>
-<div class="quarto-figure quarto-figure-center">
-<figure class="figure">
-<p><img src="figs/tp.png" class="img-fluid figure-img" alt="同步 TP 的 GPU 时间线，NCCL all-reduce 与 GEMM 位于同一 stream，没有时间重叠"></p>
-<figcaption>同步 TP：all-reduce 与 GEMM 没有重叠</figcaption>
-</figure>
-</div>
-<p>异步实现将 NCCL all-reduce 与 wgrad GEMM 重叠：</p>
-<div class="quarto-figure quarto-figure-center">
-<figure class="figure">
-<p><img src="figs/tp_async.png" class="img-fluid figure-img" alt="异步 TP 的 GPU 时间线，NCCL all-reduce 与另一个 CUDA stream 上的 GEMM 在时间轴上重叠"></p>
-<figcaption>Async TP：all-reduce 与 wgrad GEMM 重叠</figcaption>
-</figure>
-</div>
-<p>因此，这里的实现机制是生效的，但它只隐藏 Columnn Parallel 的 all-reduce 与 wgrad GEMM 相交的部分，其他同步 collective的开销不会消失，最终只获得约 1.7% 的端到端改善。</p>
-</section>
-<section id="sec-sp-recompute-result" class="level3">
-<h3 class="anchored" data-anchor-id="sec-sp-recompute-result">21.2 SP：Recompute 的时间—显存交换</h3>
-<p><a href="#sec-sp-recompute">§20.2</a> 中的 SP Recompute 不再让 Column Parallel Linear 跨越 forward/backward 保存 full-sequence input，而是在 backward 中重新 all-gather。下面比较基础 SP 与这一实现的峰值显存和 step time。</p>
-<p>需要说明的是，本章所谓的“基础 SP”只是为了分步解释 tensor layout 而构造的中间版本，并不是 Megatron 中实际使用的一种独立 SP 配置。Megatron 所说的 Sequence Parallelism 已经包含只保存 local shard、在 backward 中重新 all-gather input 的过程；对应到 MiniMind，就是本节测试的 <code>sequence_parallel + async_communication</code>，也就是 <code>TP + SP + Async</code>。因此下面的基础 SP 数据只用于拆解这一步优化，最终应关注 Recompute 版本。</p>
-<p>先运行基础 SP：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb68"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb68-1"><a href="#cb68-1" aria-hidden="true" tabindex="-1"></a><span class="va">CUDA_DEVICE_MAX_CONNECTIONS</span><span class="op">=</span>1 <span class="ex">python</span> <span class="at">-m</span> evaluation.parallel benchmark <span class="dt">\</span></span>
-<span id="cb68-2"><a href="#cb68-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--kind</span> memory <span class="dt">\</span></span>
-<span id="cb68-3"><a href="#cb68-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--tp_size</span> 2 <span class="dt">\</span></span>
-<span id="cb68-4"><a href="#cb68-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--pp_size</span> 1 <span class="dt">\</span></span>
-<span id="cb68-5"><a href="#cb68-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--</span> <span class="dt">\</span></span>
-<span id="cb68-6"><a href="#cb68-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--modes</span> ddp tp <span class="dt">\</span></span>
-<span id="cb68-7"><a href="#cb68-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--batch_policy</span> fixed_per_rank <span class="dt">\</span></span>
-<span id="cb68-8"><a href="#cb68-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_hidden_layers</span> 2 4 8 16 32 <span class="dt">\</span></span>
-<span id="cb68-9"><a href="#cb68-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">--seq_len</span> 2048 <span class="dt">\</span></span>
-<span id="cb68-10"><a href="#cb68-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">--hidden_size</span> 768 <span class="dt">\</span></span>
-<span id="cb68-11"><a href="#cb68-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_attention_heads</span> 8 <span class="dt">\</span></span>
-<span id="cb68-12"><a href="#cb68-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_key_value_heads</span> 4 <span class="dt">\</span></span>
-<span id="cb68-13"><a href="#cb68-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">--vocab_size</span> 6400 <span class="dt">\</span></span>
-<span id="cb68-14"><a href="#cb68-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">--micro_batch_size</span> 4 <span class="dt">\</span></span>
-<span id="cb68-15"><a href="#cb68-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_microbatches</span> 1 <span class="dt">\</span></span>
-<span id="cb68-16"><a href="#cb68-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dtype</span> bfloat16 <span class="dt">\</span></span>
-<span id="cb68-17"><a href="#cb68-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">--warmup_iters</span> 10 <span class="dt">\</span></span>
-<span id="cb68-18"><a href="#cb68-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">--benchmark_iters</span> 5 <span class="dt">\</span></span>
-<span id="cb68-19"><a href="#cb68-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">--sequence_parallel</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>Recompute 版本保持其余参数不变，只增加：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb69"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb69-1"><a href="#cb69-1" aria-hidden="true" tabindex="-1"></a><span class="ex">--async_communication</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>当前实现用同一个开关同时启用 SP Recompute 和 backward 异步通信，因此这组实验不能把两者的时间影响单独拆开。显存变化来自只保存 local shard；step time 则同时包含额外 backward all-gather，以及 dgrad collective 与 wgrad GEMM 重叠后的净结果。</p>
-<table class="caption-top table">
-<colgroup>
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-</colgroup>
-<thead>
-<tr class="header">
-<th style="text-align: right;">Layers</th>
-<th style="text-align: right;">基础 SP 显存</th>
-<th style="text-align: right;">Recompute 显存</th>
-<th style="text-align: right;">显存下降</th>
-<th style="text-align: right;">基础 SP step</th>
-<th style="text-align: right;">Recompute step</th>
-<th style="text-align: right;">时间增加</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td style="text-align: right;">2</td>
-<td style="text-align: right;">1052.08 MiB</td>
-<td style="text-align: right;">956.73 MiB</td>
-<td style="text-align: right;">9.1%</td>
-<td style="text-align: right;">40.46 ms</td>
-<td style="text-align: right;">48.70 ms</td>
-<td style="text-align: right;">20.4%</td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">4</td>
-<td style="text-align: right;">1588.95 MiB</td>
-<td style="text-align: right;">1398.82 MiB</td>
-<td style="text-align: right;">12.0%</td>
-<td style="text-align: right;">74.19 ms</td>
-<td style="text-align: right;">91.16 ms</td>
-<td style="text-align: right;">22.9%</td>
-</tr>
-<tr class="odd">
-<td style="text-align: right;">8</td>
-<td style="text-align: right;">2665.97 MiB</td>
-<td style="text-align: right;">2282.97 MiB</td>
-<td style="text-align: right;">14.4%</td>
-<td style="text-align: right;">141.76 ms</td>
-<td style="text-align: right;">175.38 ms</td>
-<td style="text-align: right;">23.7%</td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">16</td>
-<td style="text-align: right;">4824.38 MiB</td>
-<td style="text-align: right;">4056.38 MiB</td>
-<td style="text-align: right;">15.9%</td>
-<td style="text-align: right;">276.60 ms</td>
-<td style="text-align: right;">343.93 ms</td>
-<td style="text-align: right;">24.3%</td>
-</tr>
-<tr class="odd">
-<td style="text-align: right;">32</td>
-<td style="text-align: right;">9136.96 MiB</td>
-<td style="text-align: right;">7600.27 MiB</td>
-<td style="text-align: right;">16.8%</td>
-<td style="text-align: right;">546.35 ms</td>
-<td style="text-align: right;">680.42 ms</td>
-<td style="text-align: right;">24.5%</td>
-</tr>
-</tbody>
-</table>
-<p>显存收益可以直接从 Column Parallel Linear 保存的输入验算。当前配置为：</p>
-<p><span class="math display">\[
-B=4,\qquad S=2048,\qquad H=768,\qquad T=2.
-\]</span></p>
-<p>一份 full-sequence BF16 input 占用：</p>
-<p><span class="math display">\[
-2\times B\times S\times H=12\text{ MiB},
-\]</span></p>
-<p>local sequence shard 则占 <span class="math inline">\(6\)</span> MiB。MiniMind 每个 block 有五个 Column Parallel Linear：</p>
-<pre class="text"><code>Attention: q_proj, k_proj, v_proj
-MLP:       gate_proj, up_proj</code></pre>
-<p>基础 SP 中，每次 Column Parallel forward 都会单独 all-gather。Q/K/V 因此保存三份独立的 full input，gate/up 再保存两份：</p>
-<p><span class="math display">\[
-M_{\text{basic, per block}}
-=
-(3+2)\times12
-=60\text{ MiB}.
-\]</span></p>
-<p>Recompute 版本不保存这些 gather 输出。三个 Attention projections 只引用同一份 local input storage，两个 MLP projections 也只引用同一份 local input storage：</p>
-<p><span class="math display">\[
-M_{\text{recompute, per block}}
-=
-(1+1)\times6
-=12\text{ MiB}.
-\]</span></p>
-<p>因此每个 block 的理论减少量为：</p>
-<p><span class="math display">\[
-60-12=48\text{ MiB}.
-\]</span></p>
-<table class="caption-top table">
-<thead>
-<tr class="header">
-<th style="text-align: right;">Layers</th>
-<th style="text-align: right;">理论减少量 <span class="math inline">\(48L\)</span></th>
-<th style="text-align: right;">实测减少量</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td style="text-align: right;">2</td>
-<td style="text-align: right;">96 MiB</td>
-<td style="text-align: right;">95.35 MiB</td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">4</td>
-<td style="text-align: right;">192 MiB</td>
-<td style="text-align: right;">190.13 MiB</td>
-</tr>
-<tr class="odd">
-<td style="text-align: right;">8</td>
-<td style="text-align: right;">384 MiB</td>
-<td style="text-align: right;">383.00 MiB</td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">16</td>
-<td style="text-align: right;">768 MiB</td>
-<td style="text-align: right;">768.00 MiB</td>
-</tr>
-<tr class="odd">
-<td style="text-align: right;">32</td>
-<td style="text-align: right;">1536 MiB</td>
-<td style="text-align: right;">1536.69 MiB</td>
-</tr>
-</tbody>
-</table>
-<p>理论值与实测结果基本一致，说明显存下降确实来自 <a href="#sec-sp-recompute">§20.2</a> 描述的 activation 生命周期变化。随着层数增加，固定的参数、optimizer states 和模型边界显存被逐渐摊薄，因此 Recompute 的相对显存收益从 9.1% 上升到 16.8%；但每层新增的 backward all-gather 也使时间代价逐渐稳定在约 24%～25%。</p>
-<p>这组结果展示的是一项明确的取舍：Recompute 用更长的 step time，换取更少的单卡峰值显存。</p>
-</section>
-</section>
-</section>
-<section id="part-iiivocab-parallelism" class="level1">
-<h1>Part III：Vocab Parallelism</h1>
-<section id="为什么还需要-vocab-parallelism" class="level2">
-<h2 class="anchored" data-anchor-id="为什么还需要-vocab-parallelism">22. 为什么还需要 Vocab Parallelism</h2>
-<p>TP 已经切分了 Attention 和 MLP 中的大矩阵，SP 又切分了两个 TP 区域之间的 activation。接下来检查模型边界处还没有被这两种策略覆盖的部分。</p>
-<p>此时，仍未切分的主要大张量是 embedding 和 LM head：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb71"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb71-1"><a href="#cb71-1" aria-hidden="true" tabindex="-1"></a>embedding weight: [V,H]</span>
-<span id="cb71-2"><a href="#cb71-2" aria-hidden="true" tabindex="-1"></a>LM head weight:   [V,H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>它们在每个 rank 上都是完整副本，因为 TP 切的是 Transformer block 内的 hidden/intermediate dimension，SP 切的是 sequence dimension，两者都没有触及 vocab dimension。</p>
-<p>MiniMind 将 embedding 与 LM head 绑定为同一个参数，因此不会实际保存两份 weight；但这份共享的 <code>[V,H]</code> 参数及其 gradient、optimizer states 仍在所有 rank 上完整复制。LM head 产生的 logits <code>[S,B,V]</code> 也不会随 TP size 缩小。词表 <span class="math inline">\(V\)</span> 越大，这部分显存就越难忽略。</p>
-<p>既然这些 tensor 都沿 vocab dimension 增长，是否可以让不同 rank 各自负责一段词表？Vocab Parallelism（VP）正是沿这一维继续切分：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb72"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb72-1"><a href="#cb72-1" aria-hidden="true" tabindex="-1"></a>embedding weight per rank: [V<span class="op">/</span>T,H]</span>
-<span id="cb72-2"><a href="#cb72-2" aria-hidden="true" tabindex="-1"></a>LM head weight per rank:   [V<span class="op">/</span>T,H]</span>
-<span id="cb72-3"><a href="#cb72-3" aria-hidden="true" tabindex="-1"></a>local logits:              [S,B,V<span class="op">/</span>T]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>它要求：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb73"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb73-1"><a href="#cb73-1" aria-hidden="true" tabindex="-1"></a>V <span class="op">%</span> T <span class="op">==</span> <span class="dv">0</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>对应的配置是：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb74"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb74-1"><a href="#cb74-1" aria-hidden="true" tabindex="-1"></a>vocab_parallel: <span class="bu">bool</span> <span class="op">=</span> <span class="va">False</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-</section>
-<section id="vp-的模型边界" class="level2">
-<h2 class="anchored" data-anchor-id="vp-的模型边界">23. VP 的模型边界</h2>
-<p>Embedding 负责把 token id 映射到 hidden states，LM head 再把 hidden states 映射回 logits。绑定权重启用时，它们共享同一个 <code>[V,H]</code> 参数，因此较合理的设计是让 LM head 也沿相同的 vocab range 切分。</p>
-<div class="cell" data-layout-align="default">
-<div class="cell-output-display">
-<div>
-<p></p><figure class="figure"><p></p>
-<div>
-<pre class="mermaid mermaid-js">flowchart LR
-    classDef input fill:#495057,stroke:#212529,color:#ffffff,stroke-width:1px;
-    classDef rank0 fill:#1971c2,stroke:#0b4a85,color:#ffffff,stroke-width:1px;
-    classDef rank1 fill:#0b7285,stroke:#064653,color:#ffffff,stroke-width:1px;
-    classDef comm fill:#5f3dc4,stroke:#3b2585,color:#ffffff,stroke-width:2px;
-    classDef model fill:#2b8a3e,stroke:#176329,color:#ffffff,stroke-width:1px;
-
-    I["token ids"]:::input
-    E0["Rank 0 Embedding&lt;br/&gt;使用 W0&lt;br/&gt;vocab [0,V/2)"]:::rank0
-    E1["Rank 1 Embedding&lt;br/&gt;使用 W1&lt;br/&gt;vocab [V/2,V)"]:::rank1
-    C["all-reduce&lt;br/&gt;或 reduce-scatter"]:::comm
-    T["Transformer blocks"]:::model
-    L0["Rank 0 LM Head&lt;br/&gt;复用 W0&lt;br/&gt;local logits [0,V/2)"]:::rank0
-    L1["Rank 1 LM Head&lt;br/&gt;复用 W1&lt;br/&gt;local logits [V/2,V)"]:::rank1
-    CE["Vocab Parallel&lt;br/&gt;Cross Entropy"]:::comm
-
-    I --&gt; E0
-    I --&gt; E1
-    E0 --&gt; C
-    E1 --&gt; C
-    C --&gt; T
-    T --&gt; L0
-    T --&gt; L1
-    L0 --&gt; CE
-    L1 --&gt; CE
-    E0 -. "同一份 W0 shard" .-&gt; L0
-    E1 -. "同一份 W1 shard" .-&gt; L1
-</pre>
-</div>
-<p></p></figure><p></p>
-</div>
-</div>
-</div>
-<p>Rank 0 在模型两端都使用 <span class="math inline">\(W_0\)</span>，Rank 1 都使用 <span class="math inline">\(W_1\)</span>，从单个 rank 的角度看，现在的行为与不切分 Embedding/LM head 完全一致，两个 layer 在底层共享同一份 Parameter。若不切分 LM head，则每次更新后需要在所有 rank 上同步 LM head 的完整参数，显然不如直接切分 LM head。</p>
-<section id="vocab-parallel-embedding" class="level3">
-<h3 class="anchored" data-anchor-id="vocab-parallel-embedding">23.1 Vocab Parallel Embedding</h3>
-<p>Rank <span class="math inline">\(t\)</span> 只负责区间：</p>
-<p><span class="math display">\[
-\left[t\frac{V}{T},(t+1)\frac{V}{T}\right).
-\]</span></p>
-<p>先看一个具体例子。设 <span class="math inline">\(V=8\)</span>、TP size <span class="math inline">\(=2\)</span>，输入的两个 token id 是 <code>[1,6]</code>：</p>
-<table class="caption-top table">
-<thead>
-<tr class="header">
-<th></th>
-<th>token 1</th>
-<th>token 6</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td>Rank 0，负责 <code>[0,4)</code></td>
-<td><span class="math inline">\(E_1\)</span></td>
-<td><span class="math inline">\(0\)</span></td>
-</tr>
-<tr class="even">
-<td>Rank 1，负责 <code>[4,8)</code></td>
-<td><span class="math inline">\(0\)</span></td>
-<td><span class="math inline">\(E_6\)</span></td>
-</tr>
-<tr class="odd">
-<td>SUM</td>
-<td><span class="math inline">\(E_1\)</span></td>
-<td><span class="math inline">\(E_6\)</span></td>
-</tr>
-</tbody>
-</table>
-<p>Rank 0 只认识 token 1，Rank 1 只认识 token 6；不属于本地 vocab shard 的位置输出零。两个 local embedding 相加后，正好恢复 Dense Embedding 的结果：</p>
-<p><span class="math display">\[
-[E_1,0]+[0,E_6]=[E_1,E_6].
-\]</span></p>
-<p>本地 lookup 的关键逻辑是：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb75"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb75-1"><a href="#cb75-1" aria-hidden="true" tabindex="-1"></a>mask <span class="op">=</span> (token <span class="op">&lt;</span> <span class="va">self</span>.vocab_start) <span class="op">|</span> (token <span class="op">&gt;=</span> <span class="va">self</span>.vocab_end)</span>
-<span id="cb75-2"><a href="#cb75-2" aria-hidden="true" tabindex="-1"></a>local_token <span class="op">=</span> token <span class="op">-</span> vocab_start</span>
-<span id="cb75-3"><a href="#cb75-3" aria-hidden="true" tabindex="-1"></a>local_token[mask] <span class="op">=</span> <span class="dv">0</span></span>
-<span id="cb75-4"><a href="#cb75-4" aria-hidden="true" tabindex="-1"></a>output <span class="op">=</span> local_embedding(local_token)</span>
-<span id="cb75-5"><a href="#cb75-5" aria-hidden="true" tabindex="-1"></a>output[mask] <span class="op">=</span> <span class="dv">0</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>对于任意 token，只有一个 rank 产生非零 embedding。因此，根据 SP 是否开启，可以用不同的方法得到当前 rank 需要的 embedding：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb76"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb76-1"><a href="#cb76-1" aria-hidden="true" tabindex="-1"></a>SP off: <span class="bu">all</span><span class="op">-</span><span class="bu">reduce</span> local embeddings</span>
-<span id="cb76-2"><a href="#cb76-2" aria-hidden="true" tabindex="-1"></a>SP on:  <span class="bu">reduce</span><span class="op">-</span>scatter local embeddings</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-</section>
-<section id="vocab-parallel-lm-head" class="level3">
-<h3 class="anchored" data-anchor-id="vocab-parallel-lm-head">23.2 Vocab Parallel LM Head</h3>
-<p>LM head 要在输出维度 V 上切成 V/T，本质上是 Column Parallel Linear：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb77"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb77-1"><a href="#cb77-1" aria-hidden="true" tabindex="-1"></a><span class="bu">input</span>:        [S,B,H]</span>
-<span id="cb77-2"><a href="#cb77-2" aria-hidden="true" tabindex="-1"></a>LM head weight shape:  [V<span class="op">/</span>T,H]</span>
-<span id="cb77-3"><a href="#cb77-3" aria-hidden="true" tabindex="-1"></a>output:  [S,B,V<span class="op">/</span>T]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>MiniMind 绑定 embedding 和 LM head 权重。开启 VP 后，两者必须引用同一个 vocab shard，这个很简单，因为都在同一个 rank 上，设计时 <code>VocabParallelEmbedding</code> 和 <code>ColumnParallelLinear</code> 都是模仿普通的 <code>nn.Embedding</code> 和 <code>nn.Linear</code>，因此绑定权重和一般的模块完全一致：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb78"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb78-1"><a href="#cb78-1" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="va">self</span>.config.tie_word_embeddings:</span>
-<span id="cb78-2"><a href="#cb78-2" aria-hidden="true" tabindex="-1"></a>    <span class="va">self</span>.model.embed_tokens.weight <span class="op">=</span> <span class="va">self</span>.lm_head.weight</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-</section>
-</section>
-<section id="sec-vp-ce" class="level2">
-<h2 class="anchored" data-anchor-id="sec-vp-ce">24. Vocab Parallel Cross Entropy</h2>
-<section id="forward不恢复完整-logits" class="level3">
-<h3 class="anchored" data-anchor-id="forward不恢复完整-logits">24.1 Forward：不恢复完整 Logits</h3>
-<p>当 LM head 被切分后，每个 rank 仅持有形状为 <code>[B, S, V/T]</code> 的 local logits。最直接的实现方式是通过全收集（all-gather）恢复完整张量：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb79"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb79-1"><a href="#cb79-1" aria-hidden="true" tabindex="-1"></a>local logits [B, S, V<span class="op">/</span>T]</span>
-<span id="cb79-2"><a href="#cb79-2" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> <span class="bu">all</span><span class="op">-</span>gather</span>
-<span id="cb79-3"><a href="#cb79-3" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> full logits [B, S, V]</span>
-<span id="cb79-4"><a href="#cb79-4" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> standard cross entropy</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>但这种方式会在每个 rank 上重新构造 <code>[B, S, V]</code>，导致此前通过词表并行（VP）省下的完整 logits 显存重新被占用，且通信量也会随词表大小 <span class="math inline">\(V\)</span> 线性增长。因此我们需要思考：能否不恢复完整 logits，直接利用各 rank 的 vocab shards 算出与 Dense Cross Entropy 完全一致的结果？</p>
-<p>设某一 token 位置上的完整 logits 为 <span class="math inline">\(x\)</span>，目标类别为 <span class="math inline">\(k\)</span>。Cross Entropy 可以展开为：</p>
-<p><span class="math display">\[\operatorname{CE}(x,k) = -x_k + m + \log\sum_{i=1}^{V}e^{x_i-m}\]</span></p>
-<p>其中 <span class="math inline">\(m = \max_i x_i\)</span> 用于保证数值稳定性。</p>
-<p>虽然每个 rank 仅持有局部词表的 logits，但只需通过三次形状为 <code>[B, S]</code> 的通信，即可收集到所需的变量：</p>
-<ol type="1">
-<li><strong>目标类别的 target logit (<span class="math inline">\(x_k\)</span>)</strong>：正确词的 logit <span class="math inline">\(x_k\)</span> 只会出现在负责该词表 shard 的单个 rank 上。每个 rank 先检查每个 token 的目标类别是否落在自己的 vocab shard 内；若是，则将对应的 logit 写入本地 target logit 张量，否则填零。随后通过 <code>all-reduce</code>（SUM 算子）求和，所有 rank 便都能获得准确的 <span class="math inline">\(x_k\)</span>。</li>
-<li><strong>全局最大值 (<span class="math inline">\(m\)</span>)</strong>：每个 rank 先独立计算本地 logits 沿着 vocab 维度的最大值，再通过 <code>all-reduce</code>（MAX 算子）规约，得到全局最大值 <span class="math inline">\(m\)</span>。</li>
-<li><strong>全局 sum-exp 项</strong>：每个 rank 利用全局最大值 <span class="math inline">\(m\)</span> 计算本地的 <span class="math inline">\(\sum \exp(x_{\text{local}} - m)\)</span>，再通过 <code>all-reduce</code>（SUM 算子）求和，即可得到全局的归一化分母。</li>
-</ol>
-<p>借助这三次仅传输 <code>[B, S]</code> 张量的通信，我们以极低的显存和通信开销精确计算出了 Cross Entropy，避免了传输 <code>[B, S, V]</code> 完整 logits 的高昂代价。</p>
-</section>
-<section id="backward本地无分支更新" class="level3">
-<h3 class="anchored" data-anchor-id="backward本地无分支更新">24.2 Backward：本地无分支更新</h3>
-<p>回顾 Cross Entropy 的定义：</p>
-<p><span class="math display">\[\operatorname{CE}(x,k) = -x_k + \log\sum_{i=1}^{V}e^{x_i}\]</span></p>
-<p>损失函数对第 <span class="math inline">\(j\)</span> 个 logit <span class="math inline">\(x_j\)</span> 的偏导数为：</p>
-<p><span class="math display">\[\frac{\partial \operatorname{CE}}{\partial x_j} = \frac{e^{x_j}}{\sum_{i=1}^{V}e^{x_i}} - \mathbb{I}_{\{k=j\}} = p_j - y_j\]</span></p>
-<p>即 Cross Entropy 对 logits 的梯度为：</p>
-<p><span class="math display">\[\frac{\partial \operatorname{CE}}{\partial x_i} = p_i - y_i\]</span></p>
-<p>在反向传播过程中：</p>
-<ul>
-<li>概率 <span class="math inline">\(p_i\)</span> 可以通过本地 rank 的 logits 与 forward 阶段通信获取的全局 sum-exp 直接计算得出。</li>
-<li>one-hot <span class="math inline">\(y_i\)</span> 可以通过掩码逻辑判断 target 是否属于当前 rank：若在本地，则在 target 位置减 1；若不在，则减 0。</li>
-</ul>
-<p>因此，backward 阶段的梯度计算完全不需要额外的跨卡通信，各 rank 均可在本地独立完成。</p>
-<p>伪代码如下：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb80"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb80-1"><a href="#cb80-1" aria-hidden="true" tabindex="-1"></a><span class="co"># forward 阶段</span></span>
-<span id="cb80-2"><a href="#cb80-2" aria-hidden="true" tabindex="-1"></a>target_mask <span class="op">=</span> (target <span class="op">&lt;</span> vocab_start) <span class="op">|</span> (target <span class="op">&gt;=</span> vocab_end)  <span class="co"># [B, S]，True 表示不在当前 rank</span></span>
-<span id="cb80-3"><a href="#cb80-3" aria-hidden="true" tabindex="-1"></a>masked_target <span class="op">=</span> target.clone() <span class="op">-</span> vocab_start</span>
-<span id="cb80-4"><a href="#cb80-4" aria-hidden="true" tabindex="-1"></a>masked_target[target_mask] <span class="op">=</span> <span class="dv">0</span>  <span class="co"># [B, S]，属于本地的映射为 local id，不属于的置 0 防越界</span></span>
-<span id="cb80-5"><a href="#cb80-5" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb80-6"><a href="#cb80-6" aria-hidden="true" tabindex="-1"></a><span class="co"># forward 中其他计算 ...</span></span>
-<span id="cb80-7"><a href="#cb80-7" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb80-8"><a href="#cb80-8" aria-hidden="true" tabindex="-1"></a>prob <span class="op">=</span> exp_logits <span class="op">/</span> exp_logits_sum  <span class="co"># [B, S, v]</span></span>
-<span id="cb80-9"><a href="#cb80-9" aria-hidden="true" tabindex="-1"></a>ctx.save_for_backward(prob, masked_target, target_mask)</span>
-<span id="cb80-10"><a href="#cb80-10" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb80-11"><a href="#cb80-11" aria-hidden="true" tabindex="-1"></a><span class="co"># backward 阶段</span></span>
-<span id="cb80-12"><a href="#cb80-12" aria-hidden="true" tabindex="-1"></a>prob, masked_target, target_mask <span class="op">=</span> ctx.saved_tensors</span>
-<span id="cb80-13"><a href="#cb80-13" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb80-14"><a href="#cb80-14" aria-hidden="true" tabindex="-1"></a>prob_update <span class="op">=</span> <span class="fl">1.0</span> <span class="op">-</span> target_mask.<span class="bu">float</span>()  <span class="co"># 在当前 rank 为 1.0，不在为 0.0</span></span>
-<span id="cb80-15"><a href="#cb80-15" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb80-16"><a href="#cb80-16" aria-hidden="true" tabindex="-1"></a>grad_input <span class="op">=</span> prob.view(<span class="op">-</span><span class="dv">1</span>, v)  <span class="co"># [B * S, v]</span></span>
-<span id="cb80-17"><a href="#cb80-17" aria-hidden="true" tabindex="-1"></a>arange_1d <span class="op">=</span> torch.arange(B <span class="op">*</span> S, device<span class="op">=</span>grad_input.device)</span>
-<span id="cb80-18"><a href="#cb80-18" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb80-19"><a href="#cb80-19" aria-hidden="true" tabindex="-1"></a>grad_input[arange_1d, masked_target.view(<span class="op">-</span><span class="dv">1</span>)] <span class="op">-=</span> prob_update.view(<span class="op">-</span><span class="dv">1</span>)</span>
-<span id="cb80-20"><a href="#cb80-20" aria-hidden="true" tabindex="-1"></a><span class="co"># 逻辑说明：</span></span>
-<span id="cb80-21"><a href="#cb80-21" aria-hidden="true" tabindex="-1"></a><span class="co"># 1. 若 target 在本地：masked_target 为有效的 local id，prob_update 为 1.0，对应位置执行 p - 1.0。</span></span>
-<span id="cb80-22"><a href="#cb80-22" aria-hidden="true" tabindex="-1"></a><span class="co"># 2. 若 target 不在本地：masked_target 虽被置 0，但 prob_update 为 0.0，0 号位置执行 p - 0.0，保持不变。</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-</section>
-<section id="ignore_index" class="level3">
-<h3 class="anchored" data-anchor-id="ignore_index">24.3 ignore_index</h3>
-<p>对于设置了 <code>ignore_index</code> 的位置，其对应的 loss 和 logits gradient 均必须为零。最终 loss 的归一化计算公式为：</p>
-<p><span class="math display">\[L = \frac{\sum_{n \in \text{valid}} \ell_n}{\max(1, N_{\text{valid}})}\]</span></p>
-<p>由于 TP 各个 rank 处理的是完全同一批序列 token，各 rank 接收到的 <code>ignore_index</code> 掩码与有效 token 数量 <span class="math inline">\(N_{\text{valid}}\)</span> 完全一致，因此 loss 缩放与掩码操作均可在本地直接计算，无需额外的同步通信。</p>
-<p>当前实现位置：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb81"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb81-1"><a href="#cb81-1" aria-hidden="true" tabindex="-1"></a>VocabParallelEmbedding:</span>
-<span id="cb81-2"><a href="#cb81-2" aria-hidden="true" tabindex="-1"></a>  model<span class="op">/</span>tensor_parallel_layers.py</span>
-<span id="cb81-3"><a href="#cb81-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb81-4"><a href="#cb81-4" aria-hidden="true" tabindex="-1"></a>VocabParallelCrossEntropy:</span>
-<span id="cb81-5"><a href="#cb81-5" aria-hidden="true" tabindex="-1"></a>  model<span class="op">/</span>tensor_parallel_layers.py</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-</section>
-</section>
-<section id="sec-vp-benefit" class="level2">
-<h2 class="anchored" data-anchor-id="sec-vp-benefit">25. 收益验证</h2>
-<p>前面的推导说明，VP 直接作用于随词表大小 <span class="math inline">\(V\)</span> 增长的 embedding、LM head、logits 和交叉熵中间状态。为了观察这部分收益如何随 <span class="math inline">\(V\)</span> 变化，固定 8 层 Transformer 和 2048 sequence length，只扫描 vocab size：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb82"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb82-1"><a href="#cb82-1" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> v <span class="kw">in</span> 6400 12800 25600 51200<span class="kw">;</span> <span class="cf">do</span></span>
-<span id="cb82-2"><a href="#cb82-2" aria-hidden="true" tabindex="-1"></a>  <span class="va">CUDA_DEVICE_MAX_CONNECTIONS</span><span class="op">=</span>1 <span class="ex">python</span> <span class="at">-m</span> evaluation.parallel benchmark <span class="dt">\</span></span>
-<span id="cb82-3"><a href="#cb82-3" aria-hidden="true" tabindex="-1"></a>    <span class="at">--kind</span> memory <span class="dt">\</span></span>
-<span id="cb82-4"><a href="#cb82-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">--tp_size</span> 2 <span class="dt">\</span></span>
-<span id="cb82-5"><a href="#cb82-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">--pp_size</span> 1 <span class="dt">\</span></span>
-<span id="cb82-6"><a href="#cb82-6" aria-hidden="true" tabindex="-1"></a>    <span class="at">--</span> <span class="dt">\</span></span>
-<span id="cb82-7"><a href="#cb82-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">--modes</span> ddp tp tp_vp <span class="dt">\</span></span>
-<span id="cb82-8"><a href="#cb82-8" aria-hidden="true" tabindex="-1"></a>    <span class="at">--batch_policy</span> fixed_per_rank <span class="dt">\</span></span>
-<span id="cb82-9"><a href="#cb82-9" aria-hidden="true" tabindex="-1"></a>    <span class="at">--num_hidden_layers</span> 8 <span class="dt">\</span></span>
-<span id="cb82-10"><a href="#cb82-10" aria-hidden="true" tabindex="-1"></a>    <span class="at">--seq_len</span> 2048 <span class="dt">\</span></span>
-<span id="cb82-11"><a href="#cb82-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">--hidden_size</span> 768 <span class="dt">\</span></span>
-<span id="cb82-12"><a href="#cb82-12" aria-hidden="true" tabindex="-1"></a>    <span class="at">--num_attention_heads</span> 8 <span class="dt">\</span></span>
-<span id="cb82-13"><a href="#cb82-13" aria-hidden="true" tabindex="-1"></a>    <span class="at">--num_key_value_heads</span> 4 <span class="dt">\</span></span>
-<span id="cb82-14"><a href="#cb82-14" aria-hidden="true" tabindex="-1"></a>    <span class="at">--vocab_size</span> <span class="st">"</span><span class="va">$v</span><span class="st">"</span> <span class="dt">\</span></span>
-<span id="cb82-15"><a href="#cb82-15" aria-hidden="true" tabindex="-1"></a>    <span class="at">--micro_batch_size</span> 4 <span class="dt">\</span></span>
-<span id="cb82-16"><a href="#cb82-16" aria-hidden="true" tabindex="-1"></a>    <span class="at">--num_microbatches</span> 1 <span class="dt">\</span></span>
-<span id="cb82-17"><a href="#cb82-17" aria-hidden="true" tabindex="-1"></a>    <span class="at">--dtype</span> bfloat16 <span class="dt">\</span></span>
-<span id="cb82-18"><a href="#cb82-18" aria-hidden="true" tabindex="-1"></a>    <span class="at">--warmup_iters</span> 10 <span class="dt">\</span></span>
-<span id="cb82-19"><a href="#cb82-19" aria-hidden="true" tabindex="-1"></a>    <span class="at">--benchmark_iters</span> 5 <span class="dt">\</span></span>
-<span id="cb82-20"><a href="#cb82-20" aria-hidden="true" tabindex="-1"></a>    <span class="at">--output_csv</span> <span class="st">"results/tp/vp_vocab_</span><span class="va">${v}</span><span class="st">.csv"</span> <span class="dt">\</span></span>
-<span id="cb82-21"><a href="#cb82-21" aria-hidden="true" tabindex="-1"></a>    <span class="at">--output_plot</span> <span class="st">"results/tp/vp_vocab_</span><span class="va">${v}</span><span class="st">.png"</span></span>
-<span id="cb82-22"><a href="#cb82-22" aria-hidden="true" tabindex="-1"></a><span class="cf">done</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>峰值 allocated memory 如下：</p>
-<table class="caption-top table">
-<colgroup>
-<col style="width: 20%">
-<col style="width: 20%">
-<col style="width: 20%">
-<col style="width: 20%">
-<col style="width: 20%">
-</colgroup>
-<thead>
-<tr class="header">
-<th style="text-align: right;">Vocab size</th>
-<th style="text-align: right;">DDP</th>
-<th style="text-align: right;">TP</th>
-<th style="text-align: right;">TP + VP</th>
-<th style="text-align: right;">VP 相对 TP 节省</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td style="text-align: right;">6,400</td>
-<td style="text-align: right;">4148.79 MiB</td>
-<td style="text-align: right;">2781.92 MiB</td>
-<td style="text-align: right;">2554.47 MiB</td>
-<td style="text-align: right;">227.45 MiB（8.2%）</td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">12,800</td>
-<td style="text-align: right;">4625.41 MiB</td>
-<td style="text-align: right;">3237.01 MiB</td>
-<td style="text-align: right;">2782.34 MiB</td>
-<td style="text-align: right;">454.67 MiB（14.0%）</td>
-</tr>
-<tr class="odd">
-<td style="text-align: right;">25,600</td>
-<td style="text-align: right;">5577.66 MiB</td>
-<td style="text-align: right;">4147.36 MiB</td>
-<td style="text-align: right;">3237.44 MiB</td>
-<td style="text-align: right;">909.92 MiB（21.9%）</td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">51,200</td>
-<td style="text-align: right;">7476.97 MiB</td>
-<td style="text-align: right;">5971.36 MiB</td>
-<td style="text-align: right;">4144.78 MiB</td>
-<td style="text-align: right;">1826.58 MiB（30.6%）</td>
-</tr>
-</tbody>
-</table>
-<p>可以看到 vocab size 每次翻倍时，VP 节省的绝对显存也几乎翻倍：约 227、455、910 和 1827 MiB。Transformer block 的其他显存保持不变时，VP 的相对收益也随 <span class="math inline">\(V\)</span> 增大，从 8.2% 上升到 30.6%。</p>
-<p>对应的 end-to-end step time 为：</p>
-<table class="caption-top table">
-<thead>
-<tr class="header">
-<th style="text-align: right;">Vocab size</th>
-<th style="text-align: right;">TP</th>
-<th style="text-align: right;">TP + VP</th>
-<th style="text-align: right;">时间变化</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td style="text-align: right;">6,400</td>
-<td style="text-align: right;">129.46 ms</td>
-<td style="text-align: right;">132.94 ms</td>
-<td style="text-align: right;">+2.7%</td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">12,800</td>
-<td style="text-align: right;">133.59 ms</td>
-<td style="text-align: right;">136.28 ms</td>
-<td style="text-align: right;">+2.0%</td>
-</tr>
-<tr class="odd">
-<td style="text-align: right;">25,600</td>
-<td style="text-align: right;">144.10 ms</td>
-<td style="text-align: right;">142.03 ms</td>
-<td style="text-align: right;">-1.4%</td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">51,200</td>
-<td style="text-align: right;">165.04 ms</td>
-<td style="text-align: right;">155.96 ms</td>
-<td style="text-align: right;">-5.5%</td>
-</tr>
-</tbody>
-</table>
-<p>VP 确实引入了额外通信：Vocab Parallel Embedding 需要合并各 rank 的局部输出，Parallel Cross Entropy 也要同步 target logit、全局最大值和 sum-exp。但是这些 collective 传输的是 <code>[B,S,H]</code> 的 embedding 输出或 Cross Entropy 中 <code>[B,S]</code> 的统计量，通信 tensor 的 shape 并不随 vocab size 增长。</p>
-<p>与此同时，每个 rank 的 LM head 输出宽度从 <span class="math inline">\(V\)</span> 降为 <span class="math inline">\(V/T\)</span>，本地 logits 以及交叉熵中的指数、归约和梯度计算也只覆盖自己的 vocab shard，这部分计算和显存访问会随 <span class="math inline">\(V\)</span> 增长，因此切分后减少的计算也随 <span class="math inline">\(V\)</span> 增长。在较小词表上，新增通信带来约 2%～3% 的时间开销。词表增大后，本地计算减少带来的收益逐渐抵消通信，实测 step time 甚至略有下降。这里的几百分点仍可能受到 kernel 和短时 benchmark 波动影响，但整体趋势说明 VP 并不是单纯用通信换显存，它同时切小了词表维度上的计算。</p>
-</section>
-</section>
-<section id="part-iv统一-benchmark限制与源码索引" class="level1">
-<h1>Part IV：统一 Benchmark、限制与源码索引</h1>
-<section id="sec-unified-benchmark" class="level2">
-<h2 class="anchored" data-anchor-id="sec-unified-benchmark">26. 统一 Benchmark</h2>
-<p>前面的实验分别回答了 TP、SP、异步通信和 VP 各自解决什么问题。最后把它们放回同一组实验，观察这些优化叠加之后，显存收益来自哪里，又付出了多少时间代价。</p>
-<section id="sec-tp-memory" class="level3">
-<h3 class="anchored" data-anchor-id="sec-tp-memory">26.1 显存降低</h3>
-<p>本节比较六种配置：</p>
-<table class="caption-top table">
-<thead>
-<tr class="header">
-<th>Variant</th>
-<th>主要观察对象</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td>DDP</td>
-<td>未切分模型的单卡显存基线</td>
-</tr>
-<tr class="even">
-<td>TP</td>
-<td>切分 Transformer block 中的参数、梯度和 optimizer states</td>
-</tr>
-<tr class="odd">
-<td>TP + SP</td>
-<td>只在 TP 区域之间保留 sequence shard</td>
-</tr>
-<tr class="even">
-<td>TP + SP + Async</td>
-<td>带有 recompute 的完整 SP 实现</td>
-</tr>
-<tr class="odd">
-<td>TP + VP</td>
-<td>进一步切分 embedding、LM head 和 logits</td>
-</tr>
-<tr class="even">
-<td>TP + SP + Async + VP</td>
-<td>当前 TP 章节中的全部优化</td>
-</tr>
-</tbody>
-</table>
-<p>所有实验使用两张 4090D 显卡、BF16、<code>hidden_size=768</code>、8 个 Q heads、4 个 KV heads、<code>vocab_size=6400</code>。<code>batch_policy=fixed_per_rank</code> 固定每个模型副本处理的 batch：每个 DDP rank 各自处理 batch 4，而两个 TP rank 共同处理 batch 4。这样可以观察同等单模型工作量下，切分参数和 activation 能为每个 rank 节省多少显存。</p>
-<p>需要注意这里的 <code>TP + SP</code> 是 <a href="#sec-async-recompute-benchmark">§21.2</a> 中为了拆解算法而保留的基础 SP。在实际 Nvidia 论文 <a href="https://arxiv.org/abs/2205.05198">Reducing Activation Recomputation in Large Transformer Models</a> 中提出的序列并行对应这里的 <code>TP + SP + Async</code>：</p>
-<section id="增加-transformer-层数" class="level4">
-<h4 class="anchored" data-anchor-id="增加-transformer-层数">增加 Transformer 层数</h4>
-<p>先固定 <code>seq_len=2048</code>，将层数从 2 增加到 32：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb83"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb83-1"><a href="#cb83-1" aria-hidden="true" tabindex="-1"></a><span class="va">CUDA_DEVICE_MAX_CONNECTIONS</span><span class="op">=</span>1 <span class="ex">python</span> <span class="at">-m</span> evaluation.parallel benchmark <span class="dt">\</span></span>
-<span id="cb83-2"><a href="#cb83-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--kind</span> memory <span class="dt">\</span></span>
-<span id="cb83-3"><a href="#cb83-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--tp_size</span> 2 <span class="dt">\</span></span>
-<span id="cb83-4"><a href="#cb83-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--pp_size</span> 1 <span class="dt">\</span></span>
-<span id="cb83-5"><a href="#cb83-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--</span> <span class="dt">\</span></span>
-<span id="cb83-6"><a href="#cb83-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--modes</span> ddp tp tp_sp tp_sp_async tp_vp tp_sp_async_vp <span class="dt">\</span></span>
-<span id="cb83-7"><a href="#cb83-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--batch_policy</span> fixed_per_rank <span class="dt">\</span></span>
-<span id="cb83-8"><a href="#cb83-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_hidden_layers</span> 2 4 8 16 32 <span class="dt">\</span></span>
-<span id="cb83-9"><a href="#cb83-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">--seq_len</span> 2048 <span class="dt">\</span></span>
-<span id="cb83-10"><a href="#cb83-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">--hidden_size</span> 768 <span class="dt">\</span></span>
-<span id="cb83-11"><a href="#cb83-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_attention_heads</span> 8 <span class="dt">\</span></span>
-<span id="cb83-12"><a href="#cb83-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_key_value_heads</span> 4 <span class="dt">\</span></span>
-<span id="cb83-13"><a href="#cb83-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">--vocab_size</span> 6400 <span class="dt">\</span></span>
-<span id="cb83-14"><a href="#cb83-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">--micro_batch_size</span> 4 <span class="dt">\</span></span>
-<span id="cb83-15"><a href="#cb83-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_microbatches</span> 1 <span class="dt">\</span></span>
-<span id="cb83-16"><a href="#cb83-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dtype</span> bfloat16 <span class="dt">\</span></span>
-<span id="cb83-17"><a href="#cb83-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">--warmup_iters</span> 10 <span class="dt">\</span></span>
-<span id="cb83-18"><a href="#cb83-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">--benchmark_iters</span> 5</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>每个 rank 的峰值 allocated memory 如下，单位为 MiB。括号内以同一层数的 DDP 为 <span class="math inline">\(100\%\)</span>，表示该配置的显存占比：</p>
-<table class="caption-top table">
-<colgroup>
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-</colgroup>
-<thead>
-<tr class="header">
-<th style="text-align: right;">Layers</th>
-<th style="text-align: right;">DDP</th>
-<th style="text-align: right;">TP</th>
-<th style="text-align: right;">TP + SP</th>
-<th style="text-align: right;">TP + SP + Async</th>
-<th style="text-align: right;">TP + VP</th>
-<th style="text-align: right;">全部开启</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td style="text-align: right;">2</td>
-<td style="text-align: right;">1452.19<br>（100%）</td>
-<td style="text-align: right;">1097.94<br>（75.6%）</td>
-<td style="text-align: right;">1052.08<br>（72.4%）</td>
-<td style="text-align: right;">956.73<br>（65.9%）</td>
-<td style="text-align: right;">867.23<br>（59.7%）</td>
-<td style="text-align: right;"><strong>719.59<br>（49.6%）</strong></td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">4</td>
-<td style="text-align: right;">2350.91<br>（100%）</td>
-<td style="text-align: right;">1658.71<br>（70.6%）</td>
-<td style="text-align: right;">1588.95<br>（67.6%）</td>
-<td style="text-align: right;">1398.82<br>（59.5%）</td>
-<td style="text-align: right;">1427.88<br>（60.7%）</td>
-<td style="text-align: right;"><strong>1163.93<br>（49.5%）</strong></td>
-</tr>
-<tr class="odd">
-<td style="text-align: right;">8</td>
-<td style="text-align: right;">4148.79<br>（100%）</td>
-<td style="text-align: right;">2781.92<br>（67.1%）</td>
-<td style="text-align: right;">2665.97<br>（64.3%）</td>
-<td style="text-align: right;">2282.97<br>（55.0%）</td>
-<td style="text-align: right;">2554.47<br>（61.6%）</td>
-<td style="text-align: right;"><strong>2048.08<br>（49.4%）</strong></td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">16</td>
-<td style="text-align: right;">7745.10<br>（100%）</td>
-<td style="text-align: right;">5026.93<br>（64.9%）</td>
-<td style="text-align: right;">4824.38<br>（62.3%）</td>
-<td style="text-align: right;">4056.38<br>（52.4%）</td>
-<td style="text-align: right;">4796.54<br>（61.9%）</td>
-<td style="text-align: right;"><strong>3816.55<br>（49.3%）</strong></td>
-</tr>
-<tr class="odd">
-<td style="text-align: right;">32</td>
-<td style="text-align: right;">14937.42<br>（100%）</td>
-<td style="text-align: right;">9521.13<br>（63.7%）</td>
-<td style="text-align: right;">9136.96<br>（61.2%）</td>
-<td style="text-align: right;">7600.27<br>（50.9%）</td>
-<td style="text-align: right;">9291.74<br>（62.2%）</td>
-<td style="text-align: right;"><strong>7364.60<br>（49.3%）</strong></td>
-</tr>
-</tbody>
-</table>
-<p>全部优化开启后，显存的比例大致为 DDP 的 49.3%~49.6%，略低于 2 卡情况下的理论下限，这可能是因为 DDP 中的 bucket 储存的额外的梯度导致测量出来的 DDP 峰值显存偏高。</p>
-</section>
-<section id="增加序列长度" class="level4">
-<h4 class="anchored" data-anchor-id="增加序列长度">增加序列长度</h4>
-<p>接下来固定 8 层，将上面命令中的层数和序列长度替换为：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb84"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb84-1"><a href="#cb84-1" aria-hidden="true" tabindex="-1"></a><span class="ex">--num_hidden_layers</span> 8 <span class="dt">\</span></span>
-<span id="cb84-2"><a href="#cb84-2" aria-hidden="true" tabindex="-1"></a>--seq_len 1024 2048 4096 8192</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>峰值 allocated memory 如下，单位为 MiB，括号内以同一 sequence length 的 DDP 为 <span class="math inline">\(100\%\)</span>：</p>
-<table class="caption-top table">
-<colgroup>
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-</colgroup>
-<thead>
-<tr class="header">
-<th style="text-align: right;">Sequence</th>
-<th style="text-align: right;">DDP</th>
-<th style="text-align: right;">TP</th>
-<th style="text-align: right;">TP + SP</th>
-<th style="text-align: right;">TP + SP + Async</th>
-<th style="text-align: right;">TP + VP</th>
-<th style="text-align: right;">全部开启</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td style="text-align: right;">1024</td>
-<td style="text-align: right;">2378.46<br>（100%）</td>
-<td style="text-align: right;">1509.15<br>（63.5%）</td>
-<td style="text-align: right;">1447.62<br>（60.9%）</td>
-<td style="text-align: right;">1260.08<br>（53.0%）</td>
-<td style="text-align: right;">1385.84<br>（58.3%）</td>
-<td style="text-align: right;"><strong>1131.15<br>（47.6%）</strong></td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">2048</td>
-<td style="text-align: right;">4148.79<br>（100%）</td>
-<td style="text-align: right;">2781.92<br>（67.1%）</td>
-<td style="text-align: right;">2665.97<br>（64.3%）</td>
-<td style="text-align: right;">2282.97<br>（55.0%）</td>
-<td style="text-align: right;">2554.47<br>（61.6%）</td>
-<td style="text-align: right;"><strong>2048.08<br>（49.4%）</strong></td>
-</tr>
-<tr class="odd">
-<td style="text-align: right;">4096</td>
-<td style="text-align: right;">7751.45<br>（100%）</td>
-<td style="text-align: right;">5268.23<br>（68.0%）</td>
-<td style="text-align: right;">5027.70<br>（64.9%）</td>
-<td style="text-align: right;">4259.70<br>（55.0%）</td>
-<td style="text-align: right;">4839.45<br>（62.4%）</td>
-<td style="text-align: right;"><strong>3819.76<br>（49.3%）</strong></td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">8192</td>
-<td style="text-align: right;">14954.20<br>（100%）</td>
-<td style="text-align: right;">10292.70<br>（68.8%）</td>
-<td style="text-align: right;">9811.70<br>（65.6%）</td>
-<td style="text-align: right;">8275.70<br>（55.3%）</td>
-<td style="text-align: right;">9464.89<br>（63.3%）</td>
-<td style="text-align: right;"><strong>7424.67<br>（49.6%）</strong></td>
-</tr>
-</tbody>
-</table>
-<p>随着 sequence 从 1024 增加到 8192，基础 SP 相对 TP 的显存收益仍保持在 4%～5%，完整 SP 的收益则从 16.5% 增加到 19.6%，可以用<a href="#sec-sp-recompute-result">§21.2</a>中类似的方法去分析。</p>
-<p>VP 在这组实验中相对 TP 始终节省约 8% 显存，绝对收益则从 123 MiB 增加到 828 MiB。与层数 scaling 不同，logits 和 parallel cross entropy 的中间状态会随 sequence length 线性增长，因此 VP 的绝对收益不再是一个固定常数。</p>
-</section>
-</section>
-<section id="sec-tp-throughput" class="level3">
-<h3 class="anchored" data-anchor-id="sec-tp-throughput">26.2 吞吐</h3>
-<p><a href="#sec-tp-memory">§25.1</a> 为了比较单卡容量，固定的是每个模型副本处理的 batch，因此 DDP 与 TP 的 global batch 不同。吞吐实验改用 <code>fixed_global</code>：两个 DDP rank 各自处理一半样本，而两个 TP rank 合作处理同一批完整样本。现在每种配置完成的总 token 数一致，可以直接比较 DDP 与各个模型并行方案。</p>
-<section id="增加-transformer-层数-1" class="level4">
-<h4 class="anchored" data-anchor-id="增加-transformer-层数-1">增加 Transformer 层数</h4>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb85"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb85-1"><a href="#cb85-1" aria-hidden="true" tabindex="-1"></a><span class="va">CUDA_DEVICE_MAX_CONNECTIONS</span><span class="op">=</span>1 <span class="ex">python</span> <span class="at">-m</span> evaluation.parallel benchmark <span class="dt">\</span></span>
-<span id="cb85-2"><a href="#cb85-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--kind</span> throughput <span class="dt">\</span></span>
-<span id="cb85-3"><a href="#cb85-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--tp_size</span> 2 <span class="dt">\</span></span>
-<span id="cb85-4"><a href="#cb85-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--pp_size</span> 1 <span class="dt">\</span></span>
-<span id="cb85-5"><a href="#cb85-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--</span> <span class="dt">\</span></span>
-<span id="cb85-6"><a href="#cb85-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--modes</span> ddp tp tp_sp tp_sp_async tp_vp tp_sp_async_vp <span class="dt">\</span></span>
-<span id="cb85-7"><a href="#cb85-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_hidden_layers</span> 2 4 8 16 32 <span class="dt">\</span></span>
-<span id="cb85-8"><a href="#cb85-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">--seq_len</span> 2048 <span class="dt">\</span></span>
-<span id="cb85-9"><a href="#cb85-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">--hidden_size</span> 768 <span class="dt">\</span></span>
-<span id="cb85-10"><a href="#cb85-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_attention_heads</span> 8 <span class="dt">\</span></span>
-<span id="cb85-11"><a href="#cb85-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_key_value_heads</span> 4 <span class="dt">\</span></span>
-<span id="cb85-12"><a href="#cb85-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">--vocab_size</span> 6400 <span class="dt">\</span></span>
-<span id="cb85-13"><a href="#cb85-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">--micro_batch_size</span> 4 <span class="dt">\</span></span>
-<span id="cb85-14"><a href="#cb85-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_microbatches</span> 1 <span class="dt">\</span></span>
-<span id="cb85-15"><a href="#cb85-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dtype</span> bfloat16 <span class="dt">\</span></span>
-<span id="cb85-16"><a href="#cb85-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">--warmup_iters</span> 10 <span class="dt">\</span></span>
-<span id="cb85-17"><a href="#cb85-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">--benchmark_iters</span> 5 <span class="dt">\</span></span>
-<span id="cb85-18"><a href="#cb85-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">--output_csv</span> results/tp/tp_throughput.csv <span class="dt">\</span></span>
-<span id="cb85-19"><a href="#cb85-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">--output_plot</span> results/tp/tp_throughput.png</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>结果如下，吞吐单位为 K tokens/s，括号内以相同层数的 DDP 为 <span class="math inline">\(100\%\)</span>：</p>
-<table class="caption-top table">
-<colgroup>
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-</colgroup>
-<thead>
-<tr class="header">
-<th style="text-align: right;">Layers</th>
-<th style="text-align: right;">DDP</th>
-<th style="text-align: right;">TP</th>
-<th style="text-align: right;">TP + SP</th>
-<th style="text-align: right;">TP + SP + Async</th>
-<th style="text-align: right;">TP + VP</th>
-<th style="text-align: right;">全部开启</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td style="text-align: right;">2</td>
-<td style="text-align: right;">533.0<br>（100%）</td>
-<td style="text-align: right;">226.6<br>（42.5%）</td>
-<td style="text-align: right;">192.0<br>（36.0%）</td>
-<td style="text-align: right;">167.2<br>（31.4%）</td>
-<td style="text-align: right;">205.4<br>（38.5%）</td>
-<td style="text-align: right;">159.7<br>（30.0%）</td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">4</td>
-<td style="text-align: right;">311.4<br>（100%）</td>
-<td style="text-align: right;">121.1<br>（38.9%）</td>
-<td style="text-align: right;">110.1<br>（35.4%）</td>
-<td style="text-align: right;">89.9<br>（28.9%）</td>
-<td style="text-align: right;">115.7<br>（37.2%）</td>
-<td style="text-align: right;">87.8<br>（28.2%）</td>
-</tr>
-<tr class="odd">
-<td style="text-align: right;">8</td>
-<td style="text-align: right;">179.1<br>（100%）</td>
-<td style="text-align: right;">63.4<br>（35.4%）</td>
-<td style="text-align: right;">57.7<br>（32.2%）</td>
-<td style="text-align: right;">46.8<br>（26.1%）</td>
-<td style="text-align: right;">61.8<br>（34.5%）</td>
-<td style="text-align: right;">46.1<br>（25.7%）</td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">16</td>
-<td style="text-align: right;">92.9<br>（100%）</td>
-<td style="text-align: right;">32.5<br>（35.0%）</td>
-<td style="text-align: right;">29.5<br>（31.8%）</td>
-<td style="text-align: right;">23.8<br>（25.6%）</td>
-<td style="text-align: right;">32.1<br>（34.6%）</td>
-<td style="text-align: right;">23.7<br>（25.5%）</td>
-</tr>
-<tr class="odd">
-<td style="text-align: right;">32</td>
-<td style="text-align: right;">49.6<br>（100%）</td>
-<td style="text-align: right;">16.5<br>（33.3%）</td>
-<td style="text-align: right;">15.0<br>（30.2%）</td>
-<td style="text-align: right;">12.0<br>（24.2%）</td>
-<td style="text-align: right;">16.3<br>（32.9%）</td>
-<td style="text-align: right;">12.0<br>（24.2%）</td>
-</tr>
-</tbody>
-</table>
-<p>可以看到，在单张 GPU 上能够完整放下模型的情况下，DDP 的吞吐更高，因为 DDP 的通信更少，只发生在反向传播完成后进行梯度同步，而且这个过程可以比较好的进行通信-计算重叠，而 TP 目的主要是是突破单卡容量限制，将权重拆开后每一层的前向和反向都引入了通信，所以能看到基本上随着层数的增加，TP 的吞吐与 DDP 相比越来越低。需要说明的是，本实验所用服务器 GPU 之间通过 PCIe 互联，带宽较低。在有 NVLink 环境下，TP 引入的通信开销会显著降低，吞吐表现可能会更好。因此实际的分布式训练中 TP 只建议在同一台物理机内部启用，即多张 GPU 通过 NVLink 或 NVSwitch 互联的场景。</p>
-<p>在模型并行方案内部比较，基础 SP 的吞吐约为 TP 的 91% （除 layers=2 时为 85%）。这部分损失也许代表着 all-reduce 拆成 reduce-scatter 与 all-gather 并减少逐 token 操作的复制计算，总的带来造成的额外开销。<code>TP + SP + Async</code> 还会在 backward 中重新 all-gather Column Parallel Linear 的输入，用计算时的重建换取 <a href="#sec-tp-memory">§25.1</a> 中更低的 activation 峰值，因此吞吐稳定在 TP 的约 73%～74%。</p>
-<p>VP 的时间代价最小。随着层数增加，<code>TP + VP</code> 的吞吐从 TP 的 90.6% 上升到约 98.8%，因为 VP 新增的通信集中在模型边界，而 Transformer block 的计算随层数增长，这部分固定开销会被逐渐摊薄。全部优化开启后的吞吐约为 TP 的 70%～73%，与 <code>TP + SP + Async</code> 几乎相同，说明当前配置中的主要时间—显存交换来自 SP Recompute；VP 能继续降低 embedding、LM head 和 logits 显存，只增加很小的额外时间。</p>
-</section>
-<section id="增加序列长度-1" class="level4">
-<h4 class="anchored" data-anchor-id="增加序列长度-1">增加序列长度</h4>
-<p>接下来固定 8 层，将 sequence length 从 1024 增加到 16000：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb86"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb86-1"><a href="#cb86-1" aria-hidden="true" tabindex="-1"></a><span class="va">CUDA_DEVICE_MAX_CONNECTIONS</span><span class="op">=</span>1 <span class="ex">python</span> <span class="at">-m</span> evaluation.parallel benchmark <span class="dt">\</span></span>
-<span id="cb86-2"><a href="#cb86-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--kind</span> throughput <span class="dt">\</span></span>
-<span id="cb86-3"><a href="#cb86-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--tp_size</span> 2 <span class="dt">\</span></span>
-<span id="cb86-4"><a href="#cb86-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--pp_size</span> 1 <span class="dt">\</span></span>
-<span id="cb86-5"><a href="#cb86-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--</span> <span class="dt">\</span></span>
-<span id="cb86-6"><a href="#cb86-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--modes</span> ddp tp tp_sp tp_sp_async tp_vp tp_sp_async_vp <span class="dt">\</span></span>
-<span id="cb86-7"><a href="#cb86-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_hidden_layers</span> 8 <span class="dt">\</span></span>
-<span id="cb86-8"><a href="#cb86-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">--seq_len</span> 1024 2048 4096 8192 16000 <span class="dt">\</span></span>
-<span id="cb86-9"><a href="#cb86-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">--hidden_size</span> 768 <span class="dt">\</span></span>
-<span id="cb86-10"><a href="#cb86-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_attention_heads</span> 8 <span class="dt">\</span></span>
-<span id="cb86-11"><a href="#cb86-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_key_value_heads</span> 4 <span class="dt">\</span></span>
-<span id="cb86-12"><a href="#cb86-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">--vocab_size</span> 6400 <span class="dt">\</span></span>
-<span id="cb86-13"><a href="#cb86-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">--micro_batch_size</span> 4 <span class="dt">\</span></span>
-<span id="cb86-14"><a href="#cb86-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_microbatches</span> 1 <span class="dt">\</span></span>
-<span id="cb86-15"><a href="#cb86-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dtype</span> bfloat16 <span class="dt">\</span></span>
-<span id="cb86-16"><a href="#cb86-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">--warmup_iters</span> 10 <span class="dt">\</span></span>
-<span id="cb86-17"><a href="#cb86-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">--benchmark_iters</span> 5 <span class="dt">\</span></span>
-<span id="cb86-18"><a href="#cb86-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">--output_csv</span> results/tp/tp_throughput_sequence.csv <span class="dt">\</span></span>
-<span id="cb86-19"><a href="#cb86-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">--output_plot</span> results/tp/tp_throughput_sequence.png</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>结果如下：</p>
-<table class="caption-top table">
-<colgroup>
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-</colgroup>
-<thead>
-<tr class="header">
-<th style="text-align: right;">Sequence</th>
-<th style="text-align: right;">DDP</th>
-<th style="text-align: right;">TP</th>
-<th style="text-align: right;">TP + SP</th>
-<th style="text-align: right;">TP + SP + Async</th>
-<th style="text-align: right;">TP + VP</th>
-<th style="text-align: right;">全部开启</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td style="text-align: right;">1024</td>
-<td style="text-align: right;">112.3<br>（100%）</td>
-<td style="text-align: right;">61.8<br>（55.0%）</td>
-<td style="text-align: right;">55.9<br>（49.8%）</td>
-<td style="text-align: right;">45.5<br>（40.5%）</td>
-<td style="text-align: right;">60.7<br>（54.1%）</td>
-<td style="text-align: right;">45.1<br>（40.2%）</td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">2048</td>
-<td style="text-align: right;">179.7<br>（100%）</td>
-<td style="text-align: right;">63.3<br>（35.2%）</td>
-<td style="text-align: right;">57.5<br>（32.0%）</td>
-<td style="text-align: right;">46.8<br>（26.0%）</td>
-<td style="text-align: right;">61.5<br>（34.2%）</td>
-<td style="text-align: right;">46.2<br>（25.7%）</td>
-</tr>
-<tr class="odd">
-<td style="text-align: right;">4096</td>
-<td style="text-align: right;">209.7<br>（100%）</td>
-<td style="text-align: right;">61.5<br>（29.3%）</td>
-<td style="text-align: right;">56.7<br>（27.0%）</td>
-<td style="text-align: right;">46.3<br>（22.1%）</td>
-<td style="text-align: right;">59.8<br>（28.5%）</td>
-<td style="text-align: right;">45.7<br>（21.8%）</td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">8192</td>
-<td style="text-align: right;">193.8<br>（100%）</td>
-<td style="text-align: right;">57.7<br>（29.8%）</td>
-<td style="text-align: right;">54.3<br>（28.0%）</td>
-<td style="text-align: right;">44.6<br>（23.0%）</td>
-<td style="text-align: right;">56.2<br>（29.0%）</td>
-<td style="text-align: right;">43.9<br>（22.7%）</td>
-</tr>
-<tr class="odd">
-<td style="text-align: right;">16000</td>
-<td style="text-align: right;">152.9<br>（100%）</td>
-<td style="text-align: right;">53.8<br>（35.2%）</td>
-<td style="text-align: right;">50.1<br>（32.8%）</td>
-<td style="text-align: right;">42.0<br>（27.5%）</td>
-<td style="text-align: right;">52.3<br>（34.2%）</td>
-<td style="text-align: right;">41.2<br>（26.9%）</td>
-</tr>
-</tbody>
-</table>
-<p>以基础 TP 为基线，SP 的相对吞吐从 90.5% 提高到约 93%，<code>TP + SP + Async</code> 则从 73.6% 提高到 78.1%。SP collective 传输的 tensor 元素量大致随 <span class="math inline">\(S\)</span> 线性增长，而 Attention 的计算量随 <span class="math inline">\(S\)</span> 增长得更快；序列变长后，布局转换和 backward 重建在整个 step 中所占的比例因此有所下降。这个趋势与 <a href="#sec-tp-memory">§25.1</a> 的显存结果互补：长序列让 SP Recompute 节省更多 activation，同时也更容易摊薄它的时间代价。</p>
-</section>
-</section>
-</section>
-<section id="当前限制与源码索引" class="level2">
-<h2 class="anchored" data-anchor-id="当前限制与源码索引">26. 当前限制与源码索引</h2>
-<p>当前实现的主要限制：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb87"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb87-1"><a href="#cb87-1" aria-hidden="true" tabindex="-1"></a>hidden_size <span class="op">%</span> TP <span class="op">==</span> <span class="dv">0</span></span>
-<span id="cb87-2"><a href="#cb87-2" aria-hidden="true" tabindex="-1"></a>intermediate_size <span class="op">%</span> TP <span class="op">==</span> <span class="dv">0</span></span>
-<span id="cb87-3"><a href="#cb87-3" aria-hidden="true" tabindex="-1"></a>num_attention_heads <span class="op">%</span> TP <span class="op">==</span> <span class="dv">0</span></span>
-<span id="cb87-4"><a href="#cb87-4" aria-hidden="true" tabindex="-1"></a>num_key_value_heads <span class="op">%</span> TP <span class="op">==</span> <span class="dv">0</span></span>
-<span id="cb87-5"><a href="#cb87-5" aria-hidden="true" tabindex="-1"></a>SP 时 sequence_length <span class="op">%</span> TP <span class="op">==</span> <span class="dv">0</span></span>
-<span id="cb87-6"><a href="#cb87-6" aria-hidden="true" tabindex="-1"></a>VP 时 vocab_size <span class="op">%</span> TP <span class="op">==</span> <span class="dv">0</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>此外：</p>
-<ul>
-<li>TP Attention 暂不支持 KV Cache。</li>
-<li>TP 模型暂不支持 MoE。</li>
-<li>当前参数 gradient hook 是正确性实现，还没有用一个统一的函数进行管理。</li>
-</ul>
-<p>关键实现索引：</p>
-<table class="caption-top table">
-<colgroup>
-<col style="width: 50%">
-<col style="width: 50%">
-</colgroup>
-<thead>
-<tr class="header">
-<th>组件</th>
-<th>文件 / 类或函数</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td>TP/SP/VP 配置</td>
-<td><code>model/tensor_parallel_layers.py::TPContext</code></td>
-</tr>
-<tr class="even">
-<td>Column/Row Parallel Linear</td>
-<td><code>model/tensor_parallel_layers.py::ColumnParallelLinear</code> / <code>RowParallelLinear</code></td>
-</tr>
-<tr class="odd">
-<td>Async Linear</td>
-<td><code>model/tensor_parallel_layers.py::LinearWithAsyncCommunication</code></td>
-</tr>
-<tr class="even">
-<td>SP autograd primitive</td>
-<td><code>model/tensor_parallel_mappings.py</code></td>
-</tr>
-<tr class="odd">
-<td>Vocab Parallel Embedding</td>
-<td><code>model/tensor_parallel_layers.py::VocabParallelEmbedding</code></td>
-</tr>
-<tr class="even">
-<td>Parallel Cross Entropy</td>
-<td><code>model/tensor_parallel_layers.py::VocabParallelCrossEntropy</code></td>
-</tr>
-<tr class="odd">
-<td>Attention、MLP 与模型组装</td>
-<td><code>model/model_tp.py</code></td>
-</tr>
-<tr class="even">
-<td>Dense checkpoint 切分</td>
-<td><code>model/model_tp.py::shard_state_dict_for_tp</code></td>
-</tr>
-<tr class="odd">
-<td>数值验证</td>
-<td><code>evaluation/validate.py</code></td>
-</tr>
-</tbody>
-</table>
+<p>显存下降的代价是更长的 step time。本实验中 TP 比 DDP 慢约 50%～61%，这部分差距主要来自 Column Parallel 与 Row Parallel 在 forward/backward 中引入的 collective。后面的 <a href="sequence_parallel_optimization.html#sec-tp-async" class="quarto-xref"><span>小节 4.3.1</span></a> 会尝试隐藏其中一部分通信；在此之前，<a href="../src/sequence_parallel.html">Sequence Parallelism</a> 先处理另一个更直接的问题：TP 区域之间仍然重复保存的完整 hidden states。</p>
 
 
-</section>
 </section>
 
 </main> <!-- /main -->
@@ -4156,10 +1938,13 @@ M_{\text{recompute, per block}}
 <nav class="page-navigation">
   <div class="nav-page nav-page-previous">
       <a href="../index.html" class="pagination-link" aria-label="前言">
-        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-title">前言</span></span>
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">前言</span></span>
       </a>          
   </div>
   <div class="nav-page nav-page-next">
+      <a href="../src/sequence_parallel.html" class="pagination-link" aria-label="Sequence Parallelism：布局与梯度">
+        <span class="nav-page-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Sequence Parallelism：布局与梯度</span></span> <i class="bi bi-arrow-right-short"></i>
+      </a>
   </div>
 </nav>
 </div> <!-- /content -->

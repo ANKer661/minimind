@@ -1,0 +1,1229 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="zh-Hans" xml:lang="zh-Hans"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.10.18">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="description" content="从 MiniMind 出发，理解并实现大模型并行训练策略。">
+
+<title>4&nbsp; Sequence Parallelism：显存边界、异步通信与重计算 – MiniMind Parallelism Book</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: 1.5em;}
+div.column{flex: auto;}
+@media screen {
+div.columns{gap: min(4vw, 1.5em);}
+div.column{overflow-x: auto;}
+}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<link href="../src/vocab_parallel.html" rel="next">
+<link href="../src/sequence_parallel.html" rel="prev">
+<script src="../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-64a204ab8560d761af7679ceaba22944.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-e8d5af89a1f099882f037266c687133d.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "sidebar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "start",
+  "type": "textbox",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "没有结果",
+    "search-matching-documents-text": "匹配的文档",
+    "search-copy-link-title": "复制搜索链接",
+    "search-hide-matches-text": "隐藏其它匹配结果",
+    "search-more-match-text": "更多匹配结果",
+    "search-more-matches-text": "更多匹配结果",
+    "search-clear-button-title": "清除",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "取消",
+    "search-submit-button-title": "提交",
+    "search-label": "搜索"
+  }
+}</script>
+<script src="../site_libs/quarto-diagram/mermaid.min.js"></script>
+<script src="../site_libs/quarto-diagram/mermaid-init.js"></script>
+<link href="../site_libs/quarto-diagram/mermaid.css" rel="stylesheet">
+
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script defer="" src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-chtml.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
+
+<link rel="stylesheet" href="../styles.css">
+</head>
+
+<body class="nav-sidebar floating quarto-light">
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+  <nav class="quarto-secondary-nav">
+    <div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="展开或折叠侧边栏导航" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../src/tensor_parallel.html">从 MiniMind 到 Tensor、Sequence 与 Vocab Parallelism</a></li><li class="breadcrumb-item"><a href="../src/sequence_parallel_optimization.html"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Sequence Parallelism：显存边界、异步通信与重计算</span></a></li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="展开或折叠侧边栏导航" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        </a>
+      <button type="button" class="btn quarto-search-button" aria-label="搜索" onclick="window.quartoOpenSearch();">
+        <i class="bi bi-search"></i>
+      </button>
+    </div>
+  </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto">
+    <div class="pt-lg-2 mt-2 text-left sidebar-header">
+    <div class="sidebar-title mb-0 py-0">
+      <a href="../">MiniMind Parallelism Book</a> 
+        <div class="sidebar-tools-main">
+    <a href="https://github.com/ANKer661/minimind-tron/tree/main/book/" title="源代码" class="quarto-navigation-tool px-1" aria-label="源代码"><i class="bi bi-github"></i></a>
+</div>
+    </div>
+      </div>
+        <div class="mt-2 flex-shrink-0 align-items-center">
+        <div class="sidebar-search">
+        <div id="quarto-search" class="" title="搜索"></div>
+        </div>
+        </div>
+    <div class="sidebar-menu-container"> 
+    <ul class="list-unstyled mt-1">
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../index.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">前言</span></span></a>
+  </div>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true">
+ <span class="menu-text">从 MiniMind 到 Tensor、Sequence 与 Vocab Parallelism</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/tensor_parallel.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Tensor Parallelism</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/sequence_parallel.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Sequence Parallelism：布局与梯度</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/sequence_parallel_optimization.html" class="sidebar-item-text sidebar-link active">
+ <span class="menu-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Sequence Parallelism：显存边界、异步通信与重计算</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/vocab_parallel.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">5</span>&nbsp; <span class="chapter-title">Vocab Parallelism</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/unified_benchmark.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">6</span>&nbsp; <span class="chapter-title">统一 Benchmark、限制与源码索引</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+    </ul>
+    </div>
+</nav>
+<div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">目录</h2>
+   
+  <ul>
+  <li><a href="#sec-sp-benchmark" id="toc-sec-sp-benchmark" class="nav-link active" data-scroll-target="#sec-sp-benchmark"><span class="header-section-number">4.1</span> 基础 SP Benchmark</a></li>
+  <li><a href="#sec-sp-memory-limit" id="toc-sec-sp-memory-limit" class="nav-link" data-scroll-target="#sec-sp-memory-limit"><span class="header-section-number">4.2</span> 为什么基础 SP 的显存收益有限</a>
+  <ul class="collapse">
+  <li><a href="#activation-理论减少量推导" id="toc-activation-理论减少量推导" class="nav-link" data-scroll-target="#activation-理论减少量推导"><span class="header-section-number">4.2.1</span> Activation 理论减少量推导</a></li>
+  <li><a href="#理论估算与实测对比" id="toc-理论估算与实测对比" class="nav-link" data-scroll-target="#理论估算与实测对比"><span class="header-section-number">4.2.2</span> 理论估算与实测对比</a></li>
+  </ul></li>
+  <li><a href="#如何避免保存-full-sequence-activation" id="toc-如何避免保存-full-sequence-activation" class="nav-link" data-scroll-target="#如何避免保存-full-sequence-activation"><span class="header-section-number">4.3</span> 如何避免保存 Full-Sequence Activation</a>
+  <ul class="collapse">
+  <li><a href="#sec-tp-async" id="toc-sec-tp-async" class="nav-link" data-scroll-target="#sec-tp-async"><span class="header-section-number">4.3.1</span> 普通 TP：异步 dgrad all-reduce</a></li>
+  <li><a href="#sec-sp-recompute" id="toc-sec-sp-recompute" class="nav-link" data-scroll-target="#sec-sp-recompute"><span class="header-section-number">4.3.2</span> SP：只保存 local shard</a></li>
+  </ul></li>
+  <li><a href="#sec-async-recompute-benchmark" id="toc-sec-async-recompute-benchmark" class="nav-link" data-scroll-target="#sec-async-recompute-benchmark"><span class="header-section-number">4.4</span> Async 与 Recompute Benchmark</a>
+  <ul class="collapse">
+  <li><a href="#普通-tpasync-能隐藏多少通信" id="toc-普通-tpasync-能隐藏多少通信" class="nav-link" data-scroll-target="#普通-tpasync-能隐藏多少通信"><span class="header-section-number">4.4.1</span> 普通 TP：Async 能隐藏多少通信</a></li>
+  <li><a href="#sec-sp-recompute-result" id="toc-sec-sp-recompute-result" class="nav-link" data-scroll-target="#sec-sp-recompute-result"><span class="header-section-number">4.4.2</span> SP：Recompute 的时间—显存交换</a></li>
+  </ul></li>
+  </ul>
+<div class="toc-actions"><ul><li><a href="https://github.com/ANKer661/minimind-tron/edit/main/book/src/sequence_parallel_optimization.qmd" class="toc-action"><i class="bi bi-github"></i>编辑该页面</a></li><li><a href="https://github.com/ANKer661/minimind-tron/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../src/tensor_parallel.html">从 MiniMind 到 Tensor、Sequence 与 Vocab Parallelism</a></li><li class="breadcrumb-item"><a href="../src/sequence_parallel_optimization.html"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Sequence Parallelism：显存边界、异步通信与重计算</span></a></li></ol></nav>
+<div class="quarto-title">
+<h1 class="title"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Sequence Parallelism：显存边界、异步通信与重计算</span></h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<section id="sec-sp-benchmark" class="level2" data-number="4.1">
+<h2 data-number="4.1" class="anchored" data-anchor-id="sec-sp-benchmark"><span class="header-section-number">4.1</span> 基础 SP Benchmark</h2>
+<p>SP 没有改变模型的数学语义，数值验证仍可沿用 <a href="tensor_parallel.html#sec-tp-validation" class="quarto-xref"><span>小节 2.14</span></a> 的方法，只需增加 <code>--sequence_parallel</code>。这里直接回到 <a href="tensor_parallel.html#sec-tp-benchmark" class="quarto-xref"><span>小节 2.15</span></a> 的相同配置，观察将 TP 区域之间的 hidden states 切成 sequence shards 后，显存和时间如何变化。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> evaluation.parallel benchmark <span class="dt">\</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--kind</span> memory <span class="dt">\</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--tp_size</span> 2 <span class="dt">\</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--pp_size</span> 1 <span class="dt">\</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--</span> <span class="dt">\</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--modes</span> ddp tp <span class="dt">\</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--batch_policy</span> fixed_per_rank <span class="dt">\</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_hidden_layers</span> 8 16 32 64 <span class="dt">\</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">--seq_len</span> 2048 <span class="dt">\</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">--hidden_size</span> 768 <span class="dt">\</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_attention_heads</span> 8 <span class="dt">\</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_key_value_heads</span> 4 <span class="dt">\</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">--vocab_size</span> 6400 <span class="dt">\</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">--micro_batch_size</span> 2 <span class="dt">\</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_microbatches</span> 1 <span class="dt">\</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dtype</span> bfloat16 <span class="dt">\</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">--warmup_iters</span> 2 <span class="dt">\</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">--benchmark_iters</span> 5 <span class="dt">\</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">--sequence_parallel</span> <span class="dt">\</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>  <span class="at">--output_csv</span> results/tp/tpsp2_layers.csv <span class="dt">\</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>  <span class="at">--output_plot</span> results/tp/tpsp2_layers.png</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Layers</th>
+<th style="text-align: right;">TP only 显存</th>
+<th style="text-align: right;">TP + SP 显存</th>
+<th style="text-align: right;">显存下降</th>
+<th style="text-align: right;">TP only step</th>
+<th style="text-align: right;">TP + SP step</th>
+<th style="text-align: right;">时间增加</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">1509.53 MiB</td>
+<td style="text-align: right;">1447.99 MiB</td>
+<td style="text-align: right;">4.1%</td>
+<td style="text-align: right;">66.47 ms</td>
+<td style="text-align: right;">74.53 ms</td>
+<td style="text-align: right;">12.1%</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">16</td>
+<td style="text-align: right;">2717.69 MiB</td>
+<td style="text-align: right;">2608.19 MiB</td>
+<td style="text-align: right;">4.0%</td>
+<td style="text-align: right;">129.90 ms</td>
+<td style="text-align: right;">144.38 ms</td>
+<td style="text-align: right;">11.1%</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">32</td>
+<td style="text-align: right;">5129.40 MiB</td>
+<td style="text-align: right;">4925.45 MiB</td>
+<td style="text-align: right;">4.0%</td>
+<td style="text-align: right;">255.60 ms</td>
+<td style="text-align: right;">284.55 ms</td>
+<td style="text-align: right;">11.3%</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">64</td>
+<td style="text-align: right;">9956.83 MiB</td>
+<td style="text-align: right;">9560.83 MiB</td>
+<td style="text-align: right;">4.0%</td>
+<td style="text-align: right;">502.83 ms</td>
+<td style="text-align: right;">565.00 ms</td>
+<td style="text-align: right;">12.4%</td>
+</tr>
+</tbody>
+</table>
+<p>基础 SP 的单卡峰值显存只比 TP only 低约 4%，远没有达到把所有 activation 都缩小到 <span class="math inline">\(1/T\)</span> 时可能产生的直觉收益；与此同时，额外的 all-gather 和 reduce-scatter 使 step time 增加了约 11%～12%。</p>
+<p>这个结果说明，<a href="sequence_parallel.html#sec-sp-block-lifecycle" class="quarto-xref"><span>小节 3.5</span></a> 中的 sequence-sharded layout 的确减少了 Norm、Dropout 和 residual 区域的重复 activation，但还有更大的 tensor 没有被这套布局覆盖。下一节将沿着 Column Parallel Linear 的 tensor 生命周期寻找它们。</p>
+</section>
+<section id="sec-sp-memory-limit" class="level2" data-number="4.2">
+<h2 data-number="4.2" class="anchored" data-anchor-id="sec-sp-memory-limit"><span class="header-section-number">4.2</span> 为什么基础 SP 的显存收益有限</h2>
+<p>基础 SP 已经具备正确的数值逻辑与语义，但它仅缩小了 <strong>TP 区域边界处</strong>（Norm、Dropout 和 Residual 路径）的 Activation。</p>
+<p>在同步版本的 Column Parallel Linear 中，前向传播依然需要执行：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>full_x <span class="op">=</span> gather_from_sequence_parallel_region(local_x, group)</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>output <span class="op">=</span> F.linear(full_x, weight)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>PyTorch Autograd 为了在反向传播（Backward）中计算权重的梯度：</p>
+<p><span class="math display">\[dW = dY^T X\]</span></p>
+<p>会保存 Gather 后的完整张量 <code>full_x: [S, B, H]</code>。因此，Sequence Shard 虽在 Norm、Dropout 和 Residual 区域生效，但一进入 Linear 计算，主要的 Activation 又恢复为完整 Sequence，并持续占用显存直至反向传播结束。</p>
+<section id="activation-理论减少量推导" class="level3" data-number="4.2.1">
+<h3 data-number="4.2.1" class="anchored" data-anchor-id="activation-理论减少量推导"><span class="header-section-number">4.2.1</span> Activation 理论减少量推导</h3>
+<p>在基础 SP 下，真正得到省去的 Activation 仅包含每个 Transformer Block 中的两个 RMSNorm 输入，以及模型末端的最终 RMSNorm 输入。</p>
+<section id="层内-rmsnorm-的显存节省" class="level4" data-number="4.2.1.1">
+<h4 data-number="4.2.1.1" class="anchored" data-anchor-id="层内-rmsnorm-的显存节省"><span class="header-section-number">4.2.1.1</span> 层内 RMSNorm 的显存节省</h4>
+<p>每层两个 RMSNorm 输入 Activation 的理论减少量公式为（BF16精度）：</p>
+<p><span class="math display">\[M_{\text{saved}} \approx 2\text{ bytes} \times B \times S\left(1-\frac{1}{T}\right) \times H \times 2 \times L\]</span></p>
+<p>代入 <a href="#sec-sp-benchmark" class="quarto-xref"><span>小节 4.1</span></a> 的具体配置（<span class="math inline">\(B=2, S=2048, T=2, H=768\)</span>）， 对于 <span class="math inline">\(L\)</span> 层的模型，层内 RMSNorm 输入 Activation 的理论减少量为：</p>
+<p><span class="math display">\[2\text{ bytes} \times 2 \times 2048 \times \frac{1}{2} \times 2 \times 768 \times L = 6L\text{ MiB}\]</span></p>
+<p><span class="math display">\[\Delta M_{\text{layer}} = 6L\text{ MiB}\]</span></p>
+</section>
+<section id="模型末端-rmsnorm-的显存节省" class="level4" data-number="4.2.1.2">
+<h4 data-number="4.2.1.2" class="anchored" data-anchor-id="模型末端-rmsnorm-的显存节省"><span class="header-section-number">4.2.1.2</span> 模型末端 RMSNorm 的显存节省</h4>
+<p>模型末端的最终 Norm 独立于 Transformer 层之外：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>hidden_states <span class="op">=</span> <span class="va">self</span>.norm(hidden_states)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>Minimind 的 RMSNorm 实现中，为保证数值稳定性会显式产生 FP32 的中间张量：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="cf">return</span> (weight <span class="op">*</span> <span class="va">self</span>.norm(x.<span class="bu">float</span>())).type_as(x)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>训练时，Autograd 需要为输入梯度计算和 Weight 梯度计算保留 <code>x.float()</code> 及其归一化结果。这两个张量均为 <code>[S, B, H]</code> 形状的 FP32 张量（单张量占用 <span class="math inline">\(4\text{ bytes}\)</span>）。</p>
+<p>在当前配置下，序列维度从 <span class="math inline">\(S=2048\)</span> 切分为 <span class="math inline">\(S/T=1024\)</span>，省去的显存量为：</p>
+<p><span class="math display">\[\begin{aligned} \Delta M_{\text{final\_norm}}  &amp;= 2 \times \left[ 4\text{ bytes} \times B \times S\left(1 - \frac{1}{T}\right) \times H \right] \\ &amp;= 2 \times \left[ 4\text{ bytes} \times 2 \times 1024 \times 768 \right] \\ &amp;= 12,582,912\text{ Bytes} = 12\text{ MiB} \end{aligned}\]</span></p>
+</section>
+</section>
+<section id="理论估算与实测对比" class="level3" data-number="4.2.2">
+<h3 data-number="4.2.2" class="anchored" data-anchor-id="理论估算与实测对比"><span class="header-section-number">4.2.2</span> 理论估算与实测对比</h3>
+<p>综合上述两部分，当前实现下基础 SP 节省的 Activation 总显存估算为：</p>
+<p><span class="math display">\[\Delta M_{\text{estimated}} \approx 6L + 12\text{ MiB}\]</span></p>
+<p>将该估算值与 <a href="#sec-sp-benchmark" class="quarto-xref"><span>小节 4.1</span></a> 中的实测显存差值进行对比：</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Layers (<span class="math inline">\(L\)</span>)</th>
+<th>估算减少量 (<span class="math inline">\(6L+12\text{ MiB}\)</span>)</th>
+<th>实测差值 (<span class="math inline">\(\text{TP only} - \text{TP + SP}\)</span>)</th>
+<th>偏差</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>8</strong></td>
+<td>60 MiB</td>
+<td>61.54 MiB</td>
+<td>+1.54 MiB</td>
+</tr>
+<tr class="even">
+<td><strong>16</strong></td>
+<td>108 MiB</td>
+<td>109.50 MiB</td>
+<td>+1.50 MiB</td>
+</tr>
+<tr class="odd">
+<td><strong>32</strong></td>
+<td>204 MiB</td>
+<td>203.95 MiB</td>
+<td>-0.05 MiB</td>
+</tr>
+<tr class="even">
+<td><strong>64</strong></td>
+<td>396 MiB</td>
+<td>396.00 MiB</td>
+<td>0.00 MiB</td>
+</tr>
+</tbody>
+</table>
+<p><strong>结论</strong>：理论估算与实测结果高度吻合。</p>
+<p>这说明基础 SP 确实按 <span class="math inline">\(1/T\)</span> 缩小了 Norm 区域的输入 Activation，但这些 Activation 只是 model 中所有 Activation 的一部分，Column Parallel Linear 仍须为 Backward 保存全量 Sequence 的 Activation，若要进一步降低显存占用，就需要引入重计算，改写 Linear 保存至 Backward 的 Activation 结构。</p>
+</section>
+</section>
+<section id="如何避免保存-full-sequence-activation" class="level2" data-number="4.3">
+<h2 data-number="4.3" class="anchored" data-anchor-id="如何避免保存-full-sequence-activation"><span class="header-section-number">4.3</span> 如何避免保存 Full-Sequence Activation</h2>
+<p><a href="#sec-sp-memory-limit" class="quarto-xref"><span>小节 4.2</span></a> 中的问题来自 autograd 跨越 forward/backward 保存了 <code>full_x</code>。 如果 forward 只保存 local shard，并在 backward 需要 <span class="math inline">\(dW\)</span> 时重新 all-gather，就能用额外通信换取 activation 显存； 同时，既然已经需要自己修改 Linear，我们还可以尝试把 dgrad 通信与 wgrad GEMM 重叠，减少通信带来的 overhead。</p>
+<p><code>LinearWithAsyncCommunication</code> 因此同时处理两个问题：</p>
+<ol type="1">
+<li>普通 TP 中，让 dgrad all-reduce 尝试与 wgrad GEMM 重叠；</li>
+<li>SP 中只保存 local sequence shard，在 backward 时重新构造完整 input。</li>
+</ol>
+<p>对应的配置是：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>async_communication: <span class="bu">bool</span> <span class="op">=</span> <span class="va">False</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<section id="sec-tp-async" class="level3" data-number="4.3.1">
+<h3 data-number="4.3.1" class="anchored" data-anchor-id="sec-tp-async"><span class="header-section-number">4.3.1</span> 普通 TP：异步 dgrad all-reduce</h3>
+<p>Column Parallel Linear 的 backward 可以写成：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fl">1.</span> 接收 dY_local（上层传来的局部梯度）</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="fl">2.</span> 计算本地 dgrad</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="fl">3.</span> 发起异步 All<span class="op">-</span>Reduce，跨 TP Rank 累加 dgrad</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="fl">4.</span> 计算本地 wgrad：dW_local <span class="op">=</span> X<span class="op">^</span>T <span class="op">@</span> dY_local</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a><span class="fl">5.</span> 计算本地 bias 梯度</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a><span class="fl">6.</span> 等待 All<span class="op">-</span>Reduce</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a><span class="fl">7.</span> 返回完整 dgrad </span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+<section id="sec-sp-recompute" class="level3" data-number="4.3.2">
+<h3 data-number="4.3.2" class="anchored" data-anchor-id="sec-sp-recompute"><span class="header-section-number">4.3.2</span> SP：只保存 local shard</h3>
+<p>SP forward：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>local_x [S<span class="op">/</span>T,B,H]</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> <span class="bu">all</span><span class="op">-</span>gather full_x [S,B,H]</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> GEMM</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> autograd 只保存 local_x 和 weight</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> forward 结束后释放 full_x</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>SP backward：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fl">1.</span> <span class="cf">async</span> <span class="bu">all</span><span class="op">-</span>gather local_x，重新构造 full_x</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="fl">2.</span> 计算 local dgrad</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="fl">3.</span> <span class="cf">async</span> <span class="bu">reduce</span><span class="op">-</span>scatter dgrad</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="fl">4.</span> wait <span class="bu">all</span><span class="op">-</span>gather</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a><span class="fl">5.</span> 使用 full_x 计算 wgrad</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a><span class="fl">6.</span> wait <span class="bu">reduce</span><span class="op">-</span>scatter</span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a><span class="fl">7.</span> 返回 local sequence grad</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+<pre class="mermaid mermaid-js">flowchart LR
+    classDef comm fill:#e8590c,stroke:#8a2e00,color:#ffffff,stroke-width:2px;
+    classDef data fill:#1971c2,stroke:#0b4a85,color:#ffffff,stroke-width:1px;
+
+    subgraph BASIC["基础 SP"]
+        direction TB
+        L1["local shard"]:::data --&gt; G1["forward all-gather"]:::comm
+        G1 --&gt; F1["Linear"]:::data
+        F1 --&gt; S1["保存 full input 到 backward"]:::data
+    end
+
+    subgraph RECOMPUTE["SP Recompute"]
+        direction TB
+        L2["local shard"]:::data --&gt; G2["forward all-gather"]:::comm
+        G2 --&gt; F2["Linear"]:::data
+        F2 --&gt; S2["只保存 local shard"]:::data
+        S2 --&gt; G3["backward all-gather"]:::comm
+        G3 --&gt; B2["计算 wgrad / dgrad"]:::data
+    end
+
+    BASIC ~~~ RECOMPUTE
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+<p>这是一项明确的用时间换空间，使用额外的通信来减少需要储存的 tensor 尺寸。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>减少：跨 forward<span class="op">/</span>backward 保存的 full <span class="bu">input</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>增加：backward 中重建 full <span class="bu">input</span> 的 <span class="bu">all</span><span class="op">-</span>gather</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>按照两层 MLP 抽象，每个 block 的 SP backward 通信次数为：</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>路径</th>
+<th>Column Parallel backward</th>
+<th>Row Parallel backward</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>基础 SP</td>
+<td>4 次 reduce-scatter</td>
+<td>2 次 all-gather</td>
+</tr>
+<tr class="even">
+<td>SP Recompute</td>
+<td>4 次重建 input 的 all-gather + 4 次 dgrad reduce-scatter</td>
+<td>2 次 all-gather</td>
+</tr>
+</tbody>
+</table>
+<p>MiniMind 源码中的额外 MLP projection 会让上述 Column Parallel 通信次数从 4 变为 5。融合投影可以减少通信次数，但会改变参数布局和 checkpoint 转换逻辑，不属于当前实现。</p>
+<p>TP+SP 的数值验证仍沿用 <a href="tensor_parallel.html#sec-tp-validation" class="quarto-xref"><span>小节 2.14</span></a> 的方法，比较 forward logits/loss、关键参数梯度和多步 AdamW；这里不再重复展开相同的验证步骤。</p>
+</section>
+</section>
+<section id="sec-async-recompute-benchmark" class="level2" data-number="4.4">
+<h2 data-number="4.4" class="anchored" data-anchor-id="sec-async-recompute-benchmark"><span class="header-section-number">4.4</span> Async 与 Recompute Benchmark</h2>
+<p><a href="#sec-tp-async" class="quarto-xref"><span>小节 4.3.1</span></a> 和 <a href="#sec-sp-recompute" class="quarto-xref"><span>小节 4.3.2</span></a> 对 <code>LinearWithAsyncCommunication</code> 提出了两个目标：普通 TP 用通信—计算重叠缩短时间，SP 则通过 backward 重建 full-sequence input 进一步节省显存。这一节将对两者进行 benchmark，验证它们的实际收益。</p>
+<section id="普通-tpasync-能隐藏多少通信" class="level3" data-number="4.4.1">
+<h3 data-number="4.4.1" class="anchored" data-anchor-id="普通-tpasync-能隐藏多少通信"><span class="header-section-number">4.4.1</span> 普通 TP：Async 能隐藏多少通信</h3>
+<p>先运行同步 TP 基线：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="va">CUDA_DEVICE_MAX_CONNECTIONS</span><span class="op">=</span>1 <span class="ex">python</span> <span class="at">-m</span> evaluation.parallel benchmark <span class="dt">\</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--kind</span> memory <span class="dt">\</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--tp_size</span> 2 <span class="dt">\</span></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--pp_size</span> 1 <span class="dt">\</span></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--</span> <span class="dt">\</span></span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--modes</span> ddp tp <span class="dt">\</span></span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--batch_policy</span> fixed_per_rank <span class="dt">\</span></span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_hidden_layers</span> 2 4 8 16 32 <span class="dt">\</span></span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">--seq_len</span> 2048 <span class="dt">\</span></span>
+<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">--hidden_size</span> 768 <span class="dt">\</span></span>
+<span id="cb10-11"><a href="#cb10-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_attention_heads</span> 8 <span class="dt">\</span></span>
+<span id="cb10-12"><a href="#cb10-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_key_value_heads</span> 4 <span class="dt">\</span></span>
+<span id="cb10-13"><a href="#cb10-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">--vocab_size</span> 6400 <span class="dt">\</span></span>
+<span id="cb10-14"><a href="#cb10-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">--micro_batch_size</span> 4 <span class="dt">\</span></span>
+<span id="cb10-15"><a href="#cb10-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_microbatches</span> 1 <span class="dt">\</span></span>
+<span id="cb10-16"><a href="#cb10-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dtype</span> bfloat16 <span class="dt">\</span></span>
+<span id="cb10-17"><a href="#cb10-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">--warmup_iters</span> 10 <span class="dt">\</span></span>
+<span id="cb10-18"><a href="#cb10-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">--benchmark_iters</span> 5</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>异步版本保持其余参数不变，只增加：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="ex">--async_communication</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th style="text-align: right;">Layers</th>
+<th style="text-align: right;">同步 TP</th>
+<th style="text-align: right;">Async TP</th>
+<th style="text-align: right;">Step time 下降</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">35.82 ms</td>
+<td style="text-align: right;">35.27 ms</td>
+<td style="text-align: right;">1.5%</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">4</td>
+<td style="text-align: right;">66.55 ms</td>
+<td style="text-align: right;">65.39 ms</td>
+<td style="text-align: right;">1.7%</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">127.84 ms</td>
+<td style="text-align: right;">125.64 ms</td>
+<td style="text-align: right;">1.7%</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">16</td>
+<td style="text-align: right;">249.51 ms</td>
+<td style="text-align: right;">245.38 ms</td>
+<td style="text-align: right;">1.7%</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">32</td>
+<td style="text-align: right;">493.13 ms</td>
+<td style="text-align: right;">484.62 ms</td>
+<td style="text-align: right;">1.7%</td>
+</tr>
+</tbody>
+</table>
+<p>Async 不改变保存的 tensor，因此两组实验的峰值显存完全相同。Step time 的下降也不大，在本次配置中约为 1.5%～1.7%。但端到端收益小，并不能直接说明 overlap 没有发生；还需要回到 <a href="#sec-tp-async" class="quarto-xref"><span>小节 4.3.1</span></a> 的目标，观察 dgrad all-reduce 与 wgrad GEMM 在 GPU 时间线上是否真正交叠。</p>
+<p>同步实现中，all-reduce 与 GEMM 串行执行：</p>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="figs/tp.png" class="img-fluid figure-img" alt="同步 TP 的 GPU 时间线，NCCL all-reduce 与 GEMM 位于同一 stream，没有时间重叠"></p>
+<figcaption>同步 TP：all-reduce 与 GEMM 没有重叠</figcaption>
+</figure>
+</div>
+<p>异步实现将 NCCL all-reduce 与 wgrad GEMM 重叠：</p>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="figs/tp_async.png" class="img-fluid figure-img" alt="异步 TP 的 GPU 时间线，NCCL all-reduce 与另一个 CUDA stream 上的 GEMM 在时间轴上重叠"></p>
+<figcaption>Async TP：all-reduce 与 wgrad GEMM 重叠</figcaption>
+</figure>
+</div>
+<p>因此，这里的实现机制是生效的，但它只隐藏 Columnn Parallel 的 all-reduce 与 wgrad GEMM 相交的部分，其他同步 collective的开销不会消失，最终只获得约 1.7% 的端到端改善。</p>
+</section>
+<section id="sec-sp-recompute-result" class="level3" data-number="4.4.2">
+<h3 data-number="4.4.2" class="anchored" data-anchor-id="sec-sp-recompute-result"><span class="header-section-number">4.4.2</span> SP：Recompute 的时间—显存交换</h3>
+<p><a href="#sec-sp-recompute" class="quarto-xref"><span>小节 4.3.2</span></a> 中的 SP Recompute 不再让 Column Parallel Linear 跨越 forward/backward 保存 full-sequence input，而是在 backward 中重新 all-gather。下面比较基础 SP 与这一实现的峰值显存和 step time。</p>
+<p>需要说明的是，本章所谓的“基础 SP”只是为了分步解释 tensor layout 而构造的中间版本，并不是 Megatron 中实际使用的一种独立 SP 配置。Megatron 所说的 Sequence Parallelism 已经包含只保存 local shard、在 backward 中重新 all-gather input 的过程；对应到 MiniMind，就是本节测试的 <code>sequence_parallel + async_communication</code>，也就是 <code>TP + SP + Async</code>。因此下面的基础 SP 数据只用于拆解这一步优化，最终应关注 Recompute 版本。</p>
+<p>先运行基础 SP：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="va">CUDA_DEVICE_MAX_CONNECTIONS</span><span class="op">=</span>1 <span class="ex">python</span> <span class="at">-m</span> evaluation.parallel benchmark <span class="dt">\</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--kind</span> memory <span class="dt">\</span></span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--tp_size</span> 2 <span class="dt">\</span></span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--pp_size</span> 1 <span class="dt">\</span></span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--</span> <span class="dt">\</span></span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--modes</span> ddp tp <span class="dt">\</span></span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--batch_policy</span> fixed_per_rank <span class="dt">\</span></span>
+<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_hidden_layers</span> 2 4 8 16 32 <span class="dt">\</span></span>
+<span id="cb12-9"><a href="#cb12-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">--seq_len</span> 2048 <span class="dt">\</span></span>
+<span id="cb12-10"><a href="#cb12-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">--hidden_size</span> 768 <span class="dt">\</span></span>
+<span id="cb12-11"><a href="#cb12-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_attention_heads</span> 8 <span class="dt">\</span></span>
+<span id="cb12-12"><a href="#cb12-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_key_value_heads</span> 4 <span class="dt">\</span></span>
+<span id="cb12-13"><a href="#cb12-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">--vocab_size</span> 6400 <span class="dt">\</span></span>
+<span id="cb12-14"><a href="#cb12-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">--micro_batch_size</span> 4 <span class="dt">\</span></span>
+<span id="cb12-15"><a href="#cb12-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_microbatches</span> 1 <span class="dt">\</span></span>
+<span id="cb12-16"><a href="#cb12-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dtype</span> bfloat16 <span class="dt">\</span></span>
+<span id="cb12-17"><a href="#cb12-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">--warmup_iters</span> 10 <span class="dt">\</span></span>
+<span id="cb12-18"><a href="#cb12-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">--benchmark_iters</span> 5 <span class="dt">\</span></span>
+<span id="cb12-19"><a href="#cb12-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">--sequence_parallel</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>Recompute 版本保持其余参数不变，只增加：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="ex">--async_communication</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>当前实现用同一个开关同时启用 SP Recompute 和 backward 异步通信，因此这组实验不能把两者的时间影响单独拆开。显存变化来自只保存 local shard；step time 则同时包含额外 backward all-gather，以及 dgrad collective 与 wgrad GEMM 重叠后的净结果。</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Layers</th>
+<th style="text-align: right;">基础 SP 显存</th>
+<th style="text-align: right;">Recompute 显存</th>
+<th style="text-align: right;">显存下降</th>
+<th style="text-align: right;">基础 SP step</th>
+<th style="text-align: right;">Recompute step</th>
+<th style="text-align: right;">时间增加</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">1052.08 MiB</td>
+<td style="text-align: right;">956.73 MiB</td>
+<td style="text-align: right;">9.1%</td>
+<td style="text-align: right;">40.46 ms</td>
+<td style="text-align: right;">48.70 ms</td>
+<td style="text-align: right;">20.4%</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">4</td>
+<td style="text-align: right;">1588.95 MiB</td>
+<td style="text-align: right;">1398.82 MiB</td>
+<td style="text-align: right;">12.0%</td>
+<td style="text-align: right;">74.19 ms</td>
+<td style="text-align: right;">91.16 ms</td>
+<td style="text-align: right;">22.9%</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">2665.97 MiB</td>
+<td style="text-align: right;">2282.97 MiB</td>
+<td style="text-align: right;">14.4%</td>
+<td style="text-align: right;">141.76 ms</td>
+<td style="text-align: right;">175.38 ms</td>
+<td style="text-align: right;">23.7%</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">16</td>
+<td style="text-align: right;">4824.38 MiB</td>
+<td style="text-align: right;">4056.38 MiB</td>
+<td style="text-align: right;">15.9%</td>
+<td style="text-align: right;">276.60 ms</td>
+<td style="text-align: right;">343.93 ms</td>
+<td style="text-align: right;">24.3%</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">32</td>
+<td style="text-align: right;">9136.96 MiB</td>
+<td style="text-align: right;">7600.27 MiB</td>
+<td style="text-align: right;">16.8%</td>
+<td style="text-align: right;">546.35 ms</td>
+<td style="text-align: right;">680.42 ms</td>
+<td style="text-align: right;">24.5%</td>
+</tr>
+</tbody>
+</table>
+<p>显存收益可以直接从 Column Parallel Linear 保存的输入验算。当前配置为：</p>
+<p><span class="math display">\[
+B=4,\qquad S=2048,\qquad H=768,\qquad T=2.
+\]</span></p>
+<p>一份 full-sequence BF16 input 占用：</p>
+<p><span class="math display">\[
+2\times B\times S\times H=12\text{ MiB},
+\]</span></p>
+<p>local sequence shard 则占 <span class="math inline">\(6\)</span> MiB。MiniMind 每个 block 有五个 Column Parallel Linear：</p>
+<pre class="text"><code>Attention: q_proj, k_proj, v_proj
+MLP:       gate_proj, up_proj</code></pre>
+<p>基础 SP 中，每次 Column Parallel forward 都会单独 all-gather。Q/K/V 因此保存三份独立的 full input，gate/up 再保存两份：</p>
+<p><span class="math display">\[
+M_{\text{basic, per block}}
+=
+(3+2)\times12
+=60\text{ MiB}.
+\]</span></p>
+<p>Recompute 版本不保存这些 gather 输出。三个 Attention projections 只引用同一份 local input storage，两个 MLP projections 也只引用同一份 local input storage：</p>
+<p><span class="math display">\[
+M_{\text{recompute, per block}}
+=
+(1+1)\times6
+=12\text{ MiB}.
+\]</span></p>
+<p>因此每个 block 的理论减少量为：</p>
+<p><span class="math display">\[
+60-12=48\text{ MiB}.
+\]</span></p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th style="text-align: right;">Layers</th>
+<th style="text-align: right;">理论减少量 <span class="math inline">\(48L\)</span></th>
+<th style="text-align: right;">实测减少量</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">96 MiB</td>
+<td style="text-align: right;">95.35 MiB</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">4</td>
+<td style="text-align: right;">192 MiB</td>
+<td style="text-align: right;">190.13 MiB</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">384 MiB</td>
+<td style="text-align: right;">383.00 MiB</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">16</td>
+<td style="text-align: right;">768 MiB</td>
+<td style="text-align: right;">768.00 MiB</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">32</td>
+<td style="text-align: right;">1536 MiB</td>
+<td style="text-align: right;">1536.69 MiB</td>
+</tr>
+</tbody>
+</table>
+<p>理论值与实测结果基本一致，说明显存下降确实来自 <a href="#sec-sp-recompute" class="quarto-xref"><span>小节 4.3.2</span></a> 描述的 activation 生命周期变化。随着层数增加，固定的参数、optimizer states 和模型边界显存被逐渐摊薄，因此 Recompute 的相对显存收益从 9.1% 上升到 16.8%；但每层新增的 backward all-gather 也使时间代价逐渐稳定在约 24%～25%。</p>
+<p>这组结果展示的是一项明确的取舍：Recompute 用更长的 step time，换取更少的单卡峰值显存。</p>
+
+
+</section>
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "已复制");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "已复制");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+<nav class="page-navigation">
+  <div class="nav-page nav-page-previous">
+      <a href="../src/sequence_parallel.html" class="pagination-link" aria-label="Sequence Parallelism：布局与梯度">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Sequence Parallelism：布局与梯度</span></span>
+      </a>          
+  </div>
+  <div class="nav-page nav-page-next">
+      <a href="../src/vocab_parallel.html" class="pagination-link" aria-label="Vocab Parallelism">
+        <span class="nav-page-text"><span class="chapter-number">5</span>&nbsp; <span class="chapter-title">Vocab Parallelism</span></span> <i class="bi bi-arrow-right-short"></i>
+      </a>
+  </div>
+</nav>
+</div> <!-- /content -->
+
+
+
+
+<footer class="footer"><div class="nav-footer"><div class="nav-footer-center"><div class="toc-actions d-sm-block d-md-none"><ul><li><a href="https://github.com/ANKer661/minimind-tron/edit/main/book/src/sequence_parallel_optimization.qmd" class="toc-action"><i class="bi bi-github"></i>编辑该页面</a></li><li><a href="https://github.com/ANKer661/minimind-tron/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></div></div></footer></body></html>

@@ -1,0 +1,1156 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="zh-Hans" xml:lang="zh-Hans"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.10.18">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="description" content="从 MiniMind 出发，理解并实现大模型并行训练策略。">
+
+<title>6&nbsp; 统一 Benchmark、限制与源码索引 – MiniMind Parallelism Book</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: 1.5em;}
+div.column{flex: auto;}
+@media screen {
+div.columns{gap: min(4vw, 1.5em);}
+div.column{overflow-x: auto;}
+}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<link href="../src/vocab_parallel.html" rel="prev">
+<script src="../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-64a204ab8560d761af7679ceaba22944.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-e8d5af89a1f099882f037266c687133d.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "sidebar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "start",
+  "type": "textbox",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "没有结果",
+    "search-matching-documents-text": "匹配的文档",
+    "search-copy-link-title": "复制搜索链接",
+    "search-hide-matches-text": "隐藏其它匹配结果",
+    "search-more-match-text": "更多匹配结果",
+    "search-more-matches-text": "更多匹配结果",
+    "search-clear-button-title": "清除",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "取消",
+    "search-submit-button-title": "提交",
+    "search-label": "搜索"
+  }
+}</script>
+
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script defer="" src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-chtml.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
+
+<link rel="stylesheet" href="../styles.css">
+</head>
+
+<body class="nav-sidebar floating quarto-light">
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+  <nav class="quarto-secondary-nav">
+    <div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="展开或折叠侧边栏导航" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../src/tensor_parallel.html">从 MiniMind 到 Tensor、Sequence 与 Vocab Parallelism</a></li><li class="breadcrumb-item"><a href="../src/unified_benchmark.html"><span class="chapter-number">6</span>&nbsp; <span class="chapter-title">统一 Benchmark、限制与源码索引</span></a></li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="展开或折叠侧边栏导航" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        </a>
+      <button type="button" class="btn quarto-search-button" aria-label="搜索" onclick="window.quartoOpenSearch();">
+        <i class="bi bi-search"></i>
+      </button>
+    </div>
+  </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto">
+    <div class="pt-lg-2 mt-2 text-left sidebar-header">
+    <div class="sidebar-title mb-0 py-0">
+      <a href="../">MiniMind Parallelism Book</a> 
+        <div class="sidebar-tools-main">
+    <a href="https://github.com/ANKer661/minimind-tron/tree/main/book/" title="源代码" class="quarto-navigation-tool px-1" aria-label="源代码"><i class="bi bi-github"></i></a>
+</div>
+    </div>
+      </div>
+        <div class="mt-2 flex-shrink-0 align-items-center">
+        <div class="sidebar-search">
+        <div id="quarto-search" class="" title="搜索"></div>
+        </div>
+        </div>
+    <div class="sidebar-menu-container"> 
+    <ul class="list-unstyled mt-1">
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../index.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">前言</span></span></a>
+  </div>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true">
+ <span class="menu-text">从 MiniMind 到 Tensor、Sequence 与 Vocab Parallelism</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/tensor_parallel.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Tensor Parallelism</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/sequence_parallel.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Sequence Parallelism：布局与梯度</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/sequence_parallel_optimization.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Sequence Parallelism：显存边界、异步通信与重计算</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/vocab_parallel.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">5</span>&nbsp; <span class="chapter-title">Vocab Parallelism</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/unified_benchmark.html" class="sidebar-item-text sidebar-link active">
+ <span class="menu-text"><span class="chapter-number">6</span>&nbsp; <span class="chapter-title">统一 Benchmark、限制与源码索引</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+    </ul>
+    </div>
+</nav>
+<div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">目录</h2>
+   
+  <ul>
+  <li><a href="#sec-unified-benchmark" id="toc-sec-unified-benchmark" class="nav-link active" data-scroll-target="#sec-unified-benchmark"><span class="header-section-number">6.1</span> 统一 Benchmark</a>
+  <ul class="collapse">
+  <li><a href="#sec-tp-memory" id="toc-sec-tp-memory" class="nav-link" data-scroll-target="#sec-tp-memory"><span class="header-section-number">6.1.1</span> 显存降低</a></li>
+  <li><a href="#sec-tp-throughput" id="toc-sec-tp-throughput" class="nav-link" data-scroll-target="#sec-tp-throughput"><span class="header-section-number">6.1.2</span> 吞吐</a></li>
+  </ul></li>
+  <li><a href="#当前限制与源码索引" id="toc-当前限制与源码索引" class="nav-link" data-scroll-target="#当前限制与源码索引"><span class="header-section-number">6.2</span> 当前限制与源码索引</a></li>
+  </ul>
+<div class="toc-actions"><ul><li><a href="https://github.com/ANKer661/minimind-tron/edit/main/book/src/unified_benchmark.qmd" class="toc-action"><i class="bi bi-github"></i>编辑该页面</a></li><li><a href="https://github.com/ANKer661/minimind-tron/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../src/tensor_parallel.html">从 MiniMind 到 Tensor、Sequence 与 Vocab Parallelism</a></li><li class="breadcrumb-item"><a href="../src/unified_benchmark.html"><span class="chapter-number">6</span>&nbsp; <span class="chapter-title">统一 Benchmark、限制与源码索引</span></a></li></ol></nav>
+<div class="quarto-title">
+<h1 class="title"><span class="chapter-number">6</span>&nbsp; <span class="chapter-title">统一 Benchmark、限制与源码索引</span></h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<section id="sec-unified-benchmark" class="level2" data-number="6.1">
+<h2 data-number="6.1" class="anchored" data-anchor-id="sec-unified-benchmark"><span class="header-section-number">6.1</span> 统一 Benchmark</h2>
+<p>前面的实验分别回答了 TP、SP、异步通信和 VP 各自解决什么问题。最后把它们放回同一组实验，观察这些优化叠加之后，显存收益来自哪里，又付出了多少时间代价。</p>
+<section id="sec-tp-memory" class="level3" data-number="6.1.1">
+<h3 data-number="6.1.1" class="anchored" data-anchor-id="sec-tp-memory"><span class="header-section-number">6.1.1</span> 显存降低</h3>
+<p>本节比较六种配置：</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Variant</th>
+<th>主要观察对象</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>DDP</td>
+<td>未切分模型的单卡显存基线</td>
+</tr>
+<tr class="even">
+<td>TP</td>
+<td>切分 Transformer block 中的参数、梯度和 optimizer states</td>
+</tr>
+<tr class="odd">
+<td>TP + SP</td>
+<td>只在 TP 区域之间保留 sequence shard</td>
+</tr>
+<tr class="even">
+<td>TP + SP + Async</td>
+<td>带有 recompute 的完整 SP 实现</td>
+</tr>
+<tr class="odd">
+<td>TP + VP</td>
+<td>进一步切分 embedding、LM head 和 logits</td>
+</tr>
+<tr class="even">
+<td>TP + SP + Async + VP</td>
+<td>当前 TP 章节中的全部优化</td>
+</tr>
+</tbody>
+</table>
+<p>所有实验使用两张 4090D 显卡、BF16、<code>hidden_size=768</code>、8 个 Q heads、4 个 KV heads、<code>vocab_size=6400</code>。<code>batch_policy=fixed_per_rank</code> 固定每个模型副本处理的 batch：每个 DDP rank 各自处理 batch 4，而两个 TP rank 共同处理 batch 4。这样可以观察同等单模型工作量下，切分参数和 activation 能为每个 rank 节省多少显存。</p>
+<p>需要注意这里的 <code>TP + SP</code> 是 <a href="sequence_parallel_optimization.html#sec-async-recompute-benchmark" class="quarto-xref"><span>小节 4.4</span></a> 中为了拆解算法而保留的基础 SP。在实际 Nvidia 论文 <a href="https://arxiv.org/abs/2205.05198">Reducing Activation Recomputation in Large Transformer Models</a> 中提出的序列并行对应这里的 <code>TP + SP + Async</code>：</p>
+<section id="增加-transformer-层数" class="level4" data-number="6.1.1.1">
+<h4 data-number="6.1.1.1" class="anchored" data-anchor-id="增加-transformer-层数"><span class="header-section-number">6.1.1.1</span> 增加 Transformer 层数</h4>
+<p>先固定 <code>seq_len=2048</code>，将层数从 2 增加到 32：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="va">CUDA_DEVICE_MAX_CONNECTIONS</span><span class="op">=</span>1 <span class="ex">python</span> <span class="at">-m</span> evaluation.parallel benchmark <span class="dt">\</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--kind</span> memory <span class="dt">\</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--tp_size</span> 2 <span class="dt">\</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--pp_size</span> 1 <span class="dt">\</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--</span> <span class="dt">\</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--modes</span> ddp tp tp_sp tp_sp_async tp_vp tp_sp_async_vp <span class="dt">\</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--batch_policy</span> fixed_per_rank <span class="dt">\</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_hidden_layers</span> 2 4 8 16 32 <span class="dt">\</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">--seq_len</span> 2048 <span class="dt">\</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">--hidden_size</span> 768 <span class="dt">\</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_attention_heads</span> 8 <span class="dt">\</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_key_value_heads</span> 4 <span class="dt">\</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">--vocab_size</span> 6400 <span class="dt">\</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">--micro_batch_size</span> 4 <span class="dt">\</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_microbatches</span> 1 <span class="dt">\</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dtype</span> bfloat16 <span class="dt">\</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">--warmup_iters</span> 10 <span class="dt">\</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">--benchmark_iters</span> 5</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>每个 rank 的峰值 allocated memory 如下，单位为 MiB。括号内以同一层数的 DDP 为 <span class="math inline">\(100\%\)</span>，表示该配置的显存占比：</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Layers</th>
+<th style="text-align: right;">DDP</th>
+<th style="text-align: right;">TP</th>
+<th style="text-align: right;">TP + SP</th>
+<th style="text-align: right;">TP + SP + Async</th>
+<th style="text-align: right;">TP + VP</th>
+<th style="text-align: right;">全部开启</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">1452.19<br>（100%）</td>
+<td style="text-align: right;">1097.94<br>（75.6%）</td>
+<td style="text-align: right;">1052.08<br>（72.4%）</td>
+<td style="text-align: right;">956.73<br>（65.9%）</td>
+<td style="text-align: right;">867.23<br>（59.7%）</td>
+<td style="text-align: right;"><strong>719.59<br>（49.6%）</strong></td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">4</td>
+<td style="text-align: right;">2350.91<br>（100%）</td>
+<td style="text-align: right;">1658.71<br>（70.6%）</td>
+<td style="text-align: right;">1588.95<br>（67.6%）</td>
+<td style="text-align: right;">1398.82<br>（59.5%）</td>
+<td style="text-align: right;">1427.88<br>（60.7%）</td>
+<td style="text-align: right;"><strong>1163.93<br>（49.5%）</strong></td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">4148.79<br>（100%）</td>
+<td style="text-align: right;">2781.92<br>（67.1%）</td>
+<td style="text-align: right;">2665.97<br>（64.3%）</td>
+<td style="text-align: right;">2282.97<br>（55.0%）</td>
+<td style="text-align: right;">2554.47<br>（61.6%）</td>
+<td style="text-align: right;"><strong>2048.08<br>（49.4%）</strong></td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">16</td>
+<td style="text-align: right;">7745.10<br>（100%）</td>
+<td style="text-align: right;">5026.93<br>（64.9%）</td>
+<td style="text-align: right;">4824.38<br>（62.3%）</td>
+<td style="text-align: right;">4056.38<br>（52.4%）</td>
+<td style="text-align: right;">4796.54<br>（61.9%）</td>
+<td style="text-align: right;"><strong>3816.55<br>（49.3%）</strong></td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">32</td>
+<td style="text-align: right;">14937.42<br>（100%）</td>
+<td style="text-align: right;">9521.13<br>（63.7%）</td>
+<td style="text-align: right;">9136.96<br>（61.2%）</td>
+<td style="text-align: right;">7600.27<br>（50.9%）</td>
+<td style="text-align: right;">9291.74<br>（62.2%）</td>
+<td style="text-align: right;"><strong>7364.60<br>（49.3%）</strong></td>
+</tr>
+</tbody>
+</table>
+<p>全部优化开启后，显存的比例大致为 DDP 的 49.3%~49.6%，略低于 2 卡情况下的理论下限，这可能是因为 DDP 中的 bucket 储存的额外的梯度导致测量出来的 DDP 峰值显存偏高。</p>
+</section>
+<section id="增加序列长度" class="level4" data-number="6.1.1.2">
+<h4 data-number="6.1.1.2" class="anchored" data-anchor-id="增加序列长度"><span class="header-section-number">6.1.1.2</span> 增加序列长度</h4>
+<p>接下来固定 8 层，将上面命令中的层数和序列长度替换为：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">--num_hidden_layers</span> 8 <span class="dt">\</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>--seq_len 1024 2048 4096 8192</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>峰值 allocated memory 如下，单位为 MiB，括号内以同一 sequence length 的 DDP 为 <span class="math inline">\(100\%\)</span>：</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Sequence</th>
+<th style="text-align: right;">DDP</th>
+<th style="text-align: right;">TP</th>
+<th style="text-align: right;">TP + SP</th>
+<th style="text-align: right;">TP + SP + Async</th>
+<th style="text-align: right;">TP + VP</th>
+<th style="text-align: right;">全部开启</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">1024</td>
+<td style="text-align: right;">2378.46<br>（100%）</td>
+<td style="text-align: right;">1509.15<br>（63.5%）</td>
+<td style="text-align: right;">1447.62<br>（60.9%）</td>
+<td style="text-align: right;">1260.08<br>（53.0%）</td>
+<td style="text-align: right;">1385.84<br>（58.3%）</td>
+<td style="text-align: right;"><strong>1131.15<br>（47.6%）</strong></td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">2048</td>
+<td style="text-align: right;">4148.79<br>（100%）</td>
+<td style="text-align: right;">2781.92<br>（67.1%）</td>
+<td style="text-align: right;">2665.97<br>（64.3%）</td>
+<td style="text-align: right;">2282.97<br>（55.0%）</td>
+<td style="text-align: right;">2554.47<br>（61.6%）</td>
+<td style="text-align: right;"><strong>2048.08<br>（49.4%）</strong></td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">4096</td>
+<td style="text-align: right;">7751.45<br>（100%）</td>
+<td style="text-align: right;">5268.23<br>（68.0%）</td>
+<td style="text-align: right;">5027.70<br>（64.9%）</td>
+<td style="text-align: right;">4259.70<br>（55.0%）</td>
+<td style="text-align: right;">4839.45<br>（62.4%）</td>
+<td style="text-align: right;"><strong>3819.76<br>（49.3%）</strong></td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">8192</td>
+<td style="text-align: right;">14954.20<br>（100%）</td>
+<td style="text-align: right;">10292.70<br>（68.8%）</td>
+<td style="text-align: right;">9811.70<br>（65.6%）</td>
+<td style="text-align: right;">8275.70<br>（55.3%）</td>
+<td style="text-align: right;">9464.89<br>（63.3%）</td>
+<td style="text-align: right;"><strong>7424.67<br>（49.6%）</strong></td>
+</tr>
+</tbody>
+</table>
+<p>随着 sequence 从 1024 增加到 8192，基础 SP 相对 TP 的显存收益仍保持在 4%～5%，完整 SP 的收益则从 16.5% 增加到 19.6%，可以用 <a href="sequence_parallel_optimization.html#sec-sp-recompute-result" class="quarto-xref"><span>小节 4.4.2</span></a> 中类似的方法去分析。</p>
+<p>VP 在这组实验中相对 TP 始终节省约 8% 显存，绝对收益则从 123 MiB 增加到 828 MiB。与层数 scaling 不同，logits 和 parallel cross entropy 的中间状态会随 sequence length 线性增长，因此 VP 的绝对收益不再是一个固定常数。</p>
+</section>
+</section>
+<section id="sec-tp-throughput" class="level3" data-number="6.1.2">
+<h3 data-number="6.1.2" class="anchored" data-anchor-id="sec-tp-throughput"><span class="header-section-number">6.1.2</span> 吞吐</h3>
+<p><a href="#sec-tp-memory" class="quarto-xref"><span>小节 6.1.1</span></a> 为了比较单卡容量，固定的是每个模型副本处理的 batch，因此 DDP 与 TP 的 global batch 不同。吞吐实验改用 <code>fixed_global</code>：两个 DDP rank 各自处理一半样本，而两个 TP rank 合作处理同一批完整样本。现在每种配置完成的总 token 数一致，可以直接比较 DDP 与各个模型并行方案。</p>
+<section id="增加-transformer-层数-1" class="level4" data-number="6.1.2.1">
+<h4 data-number="6.1.2.1" class="anchored" data-anchor-id="增加-transformer-层数-1"><span class="header-section-number">6.1.2.1</span> 增加 Transformer 层数</h4>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="va">CUDA_DEVICE_MAX_CONNECTIONS</span><span class="op">=</span>1 <span class="ex">python</span> <span class="at">-m</span> evaluation.parallel benchmark <span class="dt">\</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--kind</span> throughput <span class="dt">\</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--tp_size</span> 2 <span class="dt">\</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--pp_size</span> 1 <span class="dt">\</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--</span> <span class="dt">\</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--modes</span> ddp tp tp_sp tp_sp_async tp_vp tp_sp_async_vp <span class="dt">\</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_hidden_layers</span> 2 4 8 16 32 <span class="dt">\</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">--seq_len</span> 2048 <span class="dt">\</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">--hidden_size</span> 768 <span class="dt">\</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_attention_heads</span> 8 <span class="dt">\</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_key_value_heads</span> 4 <span class="dt">\</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">--vocab_size</span> 6400 <span class="dt">\</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">--micro_batch_size</span> 4 <span class="dt">\</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_microbatches</span> 1 <span class="dt">\</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dtype</span> bfloat16 <span class="dt">\</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">--warmup_iters</span> 10 <span class="dt">\</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">--benchmark_iters</span> 5 <span class="dt">\</span></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">--output_csv</span> results/tp/tp_throughput.csv <span class="dt">\</span></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">--output_plot</span> results/tp/tp_throughput.png</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>结果如下，吞吐单位为 K tokens/s，括号内以相同层数的 DDP 为 <span class="math inline">\(100\%\)</span>：</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Layers</th>
+<th style="text-align: right;">DDP</th>
+<th style="text-align: right;">TP</th>
+<th style="text-align: right;">TP + SP</th>
+<th style="text-align: right;">TP + SP + Async</th>
+<th style="text-align: right;">TP + VP</th>
+<th style="text-align: right;">全部开启</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">533.0<br>（100%）</td>
+<td style="text-align: right;">226.6<br>（42.5%）</td>
+<td style="text-align: right;">192.0<br>（36.0%）</td>
+<td style="text-align: right;">167.2<br>（31.4%）</td>
+<td style="text-align: right;">205.4<br>（38.5%）</td>
+<td style="text-align: right;">159.7<br>（30.0%）</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">4</td>
+<td style="text-align: right;">311.4<br>（100%）</td>
+<td style="text-align: right;">121.1<br>（38.9%）</td>
+<td style="text-align: right;">110.1<br>（35.4%）</td>
+<td style="text-align: right;">89.9<br>（28.9%）</td>
+<td style="text-align: right;">115.7<br>（37.2%）</td>
+<td style="text-align: right;">87.8<br>（28.2%）</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">179.1<br>（100%）</td>
+<td style="text-align: right;">63.4<br>（35.4%）</td>
+<td style="text-align: right;">57.7<br>（32.2%）</td>
+<td style="text-align: right;">46.8<br>（26.1%）</td>
+<td style="text-align: right;">61.8<br>（34.5%）</td>
+<td style="text-align: right;">46.1<br>（25.7%）</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">16</td>
+<td style="text-align: right;">92.9<br>（100%）</td>
+<td style="text-align: right;">32.5<br>（35.0%）</td>
+<td style="text-align: right;">29.5<br>（31.8%）</td>
+<td style="text-align: right;">23.8<br>（25.6%）</td>
+<td style="text-align: right;">32.1<br>（34.6%）</td>
+<td style="text-align: right;">23.7<br>（25.5%）</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">32</td>
+<td style="text-align: right;">49.6<br>（100%）</td>
+<td style="text-align: right;">16.5<br>（33.3%）</td>
+<td style="text-align: right;">15.0<br>（30.2%）</td>
+<td style="text-align: right;">12.0<br>（24.2%）</td>
+<td style="text-align: right;">16.3<br>（32.9%）</td>
+<td style="text-align: right;">12.0<br>（24.2%）</td>
+</tr>
+</tbody>
+</table>
+<p>可以看到，在单张 GPU 上能够完整放下模型的情况下，DDP 的吞吐更高，因为 DDP 的通信更少，只发生在反向传播完成后进行梯度同步，而且这个过程可以比较好的进行通信-计算重叠，而 TP 目的主要是是突破单卡容量限制，将权重拆开后每一层的前向和反向都引入了通信，所以能看到基本上随着层数的增加，TP 的吞吐与 DDP 相比越来越低。需要说明的是，本实验所用服务器 GPU 之间通过 PCIe 互联，带宽较低。在有 NVLink 环境下，TP 引入的通信开销会显著降低，吞吐表现可能会更好。因此实际的分布式训练中 TP 只建议在同一台物理机内部启用，即多张 GPU 通过 NVLink 或 NVSwitch 互联的场景。</p>
+<p>在模型并行方案内部比较，基础 SP 的吞吐约为 TP 的 91% （除 layers=2 时为 85%）。这部分损失也许代表着 all-reduce 拆成 reduce-scatter 与 all-gather 并减少逐 token 操作的复制计算，总的带来造成的额外开销。<code>TP + SP + Async</code> 还会在 backward 中重新 all-gather Column Parallel Linear 的输入，用计算时的重建换取 <a href="#sec-tp-memory" class="quarto-xref"><span>小节 6.1.1</span></a> 中更低的 activation 峰值，因此吞吐稳定在 TP 的约 73%～74%。</p>
+<p>VP 的时间代价最小。随着层数增加，<code>TP + VP</code> 的吞吐从 TP 的 90.6% 上升到约 98.8%，因为 VP 新增的通信集中在模型边界，而 Transformer block 的计算随层数增长，这部分固定开销会被逐渐摊薄。全部优化开启后的吞吐约为 TP 的 70%～73%，与 <code>TP + SP + Async</code> 几乎相同，说明当前配置中的主要时间—显存交换来自 SP Recompute；VP 能继续降低 embedding、LM head 和 logits 显存，只增加很小的额外时间。</p>
+</section>
+<section id="增加序列长度-1" class="level4" data-number="6.1.2.2">
+<h4 data-number="6.1.2.2" class="anchored" data-anchor-id="增加序列长度-1"><span class="header-section-number">6.1.2.2</span> 增加序列长度</h4>
+<p>接下来固定 8 层，将 sequence length 从 1024 增加到 16000：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="va">CUDA_DEVICE_MAX_CONNECTIONS</span><span class="op">=</span>1 <span class="ex">python</span> <span class="at">-m</span> evaluation.parallel benchmark <span class="dt">\</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--kind</span> throughput <span class="dt">\</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--tp_size</span> 2 <span class="dt">\</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--pp_size</span> 1 <span class="dt">\</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--</span> <span class="dt">\</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--modes</span> ddp tp tp_sp tp_sp_async tp_vp tp_sp_async_vp <span class="dt">\</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_hidden_layers</span> 8 <span class="dt">\</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">--seq_len</span> 1024 2048 4096 8192 16000 <span class="dt">\</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">--hidden_size</span> 768 <span class="dt">\</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_attention_heads</span> 8 <span class="dt">\</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_key_value_heads</span> 4 <span class="dt">\</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">--vocab_size</span> 6400 <span class="dt">\</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">--micro_batch_size</span> 4 <span class="dt">\</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_microbatches</span> 1 <span class="dt">\</span></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dtype</span> bfloat16 <span class="dt">\</span></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">--warmup_iters</span> 10 <span class="dt">\</span></span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">--benchmark_iters</span> 5 <span class="dt">\</span></span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">--output_csv</span> results/tp/tp_throughput_sequence.csv <span class="dt">\</span></span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">--output_plot</span> results/tp/tp_throughput_sequence.png</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>结果如下：</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Sequence</th>
+<th style="text-align: right;">DDP</th>
+<th style="text-align: right;">TP</th>
+<th style="text-align: right;">TP + SP</th>
+<th style="text-align: right;">TP + SP + Async</th>
+<th style="text-align: right;">TP + VP</th>
+<th style="text-align: right;">全部开启</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">1024</td>
+<td style="text-align: right;">112.3<br>（100%）</td>
+<td style="text-align: right;">61.8<br>（55.0%）</td>
+<td style="text-align: right;">55.9<br>（49.8%）</td>
+<td style="text-align: right;">45.5<br>（40.5%）</td>
+<td style="text-align: right;">60.7<br>（54.1%）</td>
+<td style="text-align: right;">45.1<br>（40.2%）</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">2048</td>
+<td style="text-align: right;">179.7<br>（100%）</td>
+<td style="text-align: right;">63.3<br>（35.2%）</td>
+<td style="text-align: right;">57.5<br>（32.0%）</td>
+<td style="text-align: right;">46.8<br>（26.0%）</td>
+<td style="text-align: right;">61.5<br>（34.2%）</td>
+<td style="text-align: right;">46.2<br>（25.7%）</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">4096</td>
+<td style="text-align: right;">209.7<br>（100%）</td>
+<td style="text-align: right;">61.5<br>（29.3%）</td>
+<td style="text-align: right;">56.7<br>（27.0%）</td>
+<td style="text-align: right;">46.3<br>（22.1%）</td>
+<td style="text-align: right;">59.8<br>（28.5%）</td>
+<td style="text-align: right;">45.7<br>（21.8%）</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">8192</td>
+<td style="text-align: right;">193.8<br>（100%）</td>
+<td style="text-align: right;">57.7<br>（29.8%）</td>
+<td style="text-align: right;">54.3<br>（28.0%）</td>
+<td style="text-align: right;">44.6<br>（23.0%）</td>
+<td style="text-align: right;">56.2<br>（29.0%）</td>
+<td style="text-align: right;">43.9<br>（22.7%）</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">16000</td>
+<td style="text-align: right;">152.9<br>（100%）</td>
+<td style="text-align: right;">53.8<br>（35.2%）</td>
+<td style="text-align: right;">50.1<br>（32.8%）</td>
+<td style="text-align: right;">42.0<br>（27.5%）</td>
+<td style="text-align: right;">52.3<br>（34.2%）</td>
+<td style="text-align: right;">41.2<br>（26.9%）</td>
+</tr>
+</tbody>
+</table>
+<p>以基础 TP 为基线，SP 的相对吞吐从 90.5% 提高到约 93%，<code>TP + SP + Async</code> 则从 73.6% 提高到 78.1%。SP collective 传输的 tensor 元素量大致随 <span class="math inline">\(S\)</span> 线性增长，而 Attention 的计算量随 <span class="math inline">\(S\)</span> 增长得更快；序列变长后，布局转换和 backward 重建在整个 step 中所占的比例因此有所下降。这个趋势与 <a href="#sec-tp-memory" class="quarto-xref"><span>小节 6.1.1</span></a> 的显存结果互补：长序列让 SP Recompute 节省更多 activation，同时也更容易摊薄它的时间代价。</p>
+</section>
+</section>
+</section>
+<section id="当前限制与源码索引" class="level2" data-number="6.2">
+<h2 data-number="6.2" class="anchored" data-anchor-id="当前限制与源码索引"><span class="header-section-number">6.2</span> 当前限制与源码索引</h2>
+<p>当前实现的主要限制：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>hidden_size <span class="op">%</span> TP <span class="op">==</span> <span class="dv">0</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>intermediate_size <span class="op">%</span> TP <span class="op">==</span> <span class="dv">0</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>num_attention_heads <span class="op">%</span> TP <span class="op">==</span> <span class="dv">0</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>num_key_value_heads <span class="op">%</span> TP <span class="op">==</span> <span class="dv">0</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>SP 时 sequence_length <span class="op">%</span> TP <span class="op">==</span> <span class="dv">0</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>VP 时 vocab_size <span class="op">%</span> TP <span class="op">==</span> <span class="dv">0</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>此外：</p>
+<ul>
+<li>TP Attention 暂不支持 KV Cache。</li>
+<li>TP 模型暂不支持 MoE。</li>
+<li>当前参数 gradient hook 是正确性实现，还没有用一个统一的函数进行管理。</li>
+</ul>
+<p>关键实现索引：</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 50%">
+<col style="width: 50%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>组件</th>
+<th>文件 / 类或函数</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>TP/SP/VP 配置</td>
+<td><code>model/tensor_parallel_layers.py::TPContext</code></td>
+</tr>
+<tr class="even">
+<td>Column/Row Parallel Linear</td>
+<td><code>model/tensor_parallel_layers.py::ColumnParallelLinear</code> / <code>RowParallelLinear</code></td>
+</tr>
+<tr class="odd">
+<td>Async Linear</td>
+<td><code>model/tensor_parallel_layers.py::LinearWithAsyncCommunication</code></td>
+</tr>
+<tr class="even">
+<td>SP autograd primitive</td>
+<td><code>model/tensor_parallel_mappings.py</code></td>
+</tr>
+<tr class="odd">
+<td>Vocab Parallel Embedding</td>
+<td><code>model/tensor_parallel_layers.py::VocabParallelEmbedding</code></td>
+</tr>
+<tr class="even">
+<td>Parallel Cross Entropy</td>
+<td><code>model/tensor_parallel_layers.py::VocabParallelCrossEntropy</code></td>
+</tr>
+<tr class="odd">
+<td>Attention、MLP 与模型组装</td>
+<td><code>model/model_tp.py</code></td>
+</tr>
+<tr class="even">
+<td>Dense checkpoint 切分</td>
+<td><code>model/model_tp.py::shard_state_dict_for_tp</code></td>
+</tr>
+<tr class="odd">
+<td>数值验证</td>
+<td><code>evaluation/validate.py</code></td>
+</tr>
+</tbody>
+</table>
+
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "已复制");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "已复制");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+<nav class="page-navigation">
+  <div class="nav-page nav-page-previous">
+      <a href="../src/vocab_parallel.html" class="pagination-link" aria-label="Vocab Parallelism">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-number">5</span>&nbsp; <span class="chapter-title">Vocab Parallelism</span></span>
+      </a>          
+  </div>
+  <div class="nav-page nav-page-next">
+  </div>
+</nav>
+</div> <!-- /content -->
+
+
+
+
+<footer class="footer"><div class="nav-footer"><div class="nav-footer-center"><div class="toc-actions d-sm-block d-md-none"><ul><li><a href="https://github.com/ANKer661/minimind-tron/edit/main/book/src/unified_benchmark.qmd" class="toc-action"><i class="bi bi-github"></i>编辑该页面</a></li><li><a href="https://github.com/ANKer661/minimind-tron/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></div></div></footer></body></html>

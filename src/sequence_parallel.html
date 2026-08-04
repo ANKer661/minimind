@@ -1,0 +1,1595 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="zh-Hans" xml:lang="zh-Hans"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.10.18">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="description" content="从 MiniMind 出发，理解并实现大模型并行训练策略。">
+
+<title>3&nbsp; Sequence Parallelism：布局与梯度 – MiniMind Parallelism Book</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: 1.5em;}
+div.column{flex: auto;}
+@media screen {
+div.columns{gap: min(4vw, 1.5em);}
+div.column{overflow-x: auto;}
+}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<link href="../src/sequence_parallel_optimization.html" rel="next">
+<link href="../src/tensor_parallel.html" rel="prev">
+<script src="../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-64a204ab8560d761af7679ceaba22944.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-e8d5af89a1f099882f037266c687133d.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "sidebar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "start",
+  "type": "textbox",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "没有结果",
+    "search-matching-documents-text": "匹配的文档",
+    "search-copy-link-title": "复制搜索链接",
+    "search-hide-matches-text": "隐藏其它匹配结果",
+    "search-more-match-text": "更多匹配结果",
+    "search-more-matches-text": "更多匹配结果",
+    "search-clear-button-title": "清除",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "取消",
+    "search-submit-button-title": "提交",
+    "search-label": "搜索"
+  }
+}</script>
+<script src="../site_libs/quarto-diagram/mermaid.min.js"></script>
+<script src="../site_libs/quarto-diagram/mermaid-init.js"></script>
+<link href="../site_libs/quarto-diagram/mermaid.css" rel="stylesheet">
+
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script defer="" src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-chtml.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
+
+<link rel="stylesheet" href="../styles.css">
+</head>
+
+<body class="nav-sidebar floating quarto-light">
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+  <nav class="quarto-secondary-nav">
+    <div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="展开或折叠侧边栏导航" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../src/tensor_parallel.html">从 MiniMind 到 Tensor、Sequence 与 Vocab Parallelism</a></li><li class="breadcrumb-item"><a href="../src/sequence_parallel.html"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Sequence Parallelism：布局与梯度</span></a></li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="展开或折叠侧边栏导航" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        </a>
+      <button type="button" class="btn quarto-search-button" aria-label="搜索" onclick="window.quartoOpenSearch();">
+        <i class="bi bi-search"></i>
+      </button>
+    </div>
+  </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto">
+    <div class="pt-lg-2 mt-2 text-left sidebar-header">
+    <div class="sidebar-title mb-0 py-0">
+      <a href="../">MiniMind Parallelism Book</a> 
+        <div class="sidebar-tools-main">
+    <a href="https://github.com/ANKer661/minimind-tron/tree/main/book/" title="源代码" class="quarto-navigation-tool px-1" aria-label="源代码"><i class="bi bi-github"></i></a>
+</div>
+    </div>
+      </div>
+        <div class="mt-2 flex-shrink-0 align-items-center">
+        <div class="sidebar-search">
+        <div id="quarto-search" class="" title="搜索"></div>
+        </div>
+        </div>
+    <div class="sidebar-menu-container"> 
+    <ul class="list-unstyled mt-1">
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../index.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">前言</span></span></a>
+  </div>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true">
+ <span class="menu-text">从 MiniMind 到 Tensor、Sequence 与 Vocab Parallelism</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/tensor_parallel.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Tensor Parallelism</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/sequence_parallel.html" class="sidebar-item-text sidebar-link active">
+ <span class="menu-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Sequence Parallelism：布局与梯度</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/sequence_parallel_optimization.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Sequence Parallelism：显存边界、异步通信与重计算</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/vocab_parallel.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">5</span>&nbsp; <span class="chapter-title">Vocab Parallelism</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/unified_benchmark.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">6</span>&nbsp; <span class="chapter-title">统一 Benchmark、限制与源码索引</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+    </ul>
+    </div>
+</nav>
+<div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">目录</h2>
+   
+  <ul>
+  <li><a href="#为什么需要-sequence-parallelism" id="toc-为什么需要-sequence-parallelism" class="nav-link active" data-scroll-target="#为什么需要-sequence-parallelism"><span class="header-section-number">3.1</span> 为什么需要 Sequence Parallelism</a></li>
+  <li><a href="#sp-如何拆分完整的-hidden-states" id="toc-sp-如何拆分完整的-hidden-states" class="nav-link" data-scroll-target="#sp-如何拆分完整的-hidden-states"><span class="header-section-number">3.2</span> SP 如何拆分完整的 hidden states</a>
+  <ul class="collapse">
+  <li><a href="#all-reduce-可以拆成两个阶段" id="toc-all-reduce-可以拆成两个阶段" class="nav-link" data-scroll-target="#all-reduce-可以拆成两个阶段"><span class="header-section-number">3.2.1</span> All-Reduce 可以拆成两个阶段</a></li>
+  <li><a href="#完整数据流本地计算插入两个阶段之间" id="toc-完整数据流本地计算插入两个阶段之间" class="nav-link" data-scroll-target="#完整数据流本地计算插入两个阶段之间"><span class="header-section-number">3.2.2</span> 完整数据流：本地计算插入两个阶段之间</a></li>
+  <li><a href="#通信开销是否因此增加" id="toc-通信开销是否因此增加" class="nav-link" data-scroll-target="#通信开销是否因此增加"><span class="header-section-number">3.2.3</span> 通信开销是否因此增加？</a></li>
+  <li><a href="#sec-sp-layout" id="toc-sec-sp-layout" class="nav-link" data-scroll-target="#sec-sp-layout"><span class="header-section-number">3.2.4</span> 落到实现中的 Tensor Layout</a></li>
+  </ul></li>
+  <li><a href="#sp-如何在两种-tensor-layout-之间切换" id="toc-sp-如何在两种-tensor-layout-之间切换" class="nav-link" data-scroll-target="#sp-如何在两种-tensor-layout-之间切换"><span class="header-section-number">3.3</span> SP 如何在两种 Tensor Layout 之间切换</a>
+  <ul class="collapse">
+  <li><a href="#sec-sp-entry" id="toc-sec-sp-entry" class="nav-link" data-scroll-target="#sec-sp-entry"><span class="header-section-number">3.3.1</span> 一次性的入口：本地切分</a></li>
+  <li><a href="#sec-sp-enter-tp" id="toc-sec-sp-enter-tp" class="nav-link" data-scroll-target="#sec-sp-enter-tp"><span class="header-section-number">3.3.2</span> 反复出现的循环（一）：All-Gather 进入 TP 区域</a></li>
+  <li><a href="#sec-sp-leave-tp" id="toc-sec-sp-leave-tp" class="nav-link" data-scroll-target="#sec-sp-leave-tp"><span class="header-section-number">3.3.3</span> 反复出现的循环（二）：Reduce-Scatter 离开 TP 区域</a></li>
+  <li><a href="#完整循环all-gather-与-reduce-scatter-如何配合" id="toc-完整循环all-gather-与-reduce-scatter-如何配合" class="nav-link" data-scroll-target="#完整循环all-gather-与-reduce-scatter-如何配合"><span class="header-section-number">3.3.4</span> 完整循环：All-Gather 与 Reduce-Scatter 如何配合</a></li>
+  <li><a href="#sec-sp-lm-head" id="toc-sec-sp-lm-head" class="nav-link" data-scroll-target="#sec-sp-lm-head"><span class="header-section-number">3.3.5</span> 一次性的出口：All-Gather 进入 LM Head</a></li>
+  </ul></li>
+  <li><a href="#复制参数的梯度同步逻辑" id="toc-复制参数的梯度同步逻辑" class="nav-link" data-scroll-target="#复制参数的梯度同步逻辑"><span class="header-section-number">3.4</span> 复制参数的梯度同步逻辑</a>
+  <ul class="collapse">
+  <li><a href="#判断的核心标准" id="toc-判断的核心标准" class="nav-link" data-scroll-target="#判断的核心标准"><span class="header-section-number">3.4.1</span> 判断的核心标准</a></li>
+  <li><a href="#需同步参数分类" id="toc-需同步参数分类" class="nav-link" data-scroll-target="#需同步参数分类"><span class="header-section-number">3.4.2</span> 需同步参数分类</a></li>
+  </ul></li>
+  <li><a href="#sec-sp-block-lifecycle" id="toc-sec-sp-block-lifecycle" class="nav-link" data-scroll-target="#sec-sp-block-lifecycle"><span class="header-section-number">3.5</span> 一个 SP Transformer Block 的 Tensor 生命周期</a></li>
+  </ul>
+<div class="toc-actions"><ul><li><a href="https://github.com/ANKer661/minimind-tron/edit/main/book/src/sequence_parallel.qmd" class="toc-action"><i class="bi bi-github"></i>编辑该页面</a></li><li><a href="https://github.com/ANKer661/minimind-tron/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../src/tensor_parallel.html">从 MiniMind 到 Tensor、Sequence 与 Vocab Parallelism</a></li><li class="breadcrumb-item"><a href="../src/sequence_parallel.html"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Sequence Parallelism：布局与梯度</span></a></li></ol></nav>
+<div class="quarto-title">
+<h1 class="title"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Sequence Parallelism：布局与梯度</span></h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<p>上一章的 TP 切开了 Attention heads 和 MLP intermediate dimension 的权重，但两个并行区域之间仍保留完整的 hidden states。Sequence Parallelism（SP）在 TP 的基础上，把这部分逐 token 操作的激活值也切开。</p>
+<section id="为什么需要-sequence-parallelism" class="level2" data-number="3.1">
+<h2 data-number="3.1" class="anchored" data-anchor-id="为什么需要-sequence-parallelism"><span class="header-section-number">3.1</span> 为什么需要 Sequence Parallelism</h2>
+<p>TP 已经切分了 Attention heads 和 MLP intermediate dimension，但这并不意味着整个 Transformer block 的激活都随 TP size 缩小。沿着一个 hidden states tensor 走出 TP 区域，可以看到它在进入下一个 TP 区域前又恢复成了完整的 <code>[S,B,H]</code>：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>每个 TP rank: [S, B, H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+<pre class="mermaid mermaid-js">flowchart LR
+    classDef tp fill:#5f3dc4,stroke:#3b2585,color:#ffffff,stroke-width:2px;
+    classDef data fill:#1971c2,stroke:#0b4a85,color:#ffffff,stroke-width:1px;
+    classDef local fill:#2b8a3e,stroke:#176329,color:#ffffff,stroke-width:1px;
+
+    TP1["TP 区域 A&lt;br/&gt;输出经过 all-reduce"]:::tp
+
+    subgraph BETWEEN["两个 TP 区域之间"]
+        direction TB
+
+        subgraph R0["rank 0"]
+            H0["H0&lt;br/&gt;[S,B,H]"]:::data
+            L0["RMSNorm&lt;br/&gt;Dropout&lt;br/&gt;residual add"]:::local
+            H0 --&gt; L0
+        end
+
+        subgraph R1["rank 1"]
+            H1["H1&lt;br/&gt;[S,B,H]"]:::data
+            L1["RMSNorm&lt;br/&gt;Dropout&lt;br/&gt;residual add"]:::local
+            H1 --&gt; L1
+        end
+    end
+
+    TP2["TP 区域 B&lt;br/&gt;读取相同输入"]:::tp
+
+    TP1 --&gt; H0
+    TP1 --&gt; H1
+    L0 --&gt; TP2
+    L1 --&gt; TP2
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+<p>图中的 <span class="math inline">\(H_0\)</span> 和 <span class="math inline">\(H_1\)</span> 是数值相同的两份完整 tensor。它们来自 Row Parallel Linear 的输出：每个 rank 先产生一份完整 shape 的部分结果，</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>P_t: [S, B, H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>普通 TP 在离开并行区域时执行 all-reduce：</p>
+<p><span class="math display">\[
+Y=\sum_{t=0}^{T-1}P_t,
+\]</span></p>
+<p>于是每个 rank 都得到完整的 <span class="math inline">\(Y\)</span>。但紧接着的 RMSNorm、Dropout 和 residual add 都是逐 token 操作，让所有 rank 保存并处理全部 <span class="math inline">\(S\)</span> 个 token 没有必要。是否可以让每个 rank 只负责一段互不重复的 sequence？</p>
+<p>先不考虑具体使用哪种 collective，把离开 TP 区域和重新进入 TP 区域时的两次布局转换分别记为 <span class="math inline">\(f\)</span> 和 <span class="math inline">\(g\)</span>。我们希望得到下面的数据流：</p>
+<div class="cell" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+<pre class="mermaid mermaid-js">flowchart LR
+    classDef tp fill:#5f3dc4,stroke:#3b2585,color:#ffffff,stroke-width:2px;
+    classDef transform fill:#e8590c,stroke:#8a2e00,color:#ffffff,stroke-width:2px;
+    classDef data fill:#1971c2,stroke:#0b4a85,color:#ffffff,stroke-width:1px;
+    classDef local fill:#2b8a3e,stroke:#176329,color:#ffffff,stroke-width:1px;
+
+    TP1["TP 区域 A"]:::tp
+    F["f&lt;br/&gt;完整 → sequence shards"]:::transform
+
+    subgraph SP["两个 TP 区域之间"]
+        direction TB
+
+        subgraph R0["rank 0"]
+            S0["sequence shard 0&lt;br/&gt;[S/2,B,H]"]:::data
+            L0["本地逐 token 操作"]:::local
+            S0 --&gt; L0
+        end
+
+        subgraph R1["rank 1"]
+            S1["sequence shard 1&lt;br/&gt;[S/2,B,H]"]:::data
+            L1["本地逐 token 操作"]:::local
+            S1 --&gt; L1
+        end
+    end
+
+    G["g&lt;br/&gt;sequence shards → 完整"]:::transform
+    TP2["TP 区域 B"]:::tp
+
+    TP1 --&gt; F
+    F --&gt; S0
+    F --&gt; S1
+    L0 --&gt; G
+    L1 --&gt; G
+    G --&gt; TP2
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+<p>此时两个 rank 不再保存相同的完整 hidden states，而是各自处理一段 sequence。接下来从普通 TP 的 all-reduce 出发，推导 <span class="math inline">\(f\)</span> 和 <span class="math inline">\(g\)</span> 应该由什么通信操作实现。</p>
+</section>
+<section id="sp-如何拆分完整的-hidden-states" class="level2" data-number="3.2">
+<h2 data-number="3.2" class="anchored" data-anchor-id="sp-如何拆分完整的-hidden-states"><span class="header-section-number">3.2</span> SP 如何拆分完整的 hidden states</h2>
+<p>要让每个 rank 只保留一段 sequence，最直接的做法是在 all-reduce 之后，再各自沿 sequence 维切分完整的 <span class="math inline">\(Y\)</span>。但每个 rank 明明只需要 <span class="math inline">\(1/T\)</span> 的结果，却仍要先通信得到完整 tensor，再把其余部分丢掉。</p>
+<p>于是要问：能不能跳过”先合并、再手动切开”这条弯路，直接一步到位地让每个 rank 拿到自己该有的那一段？</p>
+<section id="all-reduce-可以拆成两个阶段" class="level3" data-number="3.2.1">
+<h3 data-number="3.2.1" class="anchored" data-anchor-id="all-reduce-可以拆成两个阶段"><span class="header-section-number">3.2.1</span> All-Reduce 可以拆成两个阶段</h3>
+<p>答案是可以。all-reduce 本身可以拆成两个阶段：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="bu">all</span><span class="op">-</span><span class="bu">reduce</span> <span class="op">=</span> <span class="bu">reduce</span><span class="op">-</span>scatter <span class="op">+</span> <span class="bu">all</span><span class="op">-</span>gather</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>如果对这两个 collective 还不熟悉，可以先回看开头的 <a href="../src/tensor_parallel.html#collective-reduce-scatter">Reduce-Scatter</a> 和 <a href="../src/tensor_parallel.html#collective-all-gather">All-Gather</a>。</p>
+<p>这个等式成立的关键是：all-reduce 的求和是逐元素进行的，只要所有 rank 按相同方式切分 <span class="math inline">\(P_t\)</span>，就可以先分别求出最终结果的各个 block，再把这些已经求和的 block 拼接起来。先以两个 rank 为例，沿 sequence 维把 <span class="math inline">\(P_0\)</span>、<span class="math inline">\(P_1\)</span> 分成上下两块：</p>
+<p><span class="math display">\[
+P_0=
+\begin{bmatrix}
+P_0^{(0)}\cr
+P_0^{(1)}
+\end{bmatrix},
+\qquad
+P_1=
+\begin{bmatrix}
+P_1^{(0)}\cr
+P_1^{(1)}
+\end{bmatrix}.
+\]</span></p>
+<p>Reduce-scatter 先对相同位置的 block 求和，再把不同 block 留在不同 rank：</p>
+<p><span class="math display">\[
+\begin{aligned}
+\text{rank 0}:&amp;\quad Y^{(0)}=P_0^{(0)}+P_1^{(0)},\cr
+\text{rank 1}:&amp;\quad Y^{(1)}=P_0^{(1)}+P_1^{(1)}.
+\end{aligned}
+\]</span></p>
+<p>随后执行 all-gather，两个 rank 都得到：</p>
+<p><span class="math display">\[
+Y=
+\begin{bmatrix}
+Y^{(0)}\cr
+Y^{(1)}
+\end{bmatrix}
+=P_0+P_1,
+\]</span></p>
+<p>这与直接对 <span class="math inline">\(P_0\)</span>、<span class="math inline">\(P_1\)</span> 执行 all-reduce 完全相同。推广到 <span class="math inline">\(T\)</span> 个 rank，把每个 <span class="math inline">\(P_t\)</span> 沿 sequence 维切成 <span class="math inline">\(T\)</span> 块：</p>
+<p><span class="math display">\[
+P_t=
+\begin{bmatrix}
+P_t^{(0)}\cr
+P_t^{(1)}\cr
+\vdots\cr
+P_t^{(T-1)}
+\end{bmatrix},
+\qquad
+Y^{(j)}=\sum_{t=0}^{T-1}P_t^{(j)}.
+\]</span></p>
+<p>Reduce-scatter 结束后，rank <span class="math inline">\(j\)</span> 持有 <span class="math inline">\(Y^{(j)}\)</span>，shape 为 <code>[S/T,B,H]</code>：每个 rank 只拿到自己该负责的那一段 sequence，不再是一份完整拷贝。</p>
+</section>
+<section id="完整数据流本地计算插入两个阶段之间" class="level3" data-number="3.2.2">
+<h3 data-number="3.2.2" class="anchored" data-anchor-id="完整数据流本地计算插入两个阶段之间"><span class="header-section-number">3.2.2</span> 完整数据流：本地计算插入两个阶段之间</h3>
+<p>既然 reduce-scatter 结束后每个 rank 已经拿到了自己的 sequence shard，两个 TP 区域之间的 RMSNorm、Dropout 和 residual add 就可以直接在这个 shard 上进行。下面把这些逐 token 的本地操作合记为 <span class="math inline">\(f\)</span>：</p>
+<div class="cell" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+<pre class="mermaid mermaid-js">flowchart LR
+    classDef tp fill:#5f3dc4,stroke:#3b2585,color:#ffffff,stroke-width:2px;
+    classDef comm fill:#e8590c,stroke:#8a2e00,color:#ffffff,stroke-width:2px;
+    classDef data fill:#1971c2,stroke:#0b4a85,color:#ffffff,stroke-width:1px;
+    classDef local fill:#2b8a3e,stroke:#176329,color:#ffffff,stroke-width:1px;
+
+    subgraph TP1["TP 区域 A：Row Parallel"]
+        direction TB
+
+        subgraph A0["rank 0"]
+            P0["P₀&lt;br/&gt;[P₀⁽⁰⁾ ; P₀⁽¹⁾]"]:::tp
+        end
+
+        subgraph A1["rank 1"]
+            P1["P₁&lt;br/&gt;[P₁⁽⁰⁾ ; P₁⁽¹⁾]"]:::tp
+        end
+    end
+
+    RS["reduce-scatter"]:::comm
+
+    subgraph SP["SP 区域：沿 sequence 分工"]
+        direction TB
+
+        subgraph R0["rank 0"]
+            S0["Y⁽⁰⁾ = P₀⁽⁰⁾ + P₁⁽⁰⁾&lt;br/&gt;[S/2,B,H]"]:::data
+            L0["RMSNorm&lt;br/&gt;Dropout&lt;br/&gt;residual add"]:::local
+            O0["local output&lt;br/&gt;f(Y⁽⁰⁾)"]:::data
+            S0 --&gt; L0 --&gt; O0
+        end
+
+        subgraph R1["rank 1"]
+            S1["Y⁽¹⁾ = P₀⁽¹⁾ + P₁⁽¹⁾&lt;br/&gt;[S/2,B,H]"]:::data
+            L1["RMSNorm&lt;br/&gt;Dropout&lt;br/&gt;residual add"]:::local
+            O1["local output&lt;br/&gt;f(Y⁽¹⁾)"]:::data
+            S1 --&gt; L1 --&gt; O1
+        end
+    end
+
+    AG["all-gather"]:::comm
+
+    subgraph TP2["进入下一个 TP 区域"]
+        direction TB
+
+        subgraph T0["rank 0"]
+            F0["full hidden states&lt;br/&gt;[f(Y⁽⁰⁾) ; f(Y⁽¹⁾)]"]:::data
+            C0["Column Parallel&lt;br/&gt;weight shard 0"]:::tp
+            F0 --&gt; C0
+        end
+
+        subgraph T1["rank 1"]
+            F1["full hidden states&lt;br/&gt;[f(Y⁽⁰⁾) ; f(Y⁽¹⁾)]"]:::data
+            C1["Column Parallel&lt;br/&gt;weight shard 1"]:::tp
+            F1 --&gt; C1
+        end
+    end
+
+    P0 --&gt; RS
+    P1 --&gt; RS
+    RS --&gt; S0
+    RS --&gt; S1
+    O0 --&gt; AG
+    O1 --&gt; AG
+    AG --&gt; F0
+    AG --&gt; F1
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+<p>通过 SP，两个 TP 区域之间的逐 token 计算被放到了不同 rank 上：reduce-scatter 交出分片、本地算完 <span class="math inline">\(f\)</span>、all-gather 拼回完整序列，衔接下一个 TP 区域的 Column Parallel。</p>
+</section>
+<section id="通信开销是否因此增加" class="level3" data-number="3.2.3">
+<h3 data-number="3.2.3" class="anchored" data-anchor-id="通信开销是否因此增加"><span class="header-section-number">3.2.3</span> 通信开销是否因此增加？</h3>
+<p>那么代价是什么呢？把一次 all-reduce 拆成两次 collective 会不会增加通信开销？ 这里用 <span class="math inline">\(T=4\)</span> 个 rank 完整走一遍 ring all-reduce 的流程。</p>
+<p>把每个 rank 手上的 <span class="math inline">\(P_t\)</span> 沿 sequence 维切成 4 块，用字母区分”最终归哪个 rank”、下标区分”最初来自哪个 rank”：</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Rank</th>
+<th>初始持有的 4 个 block</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>R0</td>
+<td>a0, b0, c0, d0</td>
+</tr>
+<tr class="even">
+<td>R1</td>
+<td>a1, b1, c1, d1</td>
+</tr>
+<tr class="odd">
+<td>R2</td>
+<td>a2, b2, c2, d2</td>
+</tr>
+<tr class="even">
+<td>R3</td>
+<td>a3, b3, c3, d3</td>
+</tr>
+</tbody>
+</table>
+<p>4 个 rank 围成一个环：R0 → R1 → R2 → R3 → R0。目标是让 R0 拿到完整的 “a” 块（<span class="math inline">\(a_0+a_1+a_2+a_3\)</span>），R1 拿到完整的 “b”，R2 拿到完整的 “c”，R3 拿到完整的 “d”。</p>
+<p>规则很简单：<strong>每一步，每个 rank 把自己当前”活跃”的那一格发给下一个 rank，对方收到后加到自己那一列上</strong>。第一轮的”活跃格”就是各自的初始值。发出去的格子用”–“标记，之后不用再管：</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Rank</th>
+<th>a</th>
+<th>b</th>
+<th>c</th>
+<th>d</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>R0</td>
+<td>a0</td>
+<td>b0</td>
+<td>c0+c3</td>
+<td>–</td>
+</tr>
+<tr class="even">
+<td>R1</td>
+<td>–</td>
+<td>b1</td>
+<td>c1</td>
+<td>d0+d1</td>
+</tr>
+<tr class="odd">
+<td>R2</td>
+<td>a1+a2</td>
+<td>–</td>
+<td>c2</td>
+<td>d2</td>
+</tr>
+<tr class="even">
+<td>R3</td>
+<td>a3</td>
+<td>b2+b3</td>
+<td>–</td>
+<td>d3</td>
+</tr>
+</tbody>
+</table>
+<p>同样的规则再走一轮：</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Rank</th>
+<th>a</th>
+<th>b</th>
+<th>c</th>
+<th>d</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>R0</td>
+<td>a0</td>
+<td>b0+b2+b3</td>
+<td>–</td>
+<td>–</td>
+</tr>
+<tr class="even">
+<td>R1</td>
+<td>–</td>
+<td>b1</td>
+<td>c0+c1+c3</td>
+<td>–</td>
+</tr>
+<tr class="odd">
+<td>R2</td>
+<td>–</td>
+<td>–</td>
+<td>c2</td>
+<td>d0+d1+d2</td>
+</tr>
+<tr class="even">
+<td>R3</td>
+<td>a1+a2+a3</td>
+<td>–</td>
+<td>–</td>
+<td>d3</td>
+</tr>
+</tbody>
+</table>
+<p>再走一轮，每一列刚好凑齐 4 个 rank 的贡献：</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Rank</th>
+<th>a</th>
+<th>b</th>
+<th>c</th>
+<th>d</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>R0</td>
+<td><strong>a0+a1+a2+a3</strong></td>
+<td>–</td>
+<td>–</td>
+<td>–</td>
+</tr>
+<tr class="even">
+<td>R1</td>
+<td>–</td>
+<td><strong>b0+b1+b2+b3</strong></td>
+<td>–</td>
+<td>–</td>
+</tr>
+<tr class="odd">
+<td>R2</td>
+<td>–</td>
+<td>–</td>
+<td><strong>c0+c1+c2+c3</strong></td>
+<td>–</td>
+</tr>
+<tr class="even">
+<td>R3</td>
+<td>–</td>
+<td>–</td>
+<td>–</td>
+<td><strong>d0+d1+d2+d3</strong></td>
+</tr>
+</tbody>
+</table>
+<p>3 步之后，4 个 rank 各自恰好持有一块完整求和的结果，这正是 reduce-scatter 的定义。 每一步 4 条链路都在同时传输，每条链路每步只搬运一个 <span class="math inline">\(N/4\)</span> 大小的 block（<span class="math inline">\(N=SBH\)</span>）， 因此每个 rank 总共发送 <span class="math inline">\(3\times N/4=(T-1)N/T\)</span>（<span class="math inline">\(T=4\)</span>）。</p>
+<p>推广到任意 <span class="math inline">\(T\)</span>：环上 <span class="math inline">\(T\)</span> 条链路、跑 <span class="math inline">\(T-1\)</span> 步，每步每条链路传一个 <span class="math inline">\(N/T\)</span> 的 block，总发送量是 <span class="math inline">\(\dfrac{T-1}{T}N\)</span>。</p>
+<p>All-Gather 沿用同一个环，只是这次传的是已经算完的结果，不需要再做加法：R0 把完整的 “a” 块转发给 R1、R1 转发给 R2，其余同理。同样走 3 步，通信量同样是 <span class="math inline">\(\dfrac{T-1}{T}N\)</span>。</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>操作</th>
+<th style="text-align: right;">每个 rank 发送量</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>reduce-scatter</td>
+<td style="text-align: right;"><span class="math inline">\(\dfrac{T-1}{T}N\)</span></td>
+</tr>
+<tr class="even">
+<td>all-gather</td>
+<td style="text-align: right;"><span class="math inline">\(\dfrac{T-1}{T}N\)</span></td>
+</tr>
+<tr class="odd">
+<td>ring all-reduce（两阶段之和）</td>
+<td style="text-align: right;"><span class="math inline">\(2\dfrac{T-1}{T}N\)</span></td>
+</tr>
+</tbody>
+</table>
+<p>拆分前后总共都是 <span class="math inline">\(2(T-1)\)</span> 轮、<span class="math inline">\(2(T-1)N/T\)</span> 个元素，通信量是一样的。</p>
+<p>所以”先环形传播求和，再环形传播广播”本来就是 ring all-reduce 内部真实的两个阶段。 SP把算法本来就存在的这个中间点暴露出来，插入可以本地计算的 <span class="math inline">\(f\)</span>，去掉了 rank 间重复的计算：</p>
+<p><strong>但有个前提</strong>：这个推导假设走的是大 tensor 常见的 ring / bandwidth-optimal 实现。 真实开销还有一层没覆盖：拆成两次独立 collective，意味着多一次 kernel launch 和同步点，这部分延迟和 tensor 大小无关，是固定成本。</p>
+</section>
+<section id="sec-sp-layout" class="level3" data-number="3.2.4">
+<h3 data-number="3.2.4" class="anchored" data-anchor-id="sec-sp-layout"><span class="header-section-number">3.2.4</span> 落到实现中的 Tensor Layout</h3>
+<p>设 TP size 为 <span class="math inline">\(T\)</span>。Reduce-scatter 沿 sequence 维分发结果后，rank <span class="math inline">\(t\)</span> 持有：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>[S<span class="op">/</span>T, B, H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>SP 复用原来的 TP group。同一组 rank 在 Attention 和 MLP 内按 hidden dimension 协作，在两个 TP 区域之间则按 sequence dimension 分工。当前实现采用连续等分，因此要求：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>S <span class="op">%</span> T <span class="op">==</span> <span class="dv">0</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p><code>TPContext</code> 使用下面的字段控制是否在 TP 区域之间保留 sequence-sharded layout：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>sequence_parallel: <span class="bu">bool</span> <span class="op">=</span> <span class="va">False</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>一个 Transformer block 中的 tensor layout 因此变为：</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>区域</th>
+<th>Tensor layout</th>
+<th>本地工作</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Norm / Dropout / Residual</td>
+<td><code>[S/T,B,H]</code></td>
+<td>每个 rank 处理不同 token</td>
+</tr>
+<tr class="even">
+<td>Column Parallel Linear</td>
+<td>输入恢复为 <code>[S,B,H]</code></td>
+<td>每个 rank 计算不同输出 shard</td>
+</tr>
+<tr class="odd">
+<td>Row Parallel Linear 输出</td>
+<td><code>[S/T,B,H]</code></td>
+<td>reduce-scatter 后回到 sequence shard</td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+<section id="sp-如何在两种-tensor-layout-之间切换" class="level2" data-number="3.3">
+<h2 data-number="3.3" class="anchored" data-anchor-id="sp-如何在两种-tensor-layout-之间切换"><span class="header-section-number">3.3</span> SP 如何在两种 Tensor Layout 之间切换</h2>
+<p>到这里，SP forward 需要的两种布局已经出现：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>TP 区域内:                     [S, B, H]</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>TP 区域之间（也就是 SP 区域）:   [S<span class="op">/</span>T, B, H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>训练时还必须为每个布局变换定义对应的 backward，否则 forward 的 shape 即使正确，梯度也无法回到原来的数据分布。</p>
+<p>这里有三类性质不同的切换，值得先分清楚：</p>
+<pre class="text"><code>一次性入口：模型最开始的 Split
+        只发生一次，把完整 sequence Embedding 第一次切成 shard，送进第一个 TP 区域
+
+反复发生：All-Gather 与 Reduce-Scatter
+        每个 TP 区域进出时都会用到的一对操作
+
+一次性出口：模型最后进入 LM Head 前的 All-Gather
+        只发生一次，把 SP shard 重新拼回完整 sequence，
+        喂给在 rank 复制的 lm_head</code></pre>
+<p>和 TP 里那对 <code>CopyToModelParallelRegion</code> / <code>ReduceFromModelParallelRegion</code> 类似，这里的 all-gather 和 reduce-scatter 也是对偶的一对：一个的 forward 恰好是另一个的 backward。</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>发生场景</th>
+<th>Forward</th>
+<th>Backward</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>一次（模型入口）</td>
+<td>split</td>
+<td>all-gather</td>
+</tr>
+<tr class="even">
+<td>每个 TP 区域入口（反复）</td>
+<td>all-gather</td>
+<td>reduce-scatter</td>
+</tr>
+<tr class="odd">
+<td>每个 TP 区域出口（反复）</td>
+<td>reduce-scatter</td>
+<td>all-gather</td>
+</tr>
+<tr class="even">
+<td>一次（模型出口，进 LM Head）</td>
+<td>all-gather</td>
+<td>split</td>
+</tr>
+</tbody>
+</table>
+<p>同一个 All-Gather 在表里出现了两次、backward 却不一样，<a href="#sec-sp-enter-tp" class="quarto-xref"><span>小节 3.3.2</span></a> 和 <a href="#sec-sp-lm-head" class="quarto-xref"><span>小节 3.3.5</span></a> 会分别解释这两种 backward 各自成立的原因。</p>
+<p>这些算子位于：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>model<span class="op">/</span>tensor_parallel_mappings.py</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<section id="sec-sp-entry" class="level3" data-number="3.3.1">
+<h3 data-number="3.3.1" class="anchored" data-anchor-id="sec-sp-entry"><span class="header-section-number">3.3.1</span> 一次性的入口：本地切分</h3>
+<p>Embedding 输出最初是完整的 <code>[S,B,H]</code>，而且每个 TP rank 都已经拥有相同的数据。为了让后续 block 从一开始就工作在 SP 布局上，每个 rank 只需根据自己的 <code>tp_rank</code>，在本地留下对应的 sequence shard：</p>
+<pre class="text"><code>rank 0: [a,b,c,d] -&gt; [a,b]
+rank 1: [a,b,c,d] -&gt; [c,d]</code></pre>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>forward:</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>  [S,B,H] <span class="op">-&gt;</span> split <span class="op">-&gt;</span> [S<span class="op">/</span>T,B,H]</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>backward:</span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>  [S<span class="op">/</span>T,B,H] <span class="op">-&gt;</span> <span class="bu">all</span><span class="op">-</span>gather <span class="op">-&gt;</span> [S,B,H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>这里没有 rank 之间的数据传输。源码中的 autograd 类虽然名为 <code>ScatterToSequenceParallelRegion</code>，但它的 forward 只是索引和 <code>contiguous</code>；真正的跨 rank 通信发生在 backward 的 All-Gather。</p>
+<p>求梯度时，embedding 权重的梯度需要看到完整 sequence 上的激活梯度，而每个 rank 的梯度只来自一个 sequence shard， 所以 backward 必须先把各 rank 手上的 sequence shard 梯度 <code>all-gather</code> 回完整形状，再往回传。</p>
+</section>
+<section id="sec-sp-enter-tp" class="level3" data-number="3.3.2">
+<h3 data-number="3.3.2" class="anchored" data-anchor-id="sec-sp-enter-tp"><span class="header-section-number">3.3.2</span> 反复出现的循环（一）：All-Gather 进入 TP 区域</h3>
+<p>进入 Column Parallel Linear 时，因为计算需要完整的输入，所以第一步必须把按 Sequence 切片的数据拼完整：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>[S<span class="op">/</span>T, B, H] <span class="op">-&gt;</span> All<span class="op">-</span>Gather <span class="op">-&gt;</span> [S, B, H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<section id="为什么-backward-一定是-reduce-scatter" class="level4" data-number="3.3.2.1">
+<h4 data-number="3.3.2.1" class="anchored" data-anchor-id="为什么-backward-一定是-reduce-scatter"><span class="header-section-number">3.3.2.1</span> 为什么 Backward 一定是 Reduce-Scatter？</h4>
+<p>我们用 TP size = 2 的例子直观地推一下（以 Rank 0 原来持有的 sequence shard <span class="math inline">\(X^{(0)}\)</span> 为例）：</p>
+<ol type="1">
+<li><strong>前向广播</strong>：All-gather 拼出完整 <span class="math inline">\(X\)</span> 后，Rank 0 和 Rank 1 都拿到了包含 <span class="math inline">\(X^{(0)}\)</span> 的完整数据，各自过自己的 weight shard（<span class="math inline">\(W_0\)</span> 和 <span class="math inline">\(W_1\)</span>）。</li>
+<li><strong>两边都有梯度</strong>：到了 Backward，因为 <span class="math inline">\(X^{(0)}\)</span> 既参与了 <span class="math inline">\(W_0\)</span> 的计算，也参与了 <span class="math inline">\(W_1\)</span> 的计算，所以两个 rank 都会算出一份针对 <span class="math inline">\(X^{(0)}\)</span> 的梯度（<span class="math inline">\(dX_0^{(0)}\)</span> 和 <span class="math inline">\(dX_1^{(0)}\)</span>）。</li>
+<li><strong>求和并归位</strong>：根据链式法则，数据源头 <span class="math inline">\(X^{(0)}\)</span> 的最终梯度必须是两边叠加的结果：</li>
+</ol>
+<p><span class="math display">\[dX^{(0)} = dX_0^{(0)} + dX_1^{(0)}\]</span></p>
+<p>Reduce-Scatter 在求和的同时，只把 <span class="math inline">\(X^{(0)}\)</span> 对应的结果交还给 Rank 0；其他 sequence shard 的完整梯度则返回各自所属的 rank。</p>
+<p>所以，这个 All-Gather 的 backward <strong>必须且只能是 Reduce-Scatter</strong>。</p>
+<div class="cell" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+<pre class="mermaid mermaid-js">flowchart TB
+    classDef rank0 fill:#1c7ed6,stroke:#1864ab,color:#ffffff,stroke-width:1px;
+    classDef rank1 fill:#d9480f,stroke:#b5370f,color:#ffffff,stroke-width:1px;
+    classDef comm fill:#f59f00,stroke:#d9480f,color:#ffffff,stroke-width:2px;
+
+    %% 输入节点（左右对称）
+    X0["Rank 0 输入&lt;br/&gt;Sequence Shard X⁽⁰⁾"]:::rank0
+    X1["Rank 1 输入&lt;br/&gt;Sequence Shard X⁽¹⁾"]:::rank1
+
+    %% 1. 中间 All-Gather 节点
+    AG["All-Gather 通信&lt;br/&gt;拼接得到完整 X = [X⁽⁰⁾, X⁽¹⁾]"]:::comm
+
+    %% 2. 前向计算节点
+    W0["Rank 0 计算&lt;br/&gt;Column Parallel W₀"]:::rank0
+    W1["Rank 1 计算&lt;br/&gt;Column Parallel W₁"]:::rank1
+
+    %% 3. 反向梯度节点
+    dX0["Rank 0 局部梯度&lt;br/&gt;dX₀ = [dX₀⁽⁰⁾, dX₀⁽¹⁾]"]:::rank0
+    dX1["Rank 1 局部梯度&lt;br/&gt;dX₁ = [dX₁⁽⁰⁾, dX₁⁽¹⁾]"]:::rank1
+
+    %% 4. 中间 Reduce-Scatter 节点
+    RS["Reduce-Scatter 通信&lt;br/&gt;(梯度求和 + shard 归位)"]:::comm
+
+    %% 5. 最终归位梯度
+    Out0["Rank 0 领回完整梯度&lt;br/&gt;dX⁽⁰⁾ = dX₀⁽⁰⁾ + dX₁⁽⁰⁾"]:::rank0
+    Out1["Rank 1 领回完整梯度&lt;br/&gt;dX⁽¹⁾ = dX₀⁽¹⁾ + dX₁⁽¹⁾"]:::rank1
+
+    %% Forward 数据流
+    X0 --&gt; AG
+    X1 --&gt; AG
+    AG --&gt; W0
+    AG --&gt; W1
+
+    %% Forward 到 Backward 的过渡
+    W0 -.-|Backward| dX0
+    W1 -.-|Backward| dX1
+
+    %% Backward 数据流
+    dX0 --&gt; RS
+    dX1 --&gt; RS
+    RS --&gt; Out0
+    RS --&gt; Out1
+
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+<p><strong>注意</strong>：同一个 All-Gather 在模型最后进入 LM head 时还会再出现一次，但那次下游不是分片计算，backward 也就不能再用 Reduce-Scatter——具体原因见 <a href="#sec-sp-lm-head" class="quarto-xref"><span>小节 3.3.5</span></a>。 代码里是用这个显式的开关来区分语义的：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>tensor_parallel_output_grad: <span class="bu">bool</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+</section>
+<section id="sec-sp-leave-tp" class="level3" data-number="3.3.3">
+<h3 data-number="3.3.3" class="anchored" data-anchor-id="sec-sp-leave-tp"><span class="header-section-number">3.3.3</span> 反复出现的循环（二）：Reduce-Scatter 离开 TP 区域</h3>
+<p>Row Parallel Linear 恰好是个镜像对称的过程：每个 rank 算出的都是完整 sequence 上的部分结果（partial result）：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>P_t: [S, B, H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>这里通过一次 Reduce-Scatter，刚好把<strong>跨卡求和</strong>和<strong>按 sequence 切分</strong>两件事一次性做完，完美退出 TP 区域：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>forward:</span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>  partial [S,B,H] <span class="op">-&gt;</span> <span class="bu">reduce</span><span class="op">-</span>scatter <span class="op">-&gt;</span> [S<span class="op">/</span>T,B,H]</span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a>backward:</span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a>  [S<span class="op">/</span>T,B,H]       <span class="op">-&gt;</span> <span class="bu">all</span><span class="op">-</span>gather     <span class="op">-&gt;</span> [S,B,H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<section id="再看-tp-size-2-的反向逻辑" class="level4" data-number="3.3.3.1">
+<h4 data-number="3.3.3.1" class="anchored" data-anchor-id="再看-tp-size-2-的反向逻辑"><span class="header-section-number">3.3.3.1</span> 再看 TP size = 2 的反向逻辑</h4>
+<ol type="1">
+<li><strong>前向求和切分</strong>：前向传播做的是 <span class="math inline">\(P = P_0 + P_1\)</span>，然后切分成 Sequence Shard 分发给各个 Rank。</li>
+<li><strong>反向拼回完整 Sequence</strong>：到了 Backward，下游传回来的梯度 <span class="math inline">\(dY^{(0)}\)</span> 和 <span class="math inline">\(dY^{(1)}\)</span> 都只有 <code>[S/T, B, H]</code>。要想算前向的梯度，必须先通过一次 <strong>All-Gather</strong> 把完整 sequence 上的梯度 <span class="math inline">\(dP\)</span>（<code>[S, B, H]</code>）给拼出来。</li>
+<li><strong>加法节点的反向</strong>：因为前向是 <span class="math inline">\(P = P_0 + P_1\)</span>（标准的加法节点），按照求导法则，加法节点的梯度是直接复制（Copy）给每一个输入项。所以拼出来的完整梯度 <span class="math inline">\(dP\)</span>，Rank 0 和 Rank 1 <strong>各自要原封不动地拿走一份</strong>（<span class="math inline">\(dP_0 = dP_1 = dP\)</span>），再去更新各自的 Row Parallel 权重。</li>
+</ol>
+<div class="cell" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+<pre class="mermaid mermaid-js">flowchart TB
+    classDef rank0 fill:#1c7ed6,stroke:#1864ab,color:#ffffff,stroke-width:1px;
+    classDef rank1 fill:#d9480f,stroke:#b5370f,color:#ffffff,stroke-width:1px;
+    classDef comm fill:#f59f00,stroke:#d9480f,color:#ffffff,stroke-width:2px;
+    classDef logic fill:#2b8a3e,stroke:#176329,color:#ffffff,stroke-width:1px;
+
+    %% 1. 前向计算 (Row Parallel Partial 结果)
+    P0["Rank 0 局部结果 P₀&lt;br/&gt;[S, B, H]"]:::rank0
+    P1["Rank 1 局部结果 P₁&lt;br/&gt;[S, B, H]"]:::rank1
+
+    %% 2. 前向 Reduce-Scatter
+    RS["Reduce-Scatter 通信&lt;br/&gt;(求和 P = P₀ + P₁ + 保留对应 shard)"]:::comm
+
+    %% 3. 前向输出 (回到 Sequence Parallel)
+    Y0["Rank 0 输出 Y⁽⁰⁾&lt;br/&gt;[S/T, B, H]"]:::rank0
+    Y1["Rank 1 输出 Y⁽¹⁾&lt;br/&gt;[S/T, B, H]"]:::rank1
+
+    %% 4. 反向输入 (下游梯度)
+    dY0["Rank 0 传入梯度 dY⁽⁰⁾&lt;br/&gt;[S/T, B, H]"]:::rank0
+    dY1["Rank 1 传入梯度 dY⁽¹⁾&lt;br/&gt;[S/T, B, H]"]:::rank1
+
+    %% 5. 反向 All-Gather
+    AG["All-Gather 通信&lt;br/&gt;(拼接还原完整梯度 dP)"]:::comm
+
+    %% 6. 梯度的加法分配逻辑
+    dP_COPY["因前向 P = P₀ + P₁&lt;br/&gt;加法节点反向：梯度原样复制&lt;br/&gt;dP₀ = dP, dP₁ = dP"]:::logic
+
+    %% 7. 两个 Rank 各拿一份 dP
+    dP0["Rank 0 拿到完整梯度 dP₀&lt;br/&gt;[S, B, H]"]:::rank0
+    dP1["Rank 1 拿到完整梯度 dP₁&lt;br/&gt;[S, B, H]"]:::rank1
+
+    %% Forward 数据流
+    P0 --&gt; RS
+    P1 --&gt; RS
+    RS --&gt; Y0
+    RS --&gt; Y1
+
+    %% Forward 到 Backward 的过渡
+    Y0 -. Backward .-&gt; dY0
+    Y1 -. Backward .-&gt; dY1
+
+    %% Backward 数据流
+    dY0 --&gt; AG
+    dY1 --&gt; AG
+    AG --&gt; dP_COPY
+    dP_COPY --&gt; dP0
+    dP_COPY --&gt; dP1
+
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+</section>
+</section>
+<section id="完整循环all-gather-与-reduce-scatter-如何配合" class="level3" data-number="3.3.4">
+<h3 data-number="3.3.4" class="anchored" data-anchor-id="完整循环all-gather-与-reduce-scatter-如何配合"><span class="header-section-number">3.3.4</span> 完整循环：All-Gather 与 Reduce-Scatter 如何配合</h3>
+<p><a href="#sec-sp-enter-tp" class="quarto-xref"><span>小节 3.3.2</span></a> 和 <a href="#sec-sp-leave-tp" class="quarto-xref"><span>小节 3.3.3</span></a> 合在一起，就是每个 TP 区域进出时发生的数据 layout 变化的循环：</p>
+<div class="cell" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+<pre class="mermaid mermaid-js">flowchart LR
+    classDef comm fill:#e8590c,stroke:#8a2e00,color:#ffffff,stroke-width:2px;
+    classDef data fill:#1971c2,stroke:#0b4a85,color:#ffffff,stroke-width:1px;
+
+    SP0["rank 0&lt;br/&gt;SP shard [S/2,B,H]"]:::data
+    SP1["rank 1&lt;br/&gt;SP shard [S/2,B,H]"]:::data
+    AG["all-gather"]:::comm
+    TP0["rank 0&lt;br/&gt;full sequence + weight shard 0"]:::data
+    TP1["rank 1&lt;br/&gt;full sequence + weight shard 1"]:::data
+    RS["reduce-scatter"]:::comm
+    OUT0["rank 0&lt;br/&gt;output shard [S/2,B,H]"]:::data
+    OUT1["rank 1&lt;br/&gt;output shard [S/2,B,H]"]:::data
+
+    SP0 --&gt; AG
+    SP1 --&gt; AG
+    AG --&gt; TP0
+    AG --&gt; TP1
+    TP0 --&gt; RS
+    TP1 --&gt; RS
+    RS --&gt; OUT0
+    RS --&gt; OUT1
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+<p>Rank 顺序决定每个 rank 持有哪一段连续 sequence。所有 collective 必须使用相同 TP group，并提前满足相同的 shape、dtype 和 rank 顺序约定。</p>
+</section>
+<section id="sec-sp-lm-head" class="level3" data-number="3.3.5">
+<h3 data-number="3.3.5" class="anchored" data-anchor-id="sec-sp-lm-head"><span class="header-section-number">3.3.5</span> 一次性的出口：All-Gather 进入 LM Head</h3>
+<p>和 <a href="#sec-sp-entry" class="quarto-xref"><span>小节 3.3.1</span></a> 的入口本地切分相对，模型最后也有一次只发生一次的布局切换。</p>
+<p>当最后一层 Transformer Block 算完，需要把 hidden 交给 lm head 去预测下一个词。 最后一个 Row Parallel 输出的 hidden states 先 all-gather 恢复成完整的 <code>[S,B,H]</code>， 紧接着喂给的是<strong>没有切分、在所有 TP rank 间完全复制</strong>的 lm_head 权重：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>forward:</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>  [S<span class="op">/</span>T,B,H] <span class="op">-&gt;</span> <span class="bu">all</span><span class="op">-</span>gather <span class="op">-&gt;</span> [S,B,H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>这一步的 all-gather 和 <a href="#sec-sp-enter-tp" class="quarto-xref"><span>小节 3.3.2</span></a> 中的 all-gather 长得一模一样，但下游完全不同：<a href="#sec-sp-enter-tp" class="quarto-xref"><span>小节 3.3.2</span></a> 的下游是”每个 rank 只算一部分”的 TP 分片计算，这里的下游是”每个 rank 算一模一样的一整份”——lm_head 权重是复制的，输入（刚 all-gather 出来的完整 hidden states）、labels、loss scale 在所有 rank 上也都相同。于是每个 rank 独立算出来的完整 logits、loss，乃至这一步的梯度 <code>dX</code>，也必然完全相同：每个 rank 手里已经是完整的梯度。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb17"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>backward: split</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>既然 <span class="math inline">\(T\)</span> 个 rank 算出的 <code>dX</code> 其实是同一份完整梯度的 <span class="math inline">\(T\)</span> 份重复，就不需要”汇总”，只需要每个 rank 从这份大家都有的完整梯度里，切出（split）自己那一段 sequence shard 就行。 如果误用 reduce-scatter，会把这份本来就正确、完整的梯度先加 <span class="math inline">\(T\)</span> 次再切，等于错误地放大了 <span class="math inline">\(T\)</span> 倍。 这正是 <a href="#sec-sp-enter-tp" class="quarto-xref"><span>小节 3.3.2</span></a> 提到的 <code>tensor_parallel_output_grad</code> 开关要区分的另一半语义。</p>
+<p>把 <a href="#sec-sp-entry" class="quarto-xref"><span>小节 3.3.1</span></a> 和 <a href="#sec-sp-lm-head" class="quarto-xref"><span>小节 3.3.5</span></a> 放在一起看，SP 只在模型内部生效：外部仍然是 <code>input_ids [B,S]</code> 输入、logits <code>[B,S,V]</code> 输出，调用方不需要感知内部 sequence sharding 的存在。</p>
+</section>
+</section>
+<section id="复制参数的梯度同步逻辑" class="level2" data-number="3.4">
+<h2 data-number="3.4" class="anchored" data-anchor-id="复制参数的梯度同步逻辑"><span class="header-section-number">3.4</span> 复制参数的梯度同步逻辑</h2>
+<p>在张量并行（TP）中，<code>ColumnParallelLinear</code> 和 <code>RowParallelLinear</code> 的权重被切分到各个 Rank 上。得益于 TP 内部配套的通信原语（All-Reduce / Reduce-Scatter），这些切分参数的梯度能够被正确聚合，无需我们额外操心。</p>
+<p>但模型中还存在另一类参数：它们在每个 TP Rank 上都<strong>完整复制</strong>了一份，例如 LayerNorm 的权重、Embedding 矩阵、LM Head 等。一个很自然的直觉是：“既然是复制参数，那把各个 Rank 的梯度 All-Reduce 求和一下，总归没错吧？”</p>
+<p><strong>然而，这个直觉并不总是对的。</strong> 如果盲目对<strong>所有</strong>复制参数执行 All-Reduce，有时会导致梯度被放大数倍（并行度倍数），而有些复制参数如果漏掉了 All-Reduce，各 Rank 的参数在更新后会发生分叉，丧失并行训练的正确性。</p>
+<p>那么，判断一个复制参数到底“该不该同步”的核心依据是什么？</p>
+<section id="判断的核心标准" class="level3" data-number="3.4.1">
+<h3 data-number="3.4.1" class="anchored" data-anchor-id="判断的核心标准"><span class="header-section-number">3.4.1</span> 判断的核心标准</h3>
+<p>判断是否需要执行 <code>All-Reduce Sum</code>，只看一点：</p>
+<blockquote class="blockquote">
+<p><strong>在反向传播计算该参数的梯度时，各个 Rank 拿到的激活梯度（Activation Gradient）是“全量的”，还是“被切分的/局部的”？</strong></p>
+<ul>
+<li><strong>局部梯度</strong>（每个 Rank 只贡献了部分 Token 或部分 Head） → <strong>必须 All-Reduce Sum</strong>。否则各 Rank 的权重在一次更新后就会分叉。</li>
+<li><strong>全局相同梯度</strong>（每个 Rank 都拿到了完整相同的激活梯度） → <strong>绝对不能 All-Reduce</strong>。否则梯度会被错误放大 <span class="math inline">\(T\)</span> 倍（<span class="math inline">\(T\)</span> 为并行度）。</li>
+</ul>
+</blockquote>
+<hr>
+</section>
+<section id="需同步参数分类" class="level3" data-number="3.4.2">
+<h3 data-number="3.4.2" class="anchored" data-anchor-id="需同步参数分类"><span class="header-section-number">3.4.2</span> 需同步参数分类</h3>
+<p>依据上述标准，复制参数可划分为以下三类：</p>
+<div class="cell" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+<pre class="mermaid mermaid-js">flowchart TD
+    A[复制参数&lt;br&gt;Replicated Parameters] --&gt; B{反向传播时&lt;br&gt;激活梯度是？}
+
+    B --&gt;|全局完整梯度| C[LM Head / Embedding]
+    B --&gt;|局部梯度（序列切分）| D[SP 影响参数&lt;br&gt;LayerNorm / RowParallel Bias / Final Norm]
+    B --&gt;|局部梯度（Head 切分）| E[TP 影响参数&lt;br&gt;Q-Norm / K-Norm]
+
+    C --&gt; F[不需要 All-Reduce&lt;br&gt;梯度天然全局一致]
+    D --&gt; G[需要 All-Reduce Sum&lt;br&gt;各 Rank 只算部分 Token 贡献]
+    E --&gt; H[需要 All-Reduce Sum&lt;br&gt;各 Rank 只算部分 Head 贡献]
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+<section id="必须同步受-sp-或-tp-head-切分影响的参数" class="level4" data-number="3.4.2.1">
+<h4 data-number="3.4.2.1" class="anchored" data-anchor-id="必须同步受-sp-或-tp-head-切分影响的参数"><span class="header-section-number">3.4.2.1</span> 必须同步：受 SP 或 TP Head 切分影响的参数</h4>
+<p>这类参数在各 Rank 上虽然完整存在，但每个 Rank 在 Backward 时只计算了它的一部分贡献：</p>
+<p><strong>SP 切分影响（Token 维度）</strong>：</p>
+<ul>
+<li><strong>参数</strong>：<code>input_layernorm.weight</code>、<code>post_attention_layernorm.weight</code>、<code>final_norm.weight</code>、<code>Row Parallel bias</code></li>
+<li><strong>原因</strong>：开启 SP 后，每个 Rank 在前向传播时只处理 <code>[S/T, B, H]</code> 的 Token 片段。反向传播时，每个 Rank 计算出的参数梯度<strong>仅代表当前 Rank 负责的那部分 Token 的贡献</strong>，因此必须通过 <code>All-Reduce Sum</code> 累加全局 Token 的梯度。</li>
+</ul>
+<p><strong>TP 切分影响（Head 维度）</strong>：</p>
+<ul>
+<li><strong>参数</strong>：<code>q_norm.weight</code>、<code>k_norm.weight</code></li>
+<li><strong>原因</strong>：即便输入序列是完整的，TP 也会将 Attention Head 切分给不同 Rank（例如 Rank 0 算 Head 0~3，Rank 1 算 Head 4~7）。每个 Rank 算出的 Q/K Norm 梯度<strong>仅包含了本地 Head 的贡献</strong>，因此无论是否开启 SP，都必须在 TP Group 内做 <code>All-Reduce Sum</code>。</li>
+</ul>
+</section>
+<section id="无需同步天然获得全局一致梯度的参数" class="level4" data-number="3.4.2.2">
+<h4 data-number="3.4.2.2" class="anchored" data-anchor-id="无需同步天然获得全局一致梯度的参数"><span class="header-section-number">3.4.2.2</span> 无需同步：天然获得全局一致梯度的参数</h4>
+<p>这两类参数同样是完整复制在每个 Rank 上，但<strong>绝对不能</strong>执行 All-Reduce，否则会把梯度错误放大大模型并行度 <span class="math inline">\(T\)</span> 倍：</p>
+<ul>
+<li><strong>LM Head（显式拼接）</strong>： 在进入 LM Head 前，前向传播已显式执行了 All-Gather，隐藏层状态被还原为完整的 <code>[S, B, H]</code>。所有 Rank 拿着<strong>完全相同的输入</strong>、<strong>相同的参数</strong>和<strong>相同的 Labels</strong> 进行独立计算，反向传播时天然得到<strong>完全一模一样且完整</strong>的 LM Head 梯度。</li>
+<li><strong>Embedding（隐式抵消）</strong>： 前向传播时，每个 rank 都根据完整的 <code>input_ids</code> 计算出全量隐藏状态，随后在本地保留 <code>[S/T, B, H]</code> 的对应 shard，进入 TP 区域。 在反向传播时，<strong>这个本地切分算子的 backward（即 All-Gather）会在梯度到达 Embedding 之前，将序列维度重新拼完整</strong>。因此，Embedding 在反向传播时被动接收到了全量 Sequence 的激活梯度，算出的参数梯度天然就是全量且一致的。</li>
+</ul>
+<p>当前实现通过在目标参数上注册 Hook 来完成梯度归约：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>parameter.register_hook(</span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">lambda</span> grad: _reduce(grad, tp_group)</span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+</section>
+</section>
+<section id="sec-sp-block-lifecycle" class="level2" data-number="3.5">
+<h2 data-number="3.5" class="anchored" data-anchor-id="sec-sp-block-lifecycle"><span class="header-section-number">3.5</span> 一个 SP Transformer Block 的 Tensor 生命周期</h2>
+<p><a href="#sec-sp-layout" class="quarto-xref"><span>小节 3.2.4</span></a> 已经概括了三类区域中的 tensor layout。现在把这些布局变化放回一个完整的 MiniMind Transformer block，观察 hidden states 如何依次经过 Attention、MLP 和两条 residual 路径。</p>
+<p>仍以 <span class="math inline">\(T=2\)</span> 为例。Block 的输入和输出都保持：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb19"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>[S<span class="op">/</span><span class="dv">2</span>,B,H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>Attention 路径：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb20"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>sequence shard [S<span class="op">/</span><span class="dv">2</span>,B,H]</span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local <span class="bu">input</span> RMSNorm</span>
+<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> <span class="bu">all</span><span class="op">-</span>gather full sequence</span>
+<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local Q<span class="op">/</span>K<span class="op">/</span>V heads</span>
+<span id="cb20-5"><a href="#cb20-5" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local Attention</span>
+<span id="cb20-6"><a href="#cb20-6" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> Row Parallel o_proj partial output</span>
+<span id="cb20-7"><a href="#cb20-7" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> <span class="bu">reduce</span><span class="op">-</span>scatter [S<span class="op">/</span><span class="dv">2</span>,B,H]</span>
+<span id="cb20-8"><a href="#cb20-8" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local residual add</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>MLP 路径：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb21"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a>sequence shard [S<span class="op">/</span><span class="dv">2</span>,B,H]</span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local post<span class="op">-</span>attention RMSNorm</span>
+<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> <span class="bu">all</span><span class="op">-</span>gather full sequence</span>
+<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> Column Parallel first Linear</span>
+<span id="cb21-5"><a href="#cb21-5" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local activation</span>
+<span id="cb21-6"><a href="#cb21-6" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> Row Parallel second Linear partial output</span>
+<span id="cb21-7"><a href="#cb21-7" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> <span class="bu">reduce</span><span class="op">-</span>scatter [S<span class="op">/</span><span class="dv">2</span>,B,H]</span>
+<span id="cb21-8"><a href="#cb21-8" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local residual add</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+<pre class="mermaid mermaid-js">flowchart LR
+    classDef comm fill:#e8590c,stroke:#8a2e00,color:#ffffff,stroke-width:2px;
+    classDef data fill:#1971c2,stroke:#0b4a85,color:#ffffff,stroke-width:1px;
+
+    IN["Block input&lt;br/&gt;[S/2,B,H]"]:::data
+    N1["Local input RMSNorm"]:::data
+    G1["all-gather&lt;br/&gt;[S,B,H]"]:::comm
+    ATT["TP Attention&lt;br/&gt;local heads"]:::data
+    O["Row Parallel o_proj"]:::data
+    RS1["reduce-scatter&lt;br/&gt;[S/2,B,H]"]:::comm
+    ADD1["Local residual add"]:::data
+    N2["Local post-attention RMSNorm"]:::data
+    G2["all-gather&lt;br/&gt;[S,B,H]"]:::comm
+    MLP["Column Linear + activation&lt;br/&gt;local intermediate shard"]:::data
+    D["Row Parallel second Linear"]:::data
+    RS2["reduce-scatter&lt;br/&gt;[S/2,B,H]"]:::comm
+    ADD2["Local residual add"]:::data
+    OUT["Block output&lt;br/&gt;[S/2,B,H]"]:::data
+
+    IN --&gt; N1 --&gt; G1 --&gt; ATT --&gt; O --&gt; RS1 --&gt; ADD1
+    IN -. residual .-&gt; ADD1
+    ADD1 --&gt; N2 --&gt; G2 --&gt; MLP --&gt; D --&gt; RS2 --&gt; ADD2
+    ADD1 -. residual .-&gt; ADD2
+    ADD2 --&gt; OUT
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+<p>上图只追踪 hidden states 的布局变化，因此在 Attention 和 MLP 的入口各画了一次从 <code>[S/T,B,H]</code> 到 <code>[S,B,H]</code> 的 all-gather。实际实现中，每个 Column Parallel Linear 都会独立发起这次 all-gather：Attention 的 Q、K、V projection 各有一次，而本章抽象的两层 MLP 只有第一层是 Column Parallel：</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>子层</th>
+<th style="text-align: right;">Forward all-gather</th>
+<th style="text-align: right;">Forward reduce-scatter</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Attention</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: right;">1</td>
+</tr>
+<tr class="even">
+<td>两层 MLP</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">1</td>
+</tr>
+<tr class="odd">
+<td>每个 block 合计</td>
+<td style="text-align: right;">4</td>
+<td style="text-align: right;">2</td>
+</tr>
+</tbody>
+</table>
+<p>MiniMind 源码中的 SwigLU MLP 有两个 projection （gate_proj 和 up_proj），因此实际上会比这里的普通 MLP 再多一次 all-gather。</p>
+
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "已复制");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "已复制");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+<nav class="page-navigation">
+  <div class="nav-page nav-page-previous">
+      <a href="../src/tensor_parallel.html" class="pagination-link" aria-label="Tensor Parallelism">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Tensor Parallelism</span></span>
+      </a>          
+  </div>
+  <div class="nav-page nav-page-next">
+      <a href="../src/sequence_parallel_optimization.html" class="pagination-link" aria-label="Sequence Parallelism：显存边界、异步通信与重计算">
+        <span class="nav-page-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Sequence Parallelism：显存边界、异步通信与重计算</span></span> <i class="bi bi-arrow-right-short"></i>
+      </a>
+  </div>
+</nav>
+</div> <!-- /content -->
+
+
+
+
+<footer class="footer"><div class="nav-footer"><div class="nav-footer-center"><div class="toc-actions d-sm-block d-md-none"><ul><li><a href="https://github.com/ANKer661/minimind-tron/edit/main/book/src/sequence_parallel.qmd" class="toc-action"><i class="bi bi-github"></i>编辑该页面</a></li><li><a href="https://github.com/ANKer661/minimind-tron/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></div></div></footer></body></html>
