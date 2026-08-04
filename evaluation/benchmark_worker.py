@@ -12,6 +12,7 @@ from model.attention_cp import CPContext
 from model.model_minimind import MiniMindConfig, MiniMindForCausalLM
 from model.model_pp import PPContext, PipelineStage
 from model.model_tp import TPMiniMindForCausalLM
+from model.parallel_state import create_process_groups
 from model.pipeline_parallel_p2p_communication import P2PCommunicator
 from model.pipeline_schedules import run_pipeline_schedule
 from model.tensor_parallel_layers import TPContext
@@ -32,113 +33,6 @@ def build_config(args: argparse.Namespace) -> MiniMindConfig:
         dropout=0.0,
         flash_attn=args.flash_attn,
         use_moe=False,
-    )
-
-
-def estimate_training_flops(args: argparse.Namespace, batch_size: int) -> int:
-    """Estimate logical model FLOPs for one forward/backward training step.
-
-    Counts GEMMs in attention projections, attention score/value products,
-    SwiGLU MLP, and lm_head. Backward is approximated as 2x forward.
-    """
-    sequence_length = args.seq_len
-    hidden_size = args.hidden_size
-    head_dim = hidden_size // args.num_attention_heads
-    query_size = args.num_attention_heads * head_dim
-    kv_size = args.num_key_value_heads * head_dim
-    intermediate_size = build_config(args).intermediate_size
-
-    attention_projections = (
-        2 * batch_size * sequence_length * hidden_size * query_size
-        + 4 * batch_size * sequence_length * hidden_size * kv_size
-        + 2 * batch_size * sequence_length * query_size * hidden_size
-    )
-    attention_products = 4 * batch_size * sequence_length**2 * query_size
-    mlp = 6 * batch_size * sequence_length * hidden_size * intermediate_size
-    lm_head = 2 * batch_size * sequence_length * hidden_size * args.vocab_size
-    forward_flops = args.num_hidden_layers * (
-        attention_projections + attention_products + mlp
-    ) + lm_head
-    return 3 * forward_flops
-
-
-def create_parallel_groups(
-    pp_size: int,
-    cp_size: int,
-    tp_size: int,
-    rank: int,
-    cp_enabled: bool,
-) -> tuple[
-    dist.ProcessGroup,
-    dist.ProcessGroup | None,
-    dist.ProcessGroup,
-    dist.ProcessGroup | None,
-    int,
-    int,
-    int,
-]:
-    local_tp_rank = rank % tp_size
-    parallel_rank = rank // tp_size
-    local_cp_rank = parallel_rank % cp_size
-    local_pp_rank = parallel_rank // cp_size
-
-    tp_group = None
-    for pp_rank in range(pp_size):
-        for cp_rank in range(cp_size):
-            ranks = [
-                (pp_rank * cp_size + cp_rank) * tp_size + tp_rank
-                for tp_rank in range(tp_size)
-            ]
-            group = dist.new_group(ranks=ranks)
-            if rank in ranks:
-                tp_group = group
-
-    cp_group = None
-    if cp_enabled:
-        for pp_rank in range(pp_size):
-            for tp_rank in range(tp_size):
-                ranks = [
-                    (pp_rank * cp_size + cp_rank) * tp_size + tp_rank
-                    for cp_rank in range(cp_size)
-                ]
-                group = dist.new_group(ranks=ranks)
-                if rank in ranks:
-                    cp_group = group
-
-    pp_group = None
-    for cp_rank in range(cp_size):
-        for tp_rank in range(tp_size):
-            ranks = [
-                (pp_rank * cp_size + cp_rank) * tp_size + tp_rank
-                for pp_rank in range(pp_size)
-            ]
-            group = dist.new_group(ranks=ranks)
-            if rank in ranks:
-                pp_group = group
-
-    assert tp_group is not None
-    assert pp_group is not None
-
-    embed_group = None
-    if pp_size > 1:
-        for cp_rank in range(cp_size):
-            for tp_rank in range(tp_size):
-                ranks = [
-                    cp_rank * tp_size + tp_rank,
-                    ((pp_size - 1) * cp_size + cp_rank) * tp_size + tp_rank,
-                ]
-                group = dist.new_group(ranks=ranks)
-                if rank in ranks:
-                    embed_group = group
-
-    return (
-        tp_group,
-        cp_group,
-        pp_group,
-        embed_group,
-        local_pp_rank,
-        local_cp_rank,
-        local_tp_rank,
     )
 
 
@@ -214,48 +108,47 @@ def run_ddp(
     )
 
 
-def run_pipeline(
+def run_general_parallel(
     args: argparse.Namespace,
     device: torch.device,
     rank: int,
 ) -> tuple[float, float]:
-    cp_enabled = args.mode == "parallel" and args.cp
+    cp_enabled = args.cp
     cp_size = args.cp_size if cp_enabled else 1
-    tp_group, cp_group, pp_group, embed_group, pp_rank, cp_rank, tp_rank = (
-        create_parallel_groups(
-            args.pp_size,
-            cp_size,
-            args.tp_size,
-            rank,
-            cp_enabled,
-        )
+    groups = create_process_groups(
+        pp_size=args.pp_size,
+        cp_size=cp_size,
+        tp_size=args.tp_size,
+        cp_enabled=cp_enabled,
     )
-    configurable = args.mode == "parallel"
+    tp_rank = dist.get_rank(groups.tp)
+    cp_rank = dist.get_rank(groups.cp) if groups.cp is not None else 0
+    pp_rank = dist.get_rank(groups.pp)
     tp_context = TPContext(
-        group=tp_group,
+        group=groups.tp,
         world_size=args.tp_size,
         rank=tp_rank,
-        sequence_parallel=args.sequence_parallel if configurable else True,
-        async_communication=args.async_communication if configurable else True,
-        vocab_parallel=args.vocab_parallel if configurable else True,
+        sequence_parallel=args.sequence_parallel,
+        async_communication=args.async_communication,
+        vocab_parallel=args.vocab_parallel,
     )
     cp_context = None
     if cp_enabled:
-        assert cp_group is not None
+        assert groups.cp is not None
         cp_context = CPContext(
             world_size=cp_size,
             rank=cp_rank,
-            group=cp_group,
+            group=groups.cp,
             comm_type=args.cp_comm_type,
         )
     pp_context = PPContext(
-        group=pp_group,
+        group=groups.pp,
         world_size=args.pp_size,
         rank=pp_rank,
         is_first=pp_rank == 0,
         is_last=pp_rank == args.pp_size - 1,
         pipeline_dtype=getattr(torch, args.dtype),
-        embed_group=embed_group,
+        embed_group=groups.embd,
     )
 
     config = build_config(args)
@@ -382,7 +275,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--mode",
-        choices=("ddp", "tp", "pp_tp", "parallel"),
+        choices=("ddp", "tp", "general"),
         required=True,
     )
     parser.add_argument("--pp_size", type=int, required=True)
@@ -449,10 +342,10 @@ def main() -> None:
     assert args.cp_size >= 1
     if not args.cp and args.cp_size != 1:
         raise ValueError("--cp_size requires --cp")
-    effective_cp_size = args.cp_size if args.mode == "parallel" and args.cp else 1
+    effective_cp_size = args.cp_size if args.cp else 1
     if args.mode != "ddp":
         assert world_size == args.pp_size * effective_cp_size * args.tp_size
-    if args.mode in ("pp_tp", "parallel"):
+    if args.mode == "general":
         assert args.num_hidden_layers >= args.pp_size
     assert args.micro_batch_size > 0
     assert args.num_microbatches > 0
@@ -465,7 +358,7 @@ def main() -> None:
     elif args.mode == "tp":
         peak_mib, time_ms = run_tp(args, device, rank, world_size)
     else:
-        peak_mib, time_ms = run_pipeline(args, device, rank)
+        peak_mib, time_ms = run_general_parallel(args, device, rank)
 
     model_batch_size = args.micro_batch_size * args.num_microbatches
     global_batch_size = (
@@ -473,8 +366,6 @@ def main() -> None:
         if args.mode == "ddp" and args.batch_policy == "fixed_per_rank"
         else model_batch_size
     )
-    training_flops = estimate_training_flops(args, global_batch_size)
-    flops_per_second = training_flops / (time_ms / 1000)
     tokens_per_second = global_batch_size * args.seq_len / (time_ms / 1000)
     if rank == 0:
         print(
@@ -484,8 +375,6 @@ def main() -> None:
                     "mode": args.mode,
                     "peak_mib": peak_mib,
                     "time_ms": time_ms,
-                    "training_flops": training_flops,
-                    "flops_per_second": flops_per_second,
                     "tokens_per_second": tokens_per_second,
                     "batch_policy": args.batch_policy,
                     "pp_schedule": args.pp_schedule,

@@ -1,13 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import shutil
+import subprocess
 import sys
-
-from evaluation.launch import (
-    module_command,
-    run,
-    torchrun_module_command,
-)
 
 
 def split_passthrough(argv: list[str]) -> tuple[list[str], list[str]]:
@@ -43,18 +39,30 @@ def parallel_args(args: argparse.Namespace) -> list[str]:
 
 def validate_command(args: argparse.Namespace, passthrough: list[str]) -> list[str]:
     cp_size = args.cp_size if args.cp else 1
-    return torchrun_module_command(
+    torchrun = shutil.which("torchrun")
+    if torchrun is None:
+        raise RuntimeError("torchrun was not found in PATH")
+    return [
+        torchrun,
+        "--standalone",
+        f"--nproc_per_node={args.pp_size * cp_size * args.tp_size}",
+        "--module",
         "evaluation.validate",
-        args.pp_size * cp_size * args.tp_size,
-        [*parallel_args(args), *passthrough],
-    )
+        *parallel_args(args),
+        *passthrough,
+    ]
 
 
 def benchmark_command(args: argparse.Namespace, passthrough: list[str]) -> list[str]:
-    return module_command(
+    return [
+        sys.executable,
+        "-m",
         "evaluation.benchmark",
-        ["--kind", args.kind, *parallel_args(args), *passthrough],
-    )
+        "--kind",
+        args.kind,
+        *parallel_args(args),
+        *passthrough,
+    ]
 
 
 def parse_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
@@ -78,10 +86,13 @@ def main() -> None:
     args, passthrough = parse_args(sys.argv[1:])
     if args.command == "validate":
         command = validate_command(args, passthrough)
-    else:
+    elif args.command == "benchmark":
         command = benchmark_command(args, passthrough)
+    else:
+        raise RuntimeError(f"Unknown command: {args.command}")
 
-    raise SystemExit(run(command))
+    print("+ " + " ".join(command), flush=True)
+    raise SystemExit(subprocess.run(command).returncode)
 
 
 if __name__ == "__main__":
