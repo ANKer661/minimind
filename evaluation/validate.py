@@ -103,6 +103,7 @@ def create_parallel_groups(
     dist.ProcessGroup,
     dist.ProcessGroup | None,
     dist.ProcessGroup,
+    dist.ProcessGroup | None,
     int,
     int,
     int,
@@ -149,10 +150,24 @@ def create_parallel_groups(
 
     assert tp_group is not None
     assert pp_group is not None
+
+    embed_group = None
+    if pp_size > 1:
+        for cp_rank in range(cp_size):
+            for tp_rank in range(tp_size):
+                ranks = [
+                    cp_rank * tp_size + tp_rank,
+                    ((pp_size - 1) * cp_size + cp_rank) * tp_size + tp_rank,
+                ]
+                group = dist.new_group(ranks=ranks)
+                if rank in ranks:
+                    embed_group = group
+
     return (
         tp_group,
         cp_group,
         pp_group,
+        embed_group,
         local_pp_rank,
         local_cp_rank,
         local_tp_rank,
@@ -428,12 +443,14 @@ def main() -> None:
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
 
-    tp_group, cp_group, pp_group, pp_rank, cp_rank, tp_rank = create_parallel_groups(
-        args.pp_size,
-        effective_cp_size,
-        args.tp_size,
-        rank,
-        args.cp,
+    tp_group, cp_group, pp_group, embed_group, pp_rank, cp_rank, tp_rank = (
+        create_parallel_groups(
+            args.pp_size,
+            effective_cp_size,
+            args.tp_size,
+            rank,
+            args.cp,
+        )
     )
     tp_context = TPContext(
         group=tp_group,
@@ -459,6 +476,7 @@ def main() -> None:
         is_first=pp_rank == 0,
         is_last=pp_rank == args.pp_size - 1,
         pipeline_dtype=dtype,
+        embed_group=embed_group,
     )
 
     config = MiniMindConfig(

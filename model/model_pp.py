@@ -29,6 +29,7 @@ class PPContext:
     is_first: bool
     is_last: bool
     pipeline_dtype: torch.dtype
+    embed_group: dist.ProcessGroup | None = None
 
 
 class PipelineStageModel(nn.Module):
@@ -174,6 +175,10 @@ class PipelineStage(nn.Module):
                 # the lm_head computation is duplicated across TP ranks
                 # so we use regular Linear
                 self.lm_head = nn.Linear(self.config.hidden_size, self.config.vocab_size, bias=False)
+
+        # handle tie_word_embeddings when pp_size == 1
+        if self.config.tie_word_embeddings and self.pp_context.world_size == 1:
+            self.lm_head.weight = self.model.embed_tokens.weight
 
     def forward(
         self,

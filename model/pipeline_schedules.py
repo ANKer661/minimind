@@ -215,7 +215,7 @@ def run_gpipe(
         )
 
     finalize_model_grads(
-        model=[stage_model],
+        model=stage_model,
         pp_context=pp_context,
         num_tokens=total_num_tokens,
         cp_context=stage_model.cp_context,
@@ -418,7 +418,7 @@ def run_1f1b(
             )
 
         finalize_model_grads(
-            model=[stage_model],
+            model=stage_model,
             pp_context=pp_context,
             num_tokens=total_num_tokens,
             cp_context=stage_model.cp_context,
@@ -428,11 +428,24 @@ def run_1f1b(
 
 
 def finalize_model_grads(
-    model: list[PipelineStage],
+    model: PipelineStage,
     pp_context: PPContext,
     num_tokens: torch.Tensor,
     cp_context: CPContext | None,
 ) -> None:
+    # handle tie_word_embeddings
+    if model.config.tie_word_embeddings and pp_context.world_size > 1:
+        embed_grad = None
+        if pp_context.is_first:
+            embed_grad = model.model.embed_tokens.weight.grad
+        elif pp_context.is_last:
+            embed_grad = model.lm_head.weight.grad
+
+        if pp_context.is_first or pp_context.is_last:
+            assert embed_grad is not None
+            assert pp_context.embed_group is not None
+            dist.all_reduce(embed_grad, group=pp_context.embed_group)
+
     # allreduce num_tokens across CP group
     if cp_context is not None:
         dist.all_reduce(num_tokens, op=dist.ReduceOp.SUM, group=cp_context.group)
@@ -442,12 +455,11 @@ def finalize_model_grads(
 
     safe_num_tokens = torch.clamp(num_tokens, min=1)
     scaling_factor = 1.0 / safe_num_tokens.float()
-    for model_chunk in model:
-        model_chunk.scale_grads(scaling_factor)
+
+    model.scale_grads(scaling_factor)
 
     # grad sync within CP group
     if cp_context is not None:
-        for model_chunk in model:
-            for param in model_chunk.parameters():
-                if param.grad is not None:
-                    _reduce(param.grad, cp_context.group)
+        for param in model.parameters():
+            if param.grad is not None:
+                _reduce(param.grad, cp_context.group)
