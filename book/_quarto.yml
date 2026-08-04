@@ -8,7 +8,13 @@ book:
   description: "从 MiniMind 出发，理解并实现大模型并行训练策略。"
   chapters:
     - index.qmd
-    - src/tensor_parallel.qmd
+    - part: "从 MiniMind 到 Tensor、Sequence 与 Vocab Parallelism"
+      chapters:
+        - src/tensor_parallel.qmd
+        - src/sequence_parallel.qmd
+        - src/sequence_parallel_optimization.qmd
+        - src/vocab_parallel.qmd
+        - src/unified_benchmark.qmd
   repo-url: https://github.com/ANKer661/minimind-tron
   repo-branch: main
   repo-subdir: book
@@ -16,7 +22,7 @@ book:
   search: true
 
 lang: zh
-number-sections: false
+number-sections: true
 
 format:
   html:

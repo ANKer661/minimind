@@ -1,0 +1,197 @@
+# 统一 Benchmark、限制与源码索引
+
+## 统一 Benchmark {#sec-unified-benchmark}
+
+前面的实验分别回答了 TP、SP、异步通信和 VP 各自解决什么问题。最后把它们放回同一组实验，观察这些优化叠加之后，显存收益来自哪里，又付出了多少时间代价。
+
+### 显存降低 {#sec-tp-memory}
+
+本节比较六种配置：
+
+| Variant | 主要观察对象 |
+|---|---|
+| DDP | 未切分模型的单卡显存基线 |
+| TP | 切分 Transformer block 中的参数、梯度和 optimizer states |
+| TP + SP | 只在 TP 区域之间保留 sequence shard |
+| TP + SP + Async | 带有 recompute 的完整 SP 实现 |
+| TP + VP | 进一步切分 embedding、LM head 和 logits |
+| TP + SP + Async + VP | 当前 TP 章节中的全部优化 |
+
+所有实验使用两张 4090D 显卡、BF16、`hidden_size=768`、8 个 Q heads、4 个 KV heads、`vocab_size=6400`。`batch_policy=fixed_per_rank` 固定每个模型副本处理的 batch：每个 DDP rank 各自处理 batch 4，而两个 TP rank 共同处理 batch 4。这样可以观察同等单模型工作量下，切分参数和 activation 能为每个 rank 节省多少显存。
+
+需要注意这里的 `TP + SP` 是 @sec-async-recompute-benchmark 中为了拆解算法而保留的基础 SP。在实际 Nvidia 论文 [Reducing Activation Recomputation in Large Transformer Models](https://arxiv.org/abs/2205.05198) 中提出的序列并行对应这里的 `TP + SP + Async`：
+
+#### 增加 Transformer 层数
+
+先固定 `seq_len=2048`，将层数从 2 增加到 32：
+
+```bash
+CUDA_DEVICE_MAX_CONNECTIONS=1 python -m evaluation.parallel benchmark \
+  --kind memory \
+  --tp_size 2 \
+  --pp_size 1 \
+  -- \
+  --modes ddp tp tp_sp tp_sp_async tp_vp tp_sp_async_vp \
+  --batch_policy fixed_per_rank \
+  --num_hidden_layers 2 4 8 16 32 \
+  --seq_len 2048 \
+  --hidden_size 768 \
+  --num_attention_heads 8 \
+  --num_key_value_heads 4 \
+  --vocab_size 6400 \
+  --micro_batch_size 4 \
+  --num_microbatches 1 \
+  --dtype bfloat16 \
+  --warmup_iters 10 \
+  --benchmark_iters 5
+```
+
+每个 rank 的峰值 allocated memory 如下，单位为 MiB。括号内以同一层数的 DDP 为 $100\%$，表示该配置的显存占比：
+
+| Layers | DDP | TP | TP + SP | TP + SP + Async | TP + VP | 全部开启 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 2 | 1452.19<br>（100%） | 1097.94<br>（75.6%） | 1052.08<br>（72.4%） | 956.73<br>（65.9%） | 867.23<br>（59.7%） | **719.59<br>（49.6%）** |
+| 4 | 2350.91<br>（100%） | 1658.71<br>（70.6%） | 1588.95<br>（67.6%） | 1398.82<br>（59.5%） | 1427.88<br>（60.7%） | **1163.93<br>（49.5%）** |
+| 8 | 4148.79<br>（100%） | 2781.92<br>（67.1%） | 2665.97<br>（64.3%） | 2282.97<br>（55.0%） | 2554.47<br>（61.6%） | **2048.08<br>（49.4%）** |
+| 16 | 7745.10<br>（100%） | 5026.93<br>（64.9%） | 4824.38<br>（62.3%） | 4056.38<br>（52.4%） | 4796.54<br>（61.9%） | **3816.55<br>（49.3%）** |
+| 32 | 14937.42<br>（100%） | 9521.13<br>（63.7%） | 9136.96<br>（61.2%） | 7600.27<br>（50.9%） | 9291.74<br>（62.2%） | **7364.60<br>（49.3%）** |
+
+全部优化开启后，显存的比例大致为 DDP 的 49.3%~49.6%，略低于 2 卡情况下的理论下限，这可能是因为 DDP 中的 bucket 储存的额外的梯度导致测量出来的 DDP 峰值显存偏高。
+
+#### 增加序列长度
+
+接下来固定 8 层，将上面命令中的层数和序列长度替换为：
+
+```bash
+--num_hidden_layers 8 \
+--seq_len 1024 2048 4096 8192
+```
+
+峰值 allocated memory 如下，单位为 MiB，括号内以同一 sequence length 的 DDP 为 $100\%$：
+
+| Sequence | DDP | TP | TP + SP | TP + SP + Async | TP + VP | 全部开启 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1024 | 2378.46<br>（100%） | 1509.15<br>（63.5%） | 1447.62<br>（60.9%） | 1260.08<br>（53.0%） | 1385.84<br>（58.3%） | **1131.15<br>（47.6%）** |
+| 2048 | 4148.79<br>（100%） | 2781.92<br>（67.1%） | 2665.97<br>（64.3%） | 2282.97<br>（55.0%） | 2554.47<br>（61.6%） | **2048.08<br>（49.4%）** |
+| 4096 | 7751.45<br>（100%） | 5268.23<br>（68.0%） | 5027.70<br>（64.9%） | 4259.70<br>（55.0%） | 4839.45<br>（62.4%） | **3819.76<br>（49.3%）** |
+| 8192 | 14954.20<br>（100%） | 10292.70<br>（68.8%） | 9811.70<br>（65.6%） | 8275.70<br>（55.3%） | 9464.89<br>（63.3%） | **7424.67<br>（49.6%）** |
+
+随着 sequence 从 1024 增加到 8192，基础 SP 相对 TP 的显存收益仍保持在 4%～5%，完整 SP 的收益则从 16.5% 增加到 19.6%，可以用 @sec-sp-recompute-result 中类似的方法去分析。
+
+VP 在这组实验中相对 TP 始终节省约 8% 显存，绝对收益则从 123 MiB 增加到 828 MiB。与层数 scaling 不同，logits 和 parallel cross entropy 的中间状态会随 sequence length 线性增长，因此 VP 的绝对收益不再是一个固定常数。
+
+### 吞吐 {#sec-tp-throughput}
+
+@sec-tp-memory 为了比较单卡容量，固定的是每个模型副本处理的 batch，因此 DDP 与 TP 的 global batch 不同。吞吐实验改用 `fixed_global`：两个 DDP rank 各自处理一半样本，而两个 TP rank 合作处理同一批完整样本。现在每种配置完成的总 token 数一致，可以直接比较 DDP 与各个模型并行方案。
+
+#### 增加 Transformer 层数
+
+```bash
+CUDA_DEVICE_MAX_CONNECTIONS=1 python -m evaluation.parallel benchmark \
+  --kind throughput \
+  --tp_size 2 \
+  --pp_size 1 \
+  -- \
+  --modes ddp tp tp_sp tp_sp_async tp_vp tp_sp_async_vp \
+  --num_hidden_layers 2 4 8 16 32 \
+  --seq_len 2048 \
+  --hidden_size 768 \
+  --num_attention_heads 8 \
+  --num_key_value_heads 4 \
+  --vocab_size 6400 \
+  --micro_batch_size 4 \
+  --num_microbatches 1 \
+  --dtype bfloat16 \
+  --warmup_iters 10 \
+  --benchmark_iters 5 \
+  --output_csv results/tp/tp_throughput.csv \
+  --output_plot results/tp/tp_throughput.png
+```
+
+结果如下，吞吐单位为 K tokens/s，括号内以相同层数的 DDP 为 $100\%$：
+
+| Layers | DDP | TP | TP + SP | TP + SP + Async | TP + VP | 全部开启 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 2 | 533.0<br>（100%） | 226.6<br>（42.5%） | 192.0<br>（36.0%） | 167.2<br>（31.4%） | 205.4<br>（38.5%） | 159.7<br>（30.0%） |
+| 4 | 311.4<br>（100%） | 121.1<br>（38.9%） | 110.1<br>（35.4%） | 89.9<br>（28.9%） | 115.7<br>（37.2%） | 87.8<br>（28.2%） |
+| 8 | 179.1<br>（100%） | 63.4<br>（35.4%） | 57.7<br>（32.2%） | 46.8<br>（26.1%） | 61.8<br>（34.5%） | 46.1<br>（25.7%） |
+| 16 | 92.9<br>（100%） | 32.5<br>（35.0%） | 29.5<br>（31.8%） | 23.8<br>（25.6%） | 32.1<br>（34.6%） | 23.7<br>（25.5%） |
+| 32 | 49.6<br>（100%） | 16.5<br>（33.3%） | 15.0<br>（30.2%） | 12.0<br>（24.2%） | 16.3<br>（32.9%） | 12.0<br>（24.2%） |
+
+可以看到，在单张 GPU 上能够完整放下模型的情况下，DDP 的吞吐更高，因为 DDP 的通信更少，只发生在反向传播完成后进行梯度同步，而且这个过程可以比较好的进行通信-计算重叠，而 TP 目的主要是是突破单卡容量限制，将权重拆开后每一层的前向和反向都引入了通信，所以能看到基本上随着层数的增加，TP 的吞吐与 DDP 相比越来越低。需要说明的是，本实验所用服务器 GPU 之间通过 PCIe 互联，带宽较低。在有 NVLink 环境下，TP 引入的通信开销会显著降低，吞吐表现可能会更好。因此实际的分布式训练中 TP 只建议在同一台物理机内部启用，即多张 GPU 通过 NVLink 或 NVSwitch 互联的场景。
+
+在模型并行方案内部比较，基础 SP 的吞吐约为 TP 的 91% （除 layers=2 时为 85%）。这部分损失也许代表着 all-reduce 拆成 reduce-scatter 与 all-gather 并减少逐 token 操作的复制计算，总的带来造成的额外开销。`TP + SP + Async` 还会在 backward 中重新 all-gather Column Parallel Linear 的输入，用计算时的重建换取 @sec-tp-memory 中更低的 activation 峰值，因此吞吐稳定在 TP 的约 73%～74%。
+
+VP 的时间代价最小。随着层数增加，`TP + VP` 的吞吐从 TP 的 90.6% 上升到约 98.8%，因为 VP 新增的通信集中在模型边界，而 Transformer block 的计算随层数增长，这部分固定开销会被逐渐摊薄。全部优化开启后的吞吐约为 TP 的 70%～73%，与 `TP + SP + Async` 几乎相同，说明当前配置中的主要时间—显存交换来自 SP Recompute；VP 能继续降低 embedding、LM head 和 logits 显存，只增加很小的额外时间。
+
+#### 增加序列长度
+
+接下来固定 8 层，将 sequence length 从 1024 增加到 16000：
+
+```bash
+CUDA_DEVICE_MAX_CONNECTIONS=1 python -m evaluation.parallel benchmark \
+  --kind throughput \
+  --tp_size 2 \
+  --pp_size 1 \
+  -- \
+  --modes ddp tp tp_sp tp_sp_async tp_vp tp_sp_async_vp \
+  --num_hidden_layers 8 \
+  --seq_len 1024 2048 4096 8192 16000 \
+  --hidden_size 768 \
+  --num_attention_heads 8 \
+  --num_key_value_heads 4 \
+  --vocab_size 6400 \
+  --micro_batch_size 4 \
+  --num_microbatches 1 \
+  --dtype bfloat16 \
+  --warmup_iters 10 \
+  --benchmark_iters 5 \
+  --output_csv results/tp/tp_throughput_sequence.csv \
+  --output_plot results/tp/tp_throughput_sequence.png
+```
+
+结果如下：
+
+| Sequence | DDP | TP | TP + SP | TP + SP + Async | TP + VP | 全部开启 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1024 | 112.3<br>（100%） | 61.8<br>（55.0%） | 55.9<br>（49.8%） | 45.5<br>（40.5%） | 60.7<br>（54.1%） | 45.1<br>（40.2%） |
+| 2048 | 179.7<br>（100%） | 63.3<br>（35.2%） | 57.5<br>（32.0%） | 46.8<br>（26.0%） | 61.5<br>（34.2%） | 46.2<br>（25.7%） |
+| 4096 | 209.7<br>（100%） | 61.5<br>（29.3%） | 56.7<br>（27.0%） | 46.3<br>（22.1%） | 59.8<br>（28.5%） | 45.7<br>（21.8%） |
+| 8192 | 193.8<br>（100%） | 57.7<br>（29.8%） | 54.3<br>（28.0%） | 44.6<br>（23.0%） | 56.2<br>（29.0%） | 43.9<br>（22.7%） |
+| 16000 | 152.9<br>（100%） | 53.8<br>（35.2%） | 50.1<br>（32.8%） | 42.0<br>（27.5%） | 52.3<br>（34.2%） | 41.2<br>（26.9%） |
+
+以基础 TP 为基线，SP 的相对吞吐从 90.5% 提高到约 93%，`TP + SP + Async` 则从 73.6% 提高到 78.1%。SP collective 传输的 tensor 元素量大致随 $S$ 线性增长，而 Attention 的计算量随 $S$ 增长得更快；序列变长后，布局转换和 backward 重建在整个 step 中所占的比例因此有所下降。这个趋势与 @sec-tp-memory 的显存结果互补：长序列让 SP Recompute 节省更多 activation，同时也更容易摊薄它的时间代价。
+
+
+## 当前限制与源码索引
+
+当前实现的主要限制：
+
+```python
+hidden_size % TP == 0
+intermediate_size % TP == 0
+num_attention_heads % TP == 0
+num_key_value_heads % TP == 0
+SP 时 sequence_length % TP == 0
+VP 时 vocab_size % TP == 0
+```
+
+此外：
+
+- TP Attention 暂不支持 KV Cache。
+- TP 模型暂不支持 MoE。
+- 当前参数 gradient hook 是正确性实现，还没有用一个统一的函数进行管理。
+
+关键实现索引：
+
+| 组件 | 文件 / 类或函数 |
+|---|---|
+| TP/SP/VP 配置 | `model/tensor_parallel_layers.py::TPContext` |
+| Column/Row Parallel Linear | `model/tensor_parallel_layers.py::ColumnParallelLinear` / `RowParallelLinear` |
+| Async Linear | `model/tensor_parallel_layers.py::LinearWithAsyncCommunication` |
+| SP autograd primitive | `model/tensor_parallel_mappings.py` |
+| Vocab Parallel Embedding | `model/tensor_parallel_layers.py::VocabParallelEmbedding` |
+| Parallel Cross Entropy | `model/tensor_parallel_layers.py::VocabParallelCrossEntropy` |
+| Attention、MLP 与模型组装 | `model/model_tp.py` |
+| Dense checkpoint 切分 | `model/model_tp.py::shard_state_dict_for_tp` |
+| 数值验证 | `evaluation/validate.py` |
