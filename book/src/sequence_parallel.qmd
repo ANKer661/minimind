@@ -1,14 +1,10 @@
 # Sequence Parallelism：布局与梯度
 
-上一章的 TP 切开了 Attention heads 和 MLP intermediate dimension 的权重，但两个并行区域之间仍保留完整的 hidden states。Sequence Parallelism（SP）在 TP 的基础上，把这部分逐 token 操作的激活值也切开。
-
 ## 为什么需要 Sequence Parallelism
 
-TP 已经切分了 Attention heads 和 MLP intermediate dimension，但这并不意味着整个 Transformer block 的激活都随 TP size 缩小。沿着一个 hidden states tensor 走出 TP 区域，可以看到它在进入下一个 TP 区域前又恢复成了完整的 `[S,B,H]`：
+TP 已经切分了 Attention heads 和 MLP intermediate dimension，但这并不意味着整个 Transformer block 的显存占用可以变为 $1/T$。Sequence Parallelism （SP）就是为了进一步降低显存占用而提出的。
 
-```python
-每个 TP rank: [S, B, H]
-```
+先分析一下 Transformer block 中 两个 TP 区域之间的计算：
 
 ```{mermaid}
 flowchart LR
@@ -42,13 +38,13 @@ flowchart LR
     L1 --> TP2
 ```
 
-图中的 $H_0$ 和 $H_1$ 是数值相同的两份完整 tensor。它们来自 Row Parallel Linear 的输出：每个 rank 先产生一份完整 shape 的部分结果，
+图中的 $H_0$ 和 $H_1$ 是数值相同的两份完整 tensor。它们来自 All-reduce 后的 Row Parallel Linear 的输出：每个 rank 先产生一份完整 shape 的部分结果，
 
-```python
+$$
 P_t: [S, B, H]
-```
+$$
 
-普通 TP 在离开并行区域时执行 all-reduce：
+接着在离开并行区域时执行 all-reduce：
 
 $$
 Y=\sum_{t=0}^{T-1}P_t,
@@ -56,7 +52,7 @@ $$
 
 于是每个 rank 都得到完整的 $Y$。但紧接着的 RMSNorm、Dropout 和 residual add 都是逐 token 操作，让所有 rank 保存并处理全部 $S$ 个 token 没有必要。是否可以让每个 rank 只负责一段互不重复的 sequence？
 
-先不考虑具体使用哪种 collective，把离开 TP 区域和重新进入 TP 区域时的两次布局转换分别记为 $f$ 和 $g$。我们希望得到下面的数据流：
+先不考虑具体使用哪种 collective 可以做到我们想要的结果，把离开 TP 区域和重新进入 TP 区域时的两次布局转换分别记为 $f$ 和 $g$。我们希望得到下面的数据流：
 
 ```{mermaid}
 flowchart LR
@@ -101,7 +97,7 @@ flowchart LR
 
 要让每个 rank 只保留一段 sequence，最直接的做法是在 all-reduce 之后，再各自沿 sequence 维切分完整的 $Y$。但每个 rank 明明只需要 $1/T$ 的结果，却仍要先通信得到完整 tensor，再把其余部分丢掉。
 
-于是要问：能不能跳过"先合并、再手动切开"这条弯路，直接一步到位地让每个 rank 拿到自己该有的那一段？
+那么能不能跳过"先合并、再手动切开"这条弯路，直接一步到位地让每个 rank 拿到自己该有的那一段？
 
 ### All-Reduce 可以拆成两个阶段
 
@@ -680,7 +676,7 @@ parameter.register_hook(
 
 @sec-sp-layout 已经概括了三类区域中的 tensor layout。现在把这些布局变化放回一个完整的 MiniMind Transformer block，观察 hidden states 如何依次经过 Attention、MLP 和两条 residual 路径。
 
-仍以 $T=2$ 为例。Block 的输入和输出都保持：
+仍以 $T=2$ 为例。TP 区域的输入和输出都保持：
 
 ```python
 [S/2,B,H]
@@ -712,34 +708,23 @@ sequence shard [S/2,B,H]
 -> local residual add
 ```
 
-```{mermaid}
-flowchart LR
-    classDef comm fill:#e8590c,stroke:#8a2e00,color:#ffffff,stroke-width:2px;
-    classDef data fill:#1971c2,stroke:#0b4a85,color:#ffffff,stroke-width:1px;
+::: {layout-ncol=2}
 
-    IN["Block input<br/>[S/2,B,H]"]:::data
-    N1["Local input RMSNorm"]:::data
-    G1["all-gather<br/>[S,B,H]"]:::comm
-    ATT["TP Attention<br/>local heads"]:::data
-    O["Row Parallel o_proj"]:::data
-    RS1["reduce-scatter<br/>[S/2,B,H]"]:::comm
-    ADD1["Local residual add"]:::data
-    N2["Local post-attention RMSNorm"]:::data
-    G2["all-gather<br/>[S,B,H]"]:::comm
-    MLP["Column Linear + activation<br/>local intermediate shard"]:::data
-    D["Row Parallel second Linear"]:::data
-    RS2["reduce-scatter<br/>[S/2,B,H]"]:::comm
-    ADD2["Local residual add"]:::data
-    OUT["Block output<br/>[S/2,B,H]"]:::data
+![](figs/tp_flow.png)
 
-    IN --> N1 --> G1 --> ATT --> O --> RS1 --> ADD1
-    IN -. residual .-> ADD1
-    ADD1 --> N2 --> G2 --> MLP --> D --> RS2 --> ADD2
-    ADD1 -. residual .-> ADD2
-    ADD2 --> OUT
-```
+![](figs/sp_flow.png)
 
-上图只追踪 hidden states 的布局变化，因此在 Attention 和 MLP 的入口各画了一次从 `[S/T,B,H]` 到 `[S,B,H]` 的 all-gather。实际实现中，每个 Column Parallel Linear 都会独立发起这次 all-gather：Attention 的 Q、K、V projection 各有一次，而本章抽象的两层 MLP 只有第一层是 Column Parallel：
+:::
+
+上图对比了 TP 和 SP 在同一个 Transformer Block 中的 tensor 布局变化：
+
+- **TP**：tensor 离开 TP 区域后，仍然是完整的 `[S, B, H]`，TP 区域之间计算完整序列。
+- **TP + SP**：tensor 离开 TP 区域后，变成了 `[S/T, B, H]`，SP 区域之间计算不同的序列 shard，再次进入 TP 区域时通过 all-gather 拼回完整序列。
+
+::: {.callout-note title="关于通信次数的说明"}
+上图在 Attention 和 MLP 入口处各绘制了一次 [S/T, B, H] → [S, B, H] 的 All-Gather，这是为了展现 Hidden States 在逻辑上的布局切换。
+
+在具体的代码实现中，All-Gather 并不是在进入子层前统一执行一次，而是在每一个 Column Parallel Linear 内部独立触发的。Attention 的 Q、K、V projection 各有一次，而普通的两层 MLP 只有第一层是 Column Parallel：
 
 | 子层 | Forward all-gather | Forward reduce-scatter |
 |---|---:|---:|
@@ -748,3 +733,4 @@ flowchart LR
 | 每个 block 合计 | 4 | 2 |
 
 MiniMind 源码中的 SwigLU MLP 有两个 projection （gate_proj 和 up_proj），因此实际上会比这里的普通 MLP 再多一次 all-gather。
+:::
