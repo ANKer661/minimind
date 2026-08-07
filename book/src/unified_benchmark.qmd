@@ -25,6 +25,8 @@
 
 先固定 `seq_len=2048`，将层数从 2 增加到 32：
 
+<details>
+<summary>层数 Scaling 的 显存 Benchmark 命令</summary>
 ```bash
 CUDA_DEVICE_MAX_CONNECTIONS=1 python -m evaluation.parallel benchmark \
   --kind memory \
@@ -45,6 +47,7 @@ CUDA_DEVICE_MAX_CONNECTIONS=1 python -m evaluation.parallel benchmark \
   --warmup_iters 10 \
   --benchmark_iters 5
 ```
+</details>
 
 每个 rank 的峰值 allocated memory 如下，单位为 MiB。括号内以同一层数的 DDP 为 $100\%$，表示该配置的显存占比：
 
@@ -60,12 +63,32 @@ CUDA_DEVICE_MAX_CONNECTIONS=1 python -m evaluation.parallel benchmark \
 
 #### 增加序列长度
 
-接下来固定 8 层，将上面命令中的层数和序列长度替换为：
+接下来固定 8 层，将 sequence length 从 1024 增加到 8192：
+
+<details>
+<summary>序列 Scaling 的 显存 Benchmark 命令</summary>
 
 ```bash
---num_hidden_layers 8 \
---seq_len 1024 2048 4096 8192
+CUDA_DEVICE_MAX_CONNECTIONS=1 python -m evaluation.parallel benchmark \
+  --kind memory \
+  --tp_size 2 \
+  --pp_size 1 \
+  -- \
+  --modes ddp tp tp_sp tp_sp_async tp_vp tp_sp_async_vp \
+  --batch_policy fixed_per_rank \
+  --num_hidden_layers 8 \
+  --seq_len 1024 2048 4096 8192 \
+  --hidden_size 768 \
+  --num_attention_heads 8 \
+  --num_key_value_heads 4 \
+  --vocab_size 6400 \
+  --micro_batch_size 4 \
+  --num_microbatches 1 \
+  --dtype bfloat16 \
+  --warmup_iters 10 \
+  --benchmark_iters 5
 ```
+</details>
 
 峰值 allocated memory 如下，单位为 MiB，括号内以同一 sequence length 的 DDP 为 $100\%$：
 
@@ -86,6 +109,9 @@ VP 在这组实验中相对 TP 始终节省约 8% 显存，绝对收益则从 12
 
 #### 增加 Transformer 层数
 
+<details>
+<summary>层数 Scaling 的吞吐 Benchmark 命令</summary>
+
 ```bash
 CUDA_DEVICE_MAX_CONNECTIONS=1 python -m evaluation.parallel benchmark \
   --kind throughput \
@@ -104,9 +130,8 @@ CUDA_DEVICE_MAX_CONNECTIONS=1 python -m evaluation.parallel benchmark \
   --dtype bfloat16 \
   --warmup_iters 10 \
   --benchmark_iters 5 \
-  --output_csv results/tp/tp_throughput.csv \
-  --output_plot results/tp/tp_throughput.png
 ```
+</details>
 
 结果如下，吞吐单位为 K tokens/s，括号内以相同层数的 DDP 为 $100\%$：
 
@@ -128,6 +153,9 @@ VP 的时间代价最小。随着层数增加，`TP + VP` 的吞吐从 TP 的 90
 
 接下来固定 8 层，将 sequence length 从 1024 增加到 16000：
 
+<details>
+<summary>序列 Scaling 的吞吐 Benchmark 命令</summary>
+
 ```bash
 CUDA_DEVICE_MAX_CONNECTIONS=1 python -m evaluation.parallel benchmark \
   --kind throughput \
@@ -146,9 +174,9 @@ CUDA_DEVICE_MAX_CONNECTIONS=1 python -m evaluation.parallel benchmark \
   --dtype bfloat16 \
   --warmup_iters 10 \
   --benchmark_iters 5 \
-  --output_csv results/tp/tp_throughput_sequence.csv \
-  --output_plot results/tp/tp_throughput_sequence.png
 ```
+
+</details>
 
 结果如下：
 

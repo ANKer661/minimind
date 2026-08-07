@@ -175,7 +175,7 @@ flowchart LR
     RS --> O1
 ```
 
-从数学结果看，它等价于先执行 All-Reduce，再由每个 rank 在本地保留规约结果中属于自己的 shard。Reduce-Scatter 把求和与结果分发合并成一次 collective，避免先让所有 rank 得到完整结果、再丢掉其中大部分。
+从结果看，它等价于先执行 All-Reduce，再由每个 rank 在本地保留规约结果中属于自己的 shard。Reduce-Scatter 把求和与结果分发合并成一次 collective，避免先让所有 rank 得到完整结果、再丢掉其中大部分。
 
 ### 三种原语一览
 
@@ -190,9 +190,9 @@ flowchart LR
 ---
 
 
-Tensor Parallelism（TP）的出发点是把同一层的权重切到多张 GPU 上，让每个 rank 只完成一部分矩阵乘，再通过通信还原与 Dense 层相同的结果。这部分先从最简单的两层 MLP 找到 TP 的切分规律，再逐步推广到 Attention，最后落到 MiniMind 的实现、数值验证与 benchmark。
-
 ## 从两层 MLP 开始
+
+Tensor Parallelism（TP）的出发点是把同一层的权重切到多张 GPU 上，让每个 rank 只完成一部分矩阵乘，再通过通信还原与 Dense 层相同的结果。这部分先从最简单的两层 MLP 找到 TP 的切分规律，再逐步推广到 Attention，最后落到 MiniMind 的实现、数值验证与 benchmark。
 
 本章的原理推导统一采用数学记号：
 
@@ -528,22 +528,37 @@ class CustomFunction(torch.autograd.Function):
 
 ```python
 class CopyToModelParallelRegion(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, x, group):
-        ctx.group = group
-        return x
+    """Pass the input to the model parallel region."""
 
     @staticmethod
-    def backward(ctx, grad_output):
-        grad_input = all_reduce(grad_output, group=ctx.group)
-        return grad_input, None
+    def forward(ctx: Any, input_: torch.Tensor, group) -> torch.Tensor:
+        ctx.group = group
+        return input_
+
+    @staticmethod
+    def backward(ctx: Any, grad_output: torch.Tensor) -> tuple[torch.Tensor, None]:
+        return _reduce(grad_output, ctx.group), None
 ```
 
-这里不需要 `save_for_backward`，因为 backward 不依赖 forward 的 tensor 值；`ctx` 只需保存非 tensor 的 `group`。Backward 返回两个位置，是因为 forward 接收了 `x` 和 `group` 两个参数，而 process group 不需要梯度。
+其中 `_reduce` 是对 `torch.distributed.allreduce` 的简单封装。这里不需要 `save_for_backward`，因为 backward 不依赖 forward 的 tensor 值；`ctx` 只需保存非 tensor 的 `group`。Backward 返回两个位置，是因为 forward 接收了 `x` 和 `group` 两个参数，而 process group 不需要梯度。
 
 `ReduceFromModelParallelRegion` 与它对偶：forward 对 partial output 执行 all-reduce，backward 原样返回 `grad_output`。两者都必须使用所属的 TP group；误用其他的 group 会让无关 rank 参与求和。
 
-当前实现位于 `model/tensor_parallel_mappings.py` 中的 `CopyToModelParallelRegion` 和 `ReduceFromModelParallelRegion`。
+```python
+class ReduceFromModelParallelRegion(torch.autograd.Function):
+    """All-reduce the input from the model parallel region."""
+
+    @staticmethod
+    def forward(ctx: Any, input_: torch.Tensor, group: dist.ProcessGroup) -> torch.Tensor:
+        ctx.group = group
+        return _reduce(input_, ctx.group)
+
+    @staticmethod
+    def backward(ctx: Any, grad_output: torch.Tensor) -> tuple[torch.Tensor, None]:
+        return grad_output, None
+```
+
+这些实现位于 `model/tensor_parallel_mappings.py`。
 
 ## Attention：Transformer block 的另一核心组件
 
@@ -800,19 +815,16 @@ k_norm.weight.grad: all-reduce sum
 param.register_hook(lambda grad: _reduce(grad, group))
 ```
 
+这些 hook 会在 backward 求出梯度后自动触发，保证这些参数的梯度的正确性。
+
 ## TPContext：把通信范围和分片编号传给每一层
 
-前面的推导一直使用 rank 0 和 rank 1，默认它们共同组成一个 TP group。落到实现中，Column Parallel 和 Row Parallel 的每一层都需要知道两件事：
+前面推导 TP 时，我们假设整个机器只跑一个 model，那么 此时 rank 就是全局 rank。但实际训练中，TP 可以与其他并行方法如 DDP 混合使用：8 张卡同时跑 4 个 model，每个 model 内部用 2 张卡做 TP，分别处理不同的数据 batch。这时，之前介绍的通信应该只在每个 model 内部发生。
 
-```python
-这次 collective 应该和哪些 rank 通信？
-当前进程持有第几个权重 shard？
-```
-
-这里的 rank 和 group 不一定是全局的。一次训练可以同时运行多个模型副本，每个副本内部又各自组成 TP group。如果直接使用 global rank 和 WORLD group，不同副本的 tensor 就可能被错误地放进同一次 collective。
-
-`TPContext` 将这两个问题需要的信息一起传给并行层。它的基础字段是：
-
+为了让每一层知道自己属于哪个 model 、该和谁通信，TPContext 提供三个信息：
+- `group`: 当前 model 内所有卡组成的通信组，collective 操作只在这个组内执行
+- `world_size`: 组的规模，决定权重切分份数
+- `rank`: 当前卡在组内的编号，决定持有第几个 shard
 
 ```python
 @dataclass
@@ -822,21 +834,130 @@ class TPContext:
     rank: int
 ```
 
-其中，`group` 划定 collective 的通信边界，`world_size` 决定权重被切成多少份，`rank` 则决定当前进程持有其中哪一份。
+## 把并行算子装回 MiniMind {#sec-tp-assemble}
 
-在当前独立 demo 中：
+前面分别讨论了 MLP、Attention 和复制参数的梯度同步。现在我们可以把这些零件装回完整模型。当前实现为原始的 Minimind 建立了一组结构对应的 TP 模块：
 
-```python
-TP group = WORLD group
+| Dense 模块 | TP 模块 | 主要变化 |
+|---|---|---|
+| `FeedForward` | `TPFeedForward` | 前两次 projection 使用 Column Parallel，输出 projection 使用 Row Parallel |
+| `Attention` | `TPAttention` | Q/K/V 按 heads 切分，output projection 汇总各 rank 的贡献 |
+| `MiniMindBlock` | `TPMiniMindBlock` | 换入 TP Attention 和 TP MLP |
+| `MiniMindModel` | `TPMiniMindModel` | 用 `TPMiniMindBlock` 构造全部 layers |
+| `MiniMindForCausalLM` | `TPMiniMindForCausalLM` | 接收并向各层传递 `TPContext` |
+
+先看 MLP。projection 的类型发生变化，但 forward 中两层 MLP 的组合方式保持不变：
+
+<details>
+<summary>查看关键差异：FeedForward → TPFeedForward</summary>
+
+```diff
+-class FeedForward(nn.Module):
+-    def __init__(self, config, intermediate_size=None):
++class TPFeedForward(nn.Module):
++    def __init__(self, config, tp_context, intermediate_size=None):
+         ...
+-        self.gate_proj = nn.Linear(hidden_size, intermediate_size, bias=False)
+-        self.up_proj = nn.Linear(hidden_size, intermediate_size, bias=False)
+-        self.down_proj = nn.Linear(intermediate_size, hidden_size, bias=False)
++        self.gate_proj = ColumnParallelLinear(
++            hidden_size, intermediate_size, tp_context, bias=False
++        )
++        self.up_proj = ColumnParallelLinear(
++            hidden_size, intermediate_size, tp_context, bias=False
++        )
++        self.down_proj = RowParallelLinear(
++            intermediate_size, hidden_size, tp_context, bias=False
++        )
+
+     def forward(self, x):
+         return self.down_proj(
+             self.act_fn(self.gate_proj(x)) * self.up_proj(x)
+         )
 ```
 
-即使此时 TP group 恰好等于 WORLD group，并行层仍显式使用 `TPContext.group`。这样扩展到多个 TP group 时，层内通信不需要改变。
+</details>
 
-当前实现位于 `model/tensor_parallel_layers.py` 中的 `TPContext`。
+Attention 除了替换四个 projection，还要把全局 head 数换成当前 rank 的 local head 数。Q/K Norm 仍然只有 `head_dim` 个参数，因此保持复制，并为它们的梯度注册 all-reduce hook：
+
+<details>
+<summary>查看关键差异：Attention → TPAttention</summary>
+
+```diff
+-class Attention(nn.Module):
+-    def __init__(self, config):
++class TPAttention(nn.Module):
++    def __init__(self, config, tp_context):
+         ...
+-        self.n_local_heads = config.num_attention_heads
+-        self.n_local_kv_heads = self.num_key_value_heads
++        assert config.num_attention_heads % tp_context.world_size == 0
++        assert self.num_key_value_heads % tp_context.world_size == 0
++        self.n_local_heads = (
++            config.num_attention_heads // tp_context.world_size
++        )
++        self.n_local_kv_heads = (
++            self.num_key_value_heads // tp_context.world_size
++        )
+
+-        self.q_proj = nn.Linear(...)
+-        self.k_proj = nn.Linear(...)
+-        self.v_proj = nn.Linear(...)
+-        self.o_proj = nn.Linear(...)
++        self.q_proj = ColumnParallelLinear(..., tp_context, bias=False)
++        self.k_proj = ColumnParallelLinear(..., tp_context, bias=False)
++        self.v_proj = ColumnParallelLinear(..., tp_context, bias=False)
++        self.o_proj = RowParallelLinear(..., tp_context, bias=False)
+
+         self.q_norm = RMSNorm(self.head_dim, ...)
+         self.k_norm = RMSNorm(self.head_dim, ...)
++        group = tp_context.group
++        self.q_norm.weight.register_hook(lambda grad: _reduce(grad, group))
++        self.k_norm.weight.register_hook(lambda grad: _reduce(grad, group))
+         ...
+```
+
+</details>
+
+最后在 Block 和 Model 两层把 Dense 组件换成对应的 TP 组件。Residual、RMSNorm、RoPE、mask 和 Attention softmax 的计算顺序都不需要改变：
+
+<details>
+<summary>查看关键差异：组装 Transformer Block 和 Model</summary>
+
+```diff
+-class MiniMindBlock(nn.Module):
++class TPMiniMindBlock(nn.Module):
+     def __init__(self, layer_id, config, tp_context, ...):
+         ...
+-        self.self_attn = Attention(config)
+-        self.mlp = FeedForward(config)
++        self.self_attn = TPAttention(config, tp_context)
++        self.mlp = TPFeedForward(config, tp_context)
+         self.input_layernorm = RMSNorm(config.hidden_size, ...)
+         self.post_attention_layernorm = RMSNorm(config.hidden_size, ...)
+
+-class MiniMindModel(nn.Module):
++class TPMiniMindModel(nn.Module):
+     def __init__(self, config, tp_context, ...):
+         ...
+         self.layers = nn.ModuleList([
+-            MiniMindBlock(layer, config)
++            TPMiniMindBlock(layer, config, tp_context, ...)
+             for layer in range(config.num_hidden_layers)
+         ])
+```
+
+</details>
+
+完整的 Dense 与 TP 模型分别位于 `model/model_minimind.py` 和 `model/model_tp.py`。
+
+目前，我们只处理了 Transformer Block 中与 Linear 有关的切分，Embedding、final RMSNorm 和 LM Head 仍在各 rank 上完整复制。
+至此，TP 模型的结构已经搭建完成，但这些 shard 还没有对应到 Dense checkpoint 中的完整权重。下一步需要把 Dense 权重准确切到每个 rank。
 
 ## Dense Checkpoint 如何变成 TP Shard {#sec-tp-checkpoint-shard}
 
-并行模型知道怎样保存 shard，但已有 checkpoint 通常仍由 Dense 模型产生。要让加载后的第 $t$ 个 rank 恰好持有推导中的第 $t$ 个权重块，需要把数学上的左右/上下切分映射到 PyTorch 的参数布局。
+启用 TP 后，每个 rank 上只持有一部分权重了，但是，我们训练完成后，还是希望保存一个完整的 checkpoint。同理，load checkpoint 时，也需要把 Dense checkpoint 切开，正确地分发到各 rank。
+要让加载后的第 $t$ 个 rank 正确地持有推导中的第 $t$ 个权重块，需要把数学上的左右/上下切分映射到 PyTorch 的参数布局。
 
 加载时根据参数名称切片：
 
@@ -857,7 +978,8 @@ Linear.weight = [out_features, in_features]
 - Column Parallel 切 `dim=0`
 - Row Parallel 切 `dim=1`
 
-这个其实提过很多次了，具体来说，加载权重的实现类似如下：
+<details>
+<summary>查看关键实现：Checkpoint 切分</summary>
 
 ```python
 # 指定需要 Column / Row Parallel 的层
@@ -891,14 +1013,16 @@ def shard_state_dict_for_tp(
         tp_state_dict[key] = value.contiguous()
 
     return tp_state_dict
-
 ```
 
 每个 shard 在加载前调用 `.contiguous()`，避免 chunk 得到的 view 不满足后续 kernel 或 collective 的连续内存要求。
 
+</details>
+
+
 ## 如何验证 TP 没有改变数值语义 {#sec-tp-validation}
 
-分布式程序能够运行、tensor shape 正确，并不代表它与 Dense 模型等价。Shard 顺序、bias 位置或 backward 中漏掉一次求和，都可能让程序在不报错的情况下产生错误结果。因此，性能测试之前必须先把 TP 与 Dense 放在相同条件下逐层对齐。
+现在 TP 能够运行、tensor shape 正确，但还需要在数值上去验证与 Dense 模型是否等价。Shard 顺序、bias 位置或 backward 中漏掉一次求和，都可能让程序在不报错的情况下产生错误的结果。因此，在性能测试之前必须先把 TP 与 Dense 放在相同条件下逐层对齐。
 
 验证分成三个层次：
 
@@ -921,7 +1045,8 @@ flash_attn = False
 dtype = float32
 ```
 
-完整命令如下：
+<details>
+<summary>验证脚本完整命令</summary>
 
 ```bash
 python -m evaluation.parallel validate \
@@ -938,6 +1063,7 @@ python -m evaluation.parallel validate \
   --optimizer_steps 200 \
   --log_interval 20
 ```
+</details>
 
 ### Forward
 
@@ -1029,10 +1155,12 @@ AdamW final parameter max abs diff: 6.503519e-05
 
 这里的误差没有持续放大，同时三类梯度已经逐项对齐，因此可以进入下一步 benchmark。若某次 collective 或复制参数同步缺失，应该会在首次 backward 的单步梯度中先出现远大于浮点舍入量级的系统性偏差。
 
-## TP Benchmark {#sec-tp-benchmark}
+## TP Memory Benchmark {#sec-tp-benchmark}
 
-前面已经说明，TP 将 Attention 和 MLP 的大矩阵切到多个 rank 上。那么这些切分实际节省了多少单卡显存，又为此付出了多少通信时间？
+前面已经说明，TP 将 Attention 和 MLP 的大矩阵切到多个 rank 上。那么这些切分实际节省了多少单卡显存？
 
+<details>
+<summary>完整 benchmark 命令</summary>
 ```bash
 python -m evaluation.parallel benchmark \
   --kind memory \
@@ -1055,17 +1183,16 @@ python -m evaluation.parallel benchmark \
   --output_csv results/tp/tp2_layers.csv \
   --output_plot results/tp/tp2_layers.png
 ```
+</details>
 
-这里使用 `batch_policy=fixed_per_rank`，即让 DDP 的每个 rank 的 `batchsize = 2`，而双卡 TP 的总 `batchsize = 2`。这样更适合观察参数、梯度和 optimizer states 被切分后的单卡显存变化；由于 DDP 的两个 rank 各自持有一个模型副本，而两个 TP rank 共同组成一个模型副本，两者的总 global batch 并不相同，因此下面的 step time 只用于展示同等单副本工作量下的通信代价，不是等效 global batch 下的吞吐比较。
+这里使用 `batch_policy=fixed_per_rank`，即让 DDP 的每个 rank 的 `batchsize = 2`，而双卡 TP 的总 `batchsize = 2`。这样更适合观察参数、梯度和 optimizer states 被切分后的单卡显存变化。由于 DDP 的两个 rank 各自持有一个模型副本，而两个 TP rank 共同组成一个模型副本，两者的 global batch 并不相同，因此本节只比较单卡峰值显存；时间和吞吐需要在固定 global batch 的实验中另行比较。
 
-![TP size = 2 时，相对 DDP 的单卡峰值显存与 step time](figs/tp2_layers.png){fig-alt="四种模型深度下，TP 相对 DDP 的峰值显存约为百分之六十，step time 约为百分之一百五十到一百六十"}
-
-| Layers | DDP 显存 | TP 显存 | 单卡显存下降 | DDP step | TP step | 时间增加 |
-|---:|---:|---:|---:|---:|---:|---:|
-| 8 | 2377.65 MiB | 1509.53 MiB | 36.5% | 44.38 ms | 66.47 ms | 49.8% |
-| 16 | 4433.28 MiB | 2717.69 MiB | 38.7% | 81.85 ms | 129.90 ms | 58.7% |
-| 32 | 8549.79 MiB | 5129.40 MiB | 40.0% | 160.37 ms | 255.60 ms | 59.4% |
-| 64 | 16766.42 MiB | 9956.83 MiB | 40.6% | 311.60 ms | 502.83 ms | 61.4% |
+| Layers | DDP 显存 | TP 显存 | 单卡显存下降 |
+|---:|---:|---:|---:|
+| 8 | 2377.65 MiB | 1509.53 MiB | 36.5% |
+| 16 | 4433.28 MiB | 2717.69 MiB | 38.7% |
+| 32 | 8549.79 MiB | 5129.40 MiB | 40.0% |
+| 64 | 16766.42 MiB | 9956.83 MiB | 40.6% |
 
 为什么层数增加后，TP 的显存比例还在下降？把每层新增的显存分成两部分：$a$ 表示会随 TP size 切分的参数、梯度、optimizer states 和 activation，$r$ 表示仍在每个 rank 上保留的部分；再用 $F_D$ 和 $F_T$ 表示不随层数增长的模型边界状态和其他固定开销。对于 TP size $T$，
 
@@ -1081,8 +1208,4 @@ $$
 \frac{a/T+r}{a+r}.
 $$
 
-其中 $r$ 包含未切分的 activation 和复制参数，因此即使固定项可以忽略，最终比例通常也不会达到理想的 $1/T$。换句话说，固定项解释了为什么较浅模型的 TP 收益更小，而每层仍然复制的部分决定了显存比例最终能下降到哪里。
-
-需要这个比例与具体实验配置有关，$a$、$r$、$F_D$ 和 $F_T$ 都会随 batch size、sequence length、hidden size、vocab size、dtype、optimizer 和具体 kernel 实现变化。例如增大 batch size 或 sequence length 会提高 activation 的占比，而普通 TP 并不会切分所有 activation；增大 hidden size 时，大矩阵参数通常比 hidden states 增长得更快；增大 vocab size 又会放大 embedding、LM head 和 logits 等模型边界状态。配置变化后，TP 能切分与仍然复制的显存比例也会随之改变。
-
-显存下降的代价是更长的 step time。本实验中 TP 比 DDP 慢约 50%～61%，这部分差距主要来自 Column Parallel 与 Row Parallel 在 forward/backward 中引入的 collective。后面的 @sec-tp-async 会尝试隐藏其中一部分通信；在此之前，[Sequence Parallelism](sequence_parallel.qmd) 先处理另一个更直接的问题：TP 区域之间仍然重复保存的完整 hidden states。
+其中 $r$ 包含未切分的 activation 和复制参数，因此即使固定项可以忽略，最终比例通常也不会达到理想的 $1/T$。那么有没有办法进一步切分这些目前还没有切分的东西呢，[Sequence Parallelism](sequence_parallel.qmd) 正是用来解决这部分问题的。

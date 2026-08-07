@@ -138,7 +138,6 @@ local logits [B, S, V/T]
 -> all-gather
 -> full logits [B, S, V]
 -> standard cross entropy
-
 ```
 
 但这种方式会在每个 rank 上重新构造 `[B, S, V]`，导致此前通过词表并行（VP）省下的完整 logits 显存重新被占用，且通信量也会随词表大小 $V$ 线性增长。因此我们需要思考：能否不恢复完整 logits，直接利用各 rank 的 vocab shards 算出与 Dense Cross Entropy 完全一致的结果？
@@ -178,7 +177,8 @@ $$\frac{\partial \operatorname{CE}}{\partial x_i} = p_i - y_i$$
 
 因此，backward 阶段的梯度计算完全不需要额外的跨卡通信，各 rank 均可在本地独立完成。
 
-伪代码如下：
+<details>
+<summary>Vocab Parallel Cross Entropy 的 forward/backward 关键逻辑</summary>
 
 ```python
 # forward 阶段
@@ -204,6 +204,7 @@ grad_input[arange_1d, masked_target.view(-1)] -= prob_update.view(-1)
 # 1. 若 target 在本地：masked_target 为有效的 local id，prob_update 为 1.0，对应位置执行 p - 1.0。
 # 2. 若 target 不在本地：masked_target 虽被置 0，但 prob_update 为 0.0，0 号位置执行 p - 0.0，保持不变。
 ```
+</details>
 
 ### ignore_index
 
@@ -227,6 +228,8 @@ VocabParallelCrossEntropy:
 
 前面的推导说明，VP 直接作用于随词表大小 $V$ 增长的 embedding、LM head、logits 和交叉熵中间状态。为了观察这部分收益如何随 $V$ 变化，固定 8 层 Transformer 和 2048 sequence length，只扫描 vocab size：
 
+<details>
+<summary>Vocab size benchmark 命令</summary>
 ```bash
 for v in 6400 12800 25600 51200; do
   CUDA_DEVICE_MAX_CONNECTIONS=1 python -m evaluation.parallel benchmark \
@@ -251,6 +254,7 @@ for v in 6400 12800 25600 51200; do
     --output_plot "results/tp/vp_vocab_${v}.png"
 done
 ```
+</details>
 
 峰值 allocated memory 如下：
 

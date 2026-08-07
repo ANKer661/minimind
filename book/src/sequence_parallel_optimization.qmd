@@ -4,6 +4,8 @@
 
 SP 没有改变模型的数学语义，数值验证仍可沿用 @sec-tp-validation 的方法，只需增加 `--sequence_parallel`。这里直接回到 @sec-tp-benchmark 的相同配置，观察将 TP 区域之间的 hidden states 切成 sequence shards 后，显存和时间如何变化。
 
+<details>
+<summary>完整 benchmark 命令</summary>
 ```bash
 python -m evaluation.parallel benchmark \
   --kind memory \
@@ -24,9 +26,8 @@ python -m evaluation.parallel benchmark \
   --warmup_iters 2 \
   --benchmark_iters 5 \
   --sequence_parallel \
-  --output_csv results/tp/tpsp2_layers.csv \
-  --output_plot results/tp/tpsp2_layers.png
 ```
+</details>
 
 | Layers | TP only 显存 | TP + SP 显存 | 显存下降 | TP only step | TP + SP step | 时间增加 |
 |---:|---:|---:|---:|---:|---:|---:|
@@ -48,7 +49,6 @@ python -m evaluation.parallel benchmark \
 ```python
 full_x = gather_from_sequence_parallel_region(local_x, group)
 output = F.linear(full_x, weight)
-
 ```
 
 PyTorch Autograd 为了在反向传播（Backward）中计算权重的梯度：
@@ -207,7 +207,7 @@ flowchart LR
 | 基础 SP | 4 次 reduce-scatter | 2 次 all-gather |
 | SP Recompute | 4 次重建 input 的 all-gather + 4 次 dgrad reduce-scatter | 2 次 all-gather |
 
-MiniMind 源码中的额外 MLP projection 会让上述 Column Parallel 通信次数从 4 变为 5。融合投影可以减少通信次数，但会改变参数布局和 checkpoint 转换逻辑，不属于当前实现。
+MiniMind 源码中的额外 MLP projection 会让上述 Column Parallel 通信次数从 4 变为 5。融合投影可以减少通信次数，但会改变参数布局和 checkpoint 转换逻辑，当前不考虑这种优化。
 
 TP+SP 的数值验证仍沿用 @sec-tp-validation 的方法，比较 forward logits/loss、关键参数梯度和多步 AdamW；这里不再重复展开相同的验证步骤。
 
@@ -219,6 +219,8 @@ TP+SP 的数值验证仍沿用 @sec-tp-validation 的方法，比较 forward log
 
 先运行同步 TP 基线：
 
+<details>
+<summary>TP 基线 benchmark 命令</summary>
 ```bash
 CUDA_DEVICE_MAX_CONNECTIONS=1 python -m evaluation.parallel benchmark \
   --kind memory \
@@ -245,6 +247,7 @@ CUDA_DEVICE_MAX_CONNECTIONS=1 python -m evaluation.parallel benchmark \
 ```bash
 --async_communication
 ```
+</details>
 
 | Layers | 同步 TP | Async TP | Step time 下降 |
 |---:|---:|---:|---:|
@@ -274,6 +277,8 @@ Async 不改变保存的 tensor，因此两组实验的峰值显存完全相同�
 
 先运行基础 SP：
 
+<details>
+<summary>基础 SP benchmark 命令</summary>
 ```bash
 CUDA_DEVICE_MAX_CONNECTIONS=1 python -m evaluation.parallel benchmark \
   --kind memory \
@@ -301,6 +306,7 @@ Recompute 版本保持其余参数不变，只增加：
 ```bash
 --async_communication
 ```
+</details>
 
 当前实现用同一个开关同时启用 SP Recompute 和 backward 异步通信，因此这组实验不能把两者的时间影响单独拆开。显存变化来自只保存 local shard；step time 则同时包含额外 backward all-gather，以及 dgrad collective 与 wgrad GEMM 重叠后的净结果。
 
