@@ -29,12 +29,187 @@ python -m evaluation.parallel benchmark \
 ```
 </details>
 
-| Layers | TP only 显存 | TP + SP 显存 | 显存下降 | TP only step | TP + SP step | 时间增加 |
-|---:|---:|---:|---:|---:|---:|---:|
-| 8 | 1509.53 MiB | 1447.99 MiB | 4.1% | 66.47 ms | 74.53 ms | 12.1% |
-| 16 | 2717.69 MiB | 2608.19 MiB | 4.0% | 129.90 ms | 144.38 ms | 11.1% |
-| 32 | 5129.40 MiB | 4925.45 MiB | 4.0% | 255.60 ms | 284.55 ms | 11.3% |
-| 64 | 9956.83 MiB | 9560.83 MiB | 4.0% | 502.83 ms | 565.00 ms | 12.4% |
+```{ojs}
+//| echo: false
+//| classes: no-code-copy
+
+{
+  const rows = [
+    {layers: 8, tpMemory: 1509.53, spMemory: 1447.99, tpTime: 66.47, spTime: 74.53},
+    {layers: 16, tpMemory: 2717.69, spMemory: 2608.19, tpTime: 129.90, spTime: 144.38},
+    {layers: 32, tpMemory: 5129.40, spMemory: 4925.45, tpTime: 255.60, spTime: 284.55},
+    {layers: 64, tpMemory: 9956.83, spMemory: 9560.83, tpTime: 502.83, spTime: 565.00}
+  ].map(d => ({
+    ...d,
+    memorySaving: (1 - d.spMemory / d.tpMemory) * 100,
+    timeIncrease: (d.spTime / d.tpTime - 1) * 100
+  }))
+
+  const chartWidth = Math.max(760, Math.min(width, 1100))
+  const style = {background: "transparent", color: "currentColor", fontSize: "12px"}
+  const layerDomain = ["8", "16", "32", "64"]
+  const modeDomain = ["TP", "TP + SP"]
+
+  const memoryData = rows.flatMap(d => [
+    {layers: String(d.layers), mode: "TP", value: d.tpMemory, change: 0},
+    {layers: String(d.layers), mode: "TP + SP", value: d.spMemory, change: d.memorySaving}
+  ])
+
+  const timeData = rows.flatMap(d => [
+    {layers: String(d.layers), mode: "TP", value: d.tpTime, change: 0},
+    {layers: String(d.layers), mode: "TP + SP", value: d.spTime, change: d.timeIncrease}
+  ])
+
+  const memoryChart = Plot.plot({
+    width: chartWidth,
+    height: 390,
+    marginTop: 38,
+    marginRight: 18,
+    marginBottom: 46,
+    marginLeft: 68,
+    style,
+    title: "Per-rank peak memory",
+    x: {label: null, domain: modeDomain, axis: null},
+    fx: {
+      label: "Transformer layers",
+      domain: layerDomain,
+      axis: "bottom",
+      tickPadding: 6,
+      labelOffset: 27,
+      padding: 0.12
+    },
+    y: {
+      label: "Peak allocated memory (MiB)",
+      domain: [0, 11000],
+      grid: true,
+      tickFormat: d => d.toLocaleString("en-US")
+    },
+    color: {
+      domain: modeDomain,
+      range: ["#495057", "#5f3dc4"],
+      legend: true
+    },
+    marks: [
+      Plot.barY(memoryData, {
+        fx: "layers",
+        x: "mode",
+        y: "value",
+        fill: "mode",
+        insetLeft: 5,
+        insetRight: 5
+      }),
+      Plot.text(memoryData.filter(d => d.mode === "TP"), {
+        fx: "layers",
+        x: "mode",
+        y: "value",
+        text: d => Math.round(d.value).toLocaleString("en-US"),
+        dy: -9,
+        fill: "#343a40"
+      }),
+      Plot.text(memoryData.filter(d => d.mode === "TP + SP"), {
+        fx: "layers",
+        x: "mode",
+        y: "value",
+        text: d => Math.round(d.value).toLocaleString("en-US"),
+        dy: -24,
+        fill: "#5f3dc4",
+        fontWeight: 600
+      }),
+      Plot.text(memoryData.filter(d => d.mode === "TP + SP"), {
+        fx: "layers",
+        x: "mode",
+        y: "value",
+        text: d => `(-${d.change.toFixed(1)}%)`,
+        dy: -9,
+        fill: "#5f3dc4",
+        fontWeight: 600
+      }),
+      Plot.ruleY([0])
+    ]
+  })
+  memoryChart.style.margin = "0"
+
+  const timeChart = Plot.plot({
+    width: chartWidth,
+    height: 390,
+    marginTop: 38,
+    marginRight: 18,
+    marginBottom: 46,
+    marginLeft: 62,
+    style,
+    title: "Step time",
+    x: {label: null, domain: modeDomain, axis: null},
+    fx: {
+      label: "Transformer layers",
+      domain: layerDomain,
+      axis: "bottom",
+      tickPadding: 6,
+      labelOffset: 27,
+      padding: 0.12
+    },
+    y: {label: "Step time (ms)", domain: [0, 620], grid: true},
+    color: {
+      domain: modeDomain,
+      range: ["#495057", "#5f3dc4"],
+      legend: true
+    },
+    marks: [
+      Plot.barY(timeData, {
+        fx: "layers",
+        x: "mode",
+        y: "value",
+        fill: "mode",
+        insetLeft: 5,
+        insetRight: 5
+      }),
+      Plot.text(timeData.filter(d => d.mode === "TP"), {
+        fx: "layers",
+        x: "mode",
+        y: "value",
+        text: d => d.value.toFixed(1),
+        dy: -9,
+        fill: "#343a40"
+      }),
+      Plot.text(timeData.filter(d => d.mode === "TP + SP"), {
+        fx: "layers",
+        x: "mode",
+        y: "value",
+        text: d => d.value.toFixed(1),
+        dy: -24,
+        fill: "#5f3dc4",
+        fontWeight: 600
+      }),
+      Plot.text(timeData.filter(d => d.mode === "TP + SP"), {
+        fx: "layers",
+        x: "mode",
+        y: "value",
+        text: d => `(+${d.change.toFixed(1)}%)`,
+        dy: -9,
+        fill: "#5f3dc4",
+        fontWeight: 600
+      }),
+      Plot.ruleY([0])
+    ]
+  })
+  timeChart.style.margin = "0"
+
+  const grid = document.createElement("div")
+  Object.assign(grid.style, {
+    display: "grid",
+    gridTemplateColumns: "minmax(760px, 1fr)",
+    gap: "8px",
+    minWidth: "760px",
+    margin: "0"
+  })
+  grid.append(memoryChart, timeChart)
+
+  const container = document.createElement("div")
+  container.className = "benchmark-charts"
+  container.style.overflowX = "auto"
+  container.appendChild(grid)
+  return container
+}
+```
 
 基础 SP 的单卡峰值显存只比 TP only 低约 4%，远没有达到把所有 activation 都缩小到 $1/T$ 时可能产生的直觉收益；与此同时，额外的 all-gather 和 reduce-scatter 使 step time 增加了约 11%～12%。
 
@@ -59,41 +234,73 @@ $$dW = dY^T X$$
 
 ### Activation 理论减少量推导
 
-在基础 SP 下，真正得到省去的 Activation 仅包含每个 Transformer Block 中的两个 RMSNorm 输入，以及模型末端的最终 RMSNorm 输入。
+根据 @sec-sp-layout 的分析，基础 SP 只缩小了 Norm、Dropout 和 Residual 区域的 Activation。我们可以手动估计一下基础 SP 带来的显存节省。
 
-#### 层内 RMSNorm 的显存节省
+记一份 full-sequence BF16 tensor：`[S, B, H]` 的显存占用为：
 
-每层两个 RMSNorm 输入 Activation 的理论减少量公式为（BF16精度）：
+$$F = 2 \text{ Bytes} \times S B H$$
 
-$$M_{\text{saved}} \approx 2\text{ bytes} \times B \times S\left(1-\frac{1}{T}\right) \times H \times 2 \times L$$
+#### 层内净显存变化
 
-代入 @sec-sp-benchmark 的具体配置（$B=2, S=2048, T=2, H=768$）， 对于 $L$ 层的模型，层内 RMSNorm 输入 Activation 的理论减少量为：
-
-$$2\text{ bytes} \times 2 \times 2048 \times \frac{1}{2} \times 2 \times 768 \times L = 6L\text{ MiB}$$
-
-$$\Delta M_{\text{layer}} = 6L\text{ MiB}$$
-
-#### 模型末端 RMSNorm 的显存节省
-
-模型末端的最终 Norm 独立于 Transformer 层之外：
-
-```python
-hidden_states = self.norm(hidden_states)
-
-```
-
-Minimind 的 RMSNorm 实现中，为保证数值稳定性会显式产生 FP32 的中间张量：
+先看 RMSNorm。MiniMind 为了数值稳定性会先把输入转换为 FP32：
 
 ```python
 return (weight * self.norm(x.float())).type_as(x)
-
 ```
 
-训练时，Autograd 需要为输入梯度计算和 Weight 梯度计算保留 `x.float()` 及其归一化结果。这两个张量均为 `[S, B, H]` 形状的 FP32 张量（单张量占用 $4\text{ bytes}$）。
+因此 Autograd 会为 backward 保留两份主要的 FP32 `[S,B,H]` 中间量：`x.float()` 和 `self.norm(x.float())`。每份 FP32 tensor 占用 $2F$，因此每个 RMSNorm 主要保留 $4F$；每个 Block 有两个 RMSNorm，SP 将它们沿 sequence 切分后，理论节省：
 
-在当前配置下，序列维度从 $S=2048$ 切分为 $S/T=1024$，省去的显存量为：
+$$
+\Delta M_{\text{norm}}
+=8F\left(1-\frac{1}{T}\right).
+$$
 
-$$\begin{aligned} \Delta M_{\text{final\_norm}}  &= 2 \times \left[ 4\text{ bytes} \times B \times S\left(1 - \frac{1}{T}\right) \times H \right] \\ &= 2 \times \left[ 4\text{ bytes} \times 2 \times 1024 \times 768 \right] \\ &= 12,582,912\text{ Bytes} = 12\text{ MiB} \end{aligned}$$
+但基础 SP 同时引入了新的开销。普通 TP 中，Q/K/V 的三个 Linear 共享一份完整 Attention 输入，gate/up 共享一份完整 MLP 输入，合计只有两份独立 storage：
+
+$$M_{\text{TP,column input}}=2F.$$
+
+基础 SP 将 all-gather 放在每个 Column Parallel Linear 内部，因此 Q/K/V 产生三份独立的 full input，gate/up 再产生两份，这些输入虽然内容一致，但是在各个 Linear 内部独立保存，共计 5 份：
+
+$$M_{\text{SP,column input}}=5F.$$
+
+这些 gather 输出需要保留到 backward 计算 $dW$，所以基础 SP 相对 TP 新增：
+
+$$\Delta M_{\text{gather}}=5F-2F=3F.$$
+
+两项合在一起，每个 Block 的净显存减少量约为：
+
+$$
+\Delta M_{\text{block}}
+=8F\left(1-\frac{1}{T}\right)-3F.
+$$
+
+代入 @sec-sp-benchmark 的配置 $B=2,S=2048,H=768,T=2$，一份 full-sequence BF16 tensor 为 $F=6\text{ MiB}$，于是：
+
+$$
+\Delta M_{\text{block}}
+=4F-3F
+=F
+=6\text{ MiB}.
+$$
+
+因此 $L$ 层共减少：
+
+$$\Delta M_{\text{layer}}=6L\text{ MiB}.$$
+
+#### 模型末端 RMSNorm 的显存节省
+
+模型的末端还有一个 RMSNorm，这里在基础 SP 中也只接受 local sequence shard 的输入，因此节省的显存量为：
+
+$$
+\Delta M_{\text{final norm}}
+=4F\left(1-\frac{1}{T}\right).
+$$
+
+带入 @sec-sp-benchmark 的配置，末端 RMSNorm 节省：
+
+$$
+\Delta M_{\text{final norm}} = 2F = 12\text{ MiB}.
+$$
 
 ### 理论估算与实测对比
 
@@ -112,7 +319,7 @@ $$\Delta M_{\text{estimated}} \approx 6L + 12\text{ MiB}$$
 
 **结论**：理论估算与实测结果高度吻合。
 
-这说明基础 SP 确实按 $1/T$ 缩小了 Norm 区域的输入 Activation，但这些 Activation 只是 model 中所有 Activation 的一部分，Column Parallel Linear 仍须为 Backward 保存全量 Sequence 的 Activation，若要进一步降低显存占用，就需要引入重计算，改写 Linear 保存至 Backward 的 Activation 结构。
+这说明基础 SP 确实按 $1/T$ 缩小了 Norm 区域的 Activation，但 Column Parallel Linear 为 backward 保存的独立 full-sequence gather outputs 抵消了其中一部分收益。若要进一步降低显存占用，就需要引入重计算，改写 Linear 保存至 backward 的 Activation 结构。
 
 ## 如何避免保存 Full-Sequence Activation
 
@@ -310,15 +517,232 @@ Recompute 版本保持其余参数不变，只增加：
 
 当前实现用同一个开关同时启用 SP Recompute 和 backward 异步通信，因此这组实验不能把两者的时间影响单独拆开。显存变化来自只保存 local shard；step time 则同时包含额外 backward all-gather，以及 dgrad collective 与 wgrad GEMM 重叠后的净结果。
 
-| Layers | 基础 SP 显存 | Recompute 显存 | 显存下降 | 基础 SP step | Recompute step | 时间增加 |
-|---:|---:|---:|---:|---:|---:|---:|
-| 2 | 1052.08 MiB | 956.73 MiB | 9.1% | 40.46 ms | 48.70 ms | 20.4% |
-| 4 | 1588.95 MiB | 1398.82 MiB | 12.0% | 74.19 ms | 91.16 ms | 22.9% |
-| 8 | 2665.97 MiB | 2282.97 MiB | 14.4% | 141.76 ms | 175.38 ms | 23.7% |
-| 16 | 4824.38 MiB | 4056.38 MiB | 15.9% | 276.60 ms | 343.93 ms | 24.3% |
-| 32 | 9136.96 MiB | 7600.27 MiB | 16.8% | 546.35 ms | 680.42 ms | 24.5% |
+```{ojs}
+//| echo: false
+//| classes: no-code-copy
 
-显存收益可以直接从 Column Parallel Linear 保存的输入验算。当前配置为：
+{
+  const rows = [
+    {layers: 2, tpMemory: 1097.94, baseMemory: 1052.08, recomputeMemory: 956.73, tpTime: 35.82, baseTime: 40.46, recomputeTime: 48.70},
+    {layers: 4, tpMemory: 1658.71, baseMemory: 1588.95, recomputeMemory: 1398.82, tpTime: 66.55, baseTime: 74.19, recomputeTime: 91.16},
+    {layers: 8, tpMemory: 2781.92, baseMemory: 2665.97, recomputeMemory: 2282.97, tpTime: 127.84, baseTime: 141.76, recomputeTime: 175.38},
+    {layers: 16, tpMemory: 5026.93, baseMemory: 4824.38, recomputeMemory: 4056.38, tpTime: 249.51, baseTime: 276.60, recomputeTime: 343.93},
+    {layers: 32, tpMemory: 9521.13, baseMemory: 9136.96, recomputeMemory: 7600.27, tpTime: 493.13, baseTime: 546.35, recomputeTime: 680.42}
+  ].map(d => ({
+    ...d,
+    baseMemorySaving: (1 - d.baseMemory / d.tpMemory) * 100,
+    recomputeMemorySaving: (1 - d.recomputeMemory / d.baseMemory) * 100,
+    baseTimeIncrease: (d.baseTime / d.tpTime - 1) * 100,
+    recomputeTimeIncrease: (d.recomputeTime / d.baseTime - 1) * 100
+  }))
+
+  const chartWidth = Math.max(760, Math.min(width, 1100))
+  const style = {background: "transparent", color: "currentColor", fontSize: "12px"}
+  const layerDomain = ["2", "4", "8", "16", "32"]
+  const modeDomain = ["TP", "基础 SP", "SP + Recompute"]
+
+  const memoryData = rows.flatMap(d => [
+    {layers: String(d.layers), mode: "TP", value: d.tpMemory, change: 0},
+    {layers: String(d.layers), mode: "基础 SP", value: d.baseMemory, change: d.baseMemorySaving},
+    {layers: String(d.layers), mode: "SP + Recompute", value: d.recomputeMemory, change: d.recomputeMemorySaving}
+  ])
+
+  const timeData = rows.flatMap(d => [
+    {layers: String(d.layers), mode: "TP", value: d.tpTime, change: 0},
+    {layers: String(d.layers), mode: "基础 SP", value: d.baseTime, change: d.baseTimeIncrease},
+    {layers: String(d.layers), mode: "SP + Recompute", value: d.recomputeTime, change: d.recomputeTimeIncrease}
+  ])
+
+  const memoryChart = Plot.plot({
+    width: chartWidth,
+    height: 390,
+    marginTop: 38,
+    marginRight: 18,
+    marginBottom: 46,
+    marginLeft: 68,
+    style,
+    title: "Per-rank peak memory",
+    x: {label: null, domain: modeDomain, axis: null},
+    fx: {
+      label: "Transformer layers",
+      domain: layerDomain,
+      axis: "bottom",
+      tickPadding: 6,
+      labelOffset: 27,
+      padding: 0.12
+    },
+    y: {
+      label: "Peak allocated memory (MiB)",
+      domain: [0, 10000],
+      grid: true,
+      tickFormat: d => d.toLocaleString("en-US")
+    },
+    color: {
+      domain: modeDomain,
+      range: ["#495057", "#1971c2", "#5f3dc4"],
+      legend: true
+    },
+    marks: [
+      Plot.barY(memoryData, {
+        fx: "layers",
+        x: "mode",
+        y: "value",
+        fill: "mode",
+        insetLeft: 5,
+        insetRight: 5
+      }),
+      Plot.text(memoryData.filter(d => d.mode === "TP"), {
+        fx: "layers",
+        x: "mode",
+        y: "value",
+        text: d => Math.round(d.value).toLocaleString("en-US"),
+        dy: -9,
+        fill: "#343a40"
+      }),
+      Plot.text(memoryData.filter(d => d.mode === "基础 SP"), {
+        fx: "layers",
+        x: "mode",
+        y: "value",
+        text: d => Math.round(d.value).toLocaleString("en-US"),
+        dy: -24,
+        fill: "#1971c2",
+        fontWeight: 600
+      }),
+      Plot.text(memoryData.filter(d => d.mode === "基础 SP"), {
+        fx: "layers",
+        x: "mode",
+        y: "value",
+        text: d => `(-${d.change.toFixed(1)}%)`,
+        dy: -9,
+        fill: "#1971c2",
+        fontWeight: 600
+      }),
+      Plot.text(memoryData.filter(d => d.mode === "SP + Recompute"), {
+        fx: "layers",
+        x: "mode",
+        y: "value",
+        text: d => Math.round(d.value).toLocaleString("en-US"),
+        dy: -24,
+        fill: "#5f3dc4",
+        fontWeight: 600
+      }),
+      Plot.text(memoryData.filter(d => d.mode === "SP + Recompute"), {
+        fx: "layers",
+        x: "mode",
+        y: "value",
+        text: d => `(-${d.change.toFixed(1)}%)`,
+        dy: -9,
+        fill: "#5f3dc4",
+        fontWeight: 600
+      }),
+      Plot.ruleY([0])
+    ]
+  })
+  memoryChart.style.margin = "0"
+
+  const timeChart = Plot.plot({
+    width: chartWidth,
+    height: 390,
+    marginTop: 38,
+    marginRight: 18,
+    marginBottom: 46,
+    marginLeft: 62,
+    style,
+    title: "Step time",
+    x: {label: null, domain: modeDomain, axis: null},
+    fx: {
+      label: "Transformer layers",
+      domain: layerDomain,
+      axis: "bottom",
+      tickPadding: 6,
+      labelOffset: 27,
+      padding: 0.12
+    },
+    y: {label: "Step time (ms)", domain: [0, 750], grid: true},
+    color: {
+      domain: modeDomain,
+      range: ["#495057", "#1971c2", "#5f3dc4"],
+      legend: true
+    },
+    marks: [
+      Plot.barY(timeData, {
+        fx: "layers",
+        x: "mode",
+        y: "value",
+        fill: "mode",
+        insetLeft: 5,
+        insetRight: 5
+      }),
+      Plot.text(timeData.filter(d => d.mode === "TP"), {
+        fx: "layers",
+        x: "mode",
+        y: "value",
+        text: d => d.value.toFixed(1),
+        dy: -9,
+        fill: "#343a40"
+      }),
+      Plot.text(timeData.filter(d => d.mode === "基础 SP"), {
+        fx: "layers",
+        x: "mode",
+        y: "value",
+        text: d => d.value.toFixed(1),
+        dy: -24,
+        fill: "#1971c2",
+        fontWeight: 600
+      }),
+      Plot.text(timeData.filter(d => d.mode === "基础 SP"), {
+        fx: "layers",
+        x: "mode",
+        y: "value",
+        text: d => `(+${d.change.toFixed(1)}%)`,
+        dy: -9,
+        fill: "#1971c2",
+        fontWeight: 600
+      }),
+      Plot.text(timeData.filter(d => d.mode === "SP + Recompute"), {
+        fx: "layers",
+        x: "mode",
+        y: "value",
+        text: d => d.value.toFixed(1),
+        dy: -24,
+        fill: "#5f3dc4",
+        fontWeight: 600
+      }),
+      Plot.text(timeData.filter(d => d.mode === "SP + Recompute"), {
+        fx: "layers",
+        x: "mode",
+        y: "value",
+        text: d => `(+${d.change.toFixed(1)}%)`,
+        dy: -9,
+        fill: "#5f3dc4",
+        fontWeight: 600
+      }),
+      Plot.ruleY([0])
+    ]
+  })
+  timeChart.style.margin = "0"
+
+  const grid = document.createElement("div")
+  Object.assign(grid.style, {
+    display: "grid",
+    gridTemplateColumns: "minmax(760px, 1fr)",
+    gap: "8px",
+    minWidth: "760px",
+    margin: "0"
+  })
+  grid.append(memoryChart, timeChart)
+
+  const container = document.createElement("div")
+  container.className = "benchmark-charts"
+  container.style.overflowX = "auto"
+  container.appendChild(grid)
+  return container
+}
+```
+
+图中基础 SP 的百分比相对 TP 计算，SP + Recompute 的百分比相对基础 SP 计算。
+
+显存收益可以直接从 Column Parallel Linear 保存的输入估计。当前配置为：
 
 $$
 B=4,\qquad S=2048,\qquad H=768,\qquad T=2.
@@ -346,6 +770,8 @@ M_{\text{basic, per block}}
 =60\text{ MiB}.
 $$
 
+这里计算的是基础 SP 到 Recompute 的变化。作为参照，普通 TP 的 Q/K/V 共享一份 full input storage，gate/up 共享另一份；基础 SP 多出的三份 full input 已经在 @sec-sp-memory-limit 中计入了 TP 与基础 SP 的比较。
+
 Recompute 版本不保存这些 gather 输出。三个 Attention projections 只引用同一份 local input storage，两个 MLP projections 也只引用同一份 local input storage：
 
 $$
@@ -369,6 +795,6 @@ $$
 | 16 | 768 MiB | 768.00 MiB |
 | 32 | 1536 MiB | 1536.69 MiB |
 
-理论值与实测结果基本一致，说明显存下降确实来自 @sec-sp-recompute 描述的 activation 生命周期变化。随着层数增加，固定的参数、optimizer states 和模型边界显存被逐渐摊薄，因此 Recompute 的相对显存收益从 9.1% 上升到 16.8%；但每层新增的 backward all-gather 也使时间代价逐渐稳定在约 24%～25%。
+理论值与实测结果基本一致，说明显存下降确实来自 @sec-sp-recompute 描述的 activation 生命周期变化。随着层数增加，固定的参数、optimizer states 和模型边界显存被逐渐摊薄，因此 Recompute 相对基础 SP 的显存收益从 9.1% 上升到 16.8%；但每层新增的 backward all-gather 需要额外付出约 24%～25%的时间代价。
 
 这组结果展示的是一项明确的取舍：Recompute 用更长的 step time，换取更少的单卡峰值显存。

@@ -208,7 +208,7 @@ VP 时 vocab_size % TP == 0
 
 - TP Attention 暂不支持 KV Cache。
 - TP 模型暂不支持 MoE。
-- 当前参数 gradient hook 是正确性实现，还没有用一个统一的函数进行管理。
+- 当前需要梯度同步的参数用 hook 是正确的实现，但还没有用一个统一的函数管理这些需要同步的梯度。
 
 关键实现索引：
 

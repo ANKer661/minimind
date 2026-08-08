@@ -1187,14 +1187,120 @@ python -m evaluation.parallel benchmark \
 
 这里使用 `batch_policy=fixed_per_rank`，即让 DDP 的每个 rank 的 `batchsize = 2`，而双卡 TP 的总 `batchsize = 2`。这样更适合观察参数、梯度和 optimizer states 被切分后的单卡显存变化。由于 DDP 的两个 rank 各自持有一个模型副本，而两个 TP rank 共同组成一个模型副本，两者的 global batch 并不相同，因此本节只比较单卡峰值显存；时间和吞吐需要在固定 global batch 的实验中另行比较。
 
-| Layers | DDP 显存 | TP 显存 | 单卡显存下降 |
-|---:|---:|---:|---:|
-| 8 | 2377.65 MiB | 1509.53 MiB | 36.5% |
-| 16 | 4433.28 MiB | 2717.69 MiB | 38.7% |
-| 32 | 8549.79 MiB | 5129.40 MiB | 40.0% |
-| 64 | 16766.42 MiB | 9956.83 MiB | 40.6% |
+```{ojs}
+//| echo: false
+//| classes: no-code-copy
 
-为什么层数增加后，TP 的显存比例还在下降？把每层新增的显存分成两部分：$a$ 表示会随 TP size 切分的参数、梯度、optimizer states 和 activation，$r$ 表示仍在每个 rank 上保留的部分；再用 $F_D$ 和 $F_T$ 表示不随层数增长的模型边界状态和其他固定开销。对于 TP size $T$，
+{
+  const rows = [
+    {layers: "8", mode: "DDP", memory: 2377.65},
+    {layers: "8", mode: "TP", memory: 1509.53},
+    {layers: "16", mode: "DDP", memory: 4433.28},
+    {layers: "16", mode: "TP", memory: 2717.69},
+    {layers: "32", mode: "DDP", memory: 8549.79},
+    {layers: "32", mode: "TP", memory: 5129.40},
+    {layers: "64", mode: "DDP", memory: 16766.42},
+    {layers: "64", mode: "TP", memory: 9956.83}
+  ]
+  const ddpByLayers = new Map(
+    rows.filter(d => d.mode === "DDP").map(d => [d.layers, d.memory])
+  )
+  const data = rows.map(d => ({
+    ...d,
+    saving: d.mode === "TP"
+      ? (1 - d.memory / ddpByLayers.get(d.layers)) * 100
+      : 0
+  }))
+
+  const chart = Plot.plot({
+    width: Math.max(760, Math.min(width, 1100)),
+    height: 540,
+    marginTop: 38,
+    marginRight: 24,
+    marginBottom: 46,
+    marginLeft: 82,
+    style: {
+      background: "transparent",
+      color: "currentColor",
+      fontSize: "12px"
+    },
+    title: "Per-rank peak memory (TP size = 2)",
+    x: {label: null, domain: ["DDP", "TP"], axis: null},
+    fx: {
+      label: "Transformer layers",
+      domain: ["8", "16", "32", "64"],
+      axis: "bottom",
+      tickPadding: 6,
+      labelOffset: 27,
+      padding: 0.12
+    },
+    y: {
+      label: "Peak allocated memory (MiB)",
+      domain: [0, 19000],
+      grid: true,
+      tickFormat: d => d.toLocaleString("en-US")
+    },
+    color: {
+      domain: ["DDP", "TP"],
+      range: ["#495057", "#5f3dc4"],
+      legend: true
+    },
+    marks: [
+      Plot.barY(data, {
+        fx: "layers",
+        x: "mode",
+        y: "memory",
+        fill: "mode",
+        insetLeft: 10,
+        insetRight: 10
+      }),
+      Plot.text(data.filter(d => d.mode === "DDP"), {
+        fx: "layers",
+        x: "mode",
+        y: "memory",
+        text: d => Math.round(d.memory).toLocaleString("en-US"),
+        dy: -10,
+        fill: "#343a40"
+      }),
+      Plot.text(data.filter(d => d.mode === "TP"), {
+        fx: "layers",
+        x: "mode",
+        y: "memory",
+        text: d => Math.round(d.memory).toLocaleString("en-US"),
+        dy: -25,
+        fill: "#5f3dc4",
+        fontWeight: 600
+      }),
+      Plot.text(data.filter(d => d.mode === "TP"), {
+        fx: "layers",
+        x: "mode",
+        y: "memory",
+        text: d => `(-${d.saving.toFixed(1)}%)`,
+        dy: -10,
+        fill: "#5f3dc4",
+        fontWeight: 600
+      }),
+      Plot.ruleY([0])
+    ]
+  })
+  chart.style.margin = "0"
+  chart.setAttribute("role", "img")
+  chart.setAttribute(
+    "aria-label",
+    "不同 Transformer 层数下 DDP 与 TP 的单卡峰值显存柱状图"
+  )
+
+  const container = document.createElement("div")
+  container.className = "benchmark-charts"
+  container.style.overflowX = "auto"
+  container.appendChild(chart)
+  return container
+}
+```
+
+图中 TP 柱上同时标出了相对同一层数 DDP 的显存下降比例。
+
+我们可以观察到，随着层数的增加，TP 的节省的显存比例还在增加，但没有接近 $1 / T$。如果把每层新增的显存分成两部分：$a$ 表示会随 TP size 切分的参数、梯度、optimizer states 和 activation，$r$ 表示仍在每个 rank 上保留的部分；再用 $F_D$ 和 $F_T$ 表示不随层数增长的模型边界状态和其他固定开销。那么对于 TP size $T$，
 
 $$
 M_{\mathrm{DDP}}(L)=F_D+L(a+r),

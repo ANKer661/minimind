@@ -258,25 +258,198 @@ done
 
 峰值 allocated memory 如下：
 
-| Vocab size | DDP | TP | TP + VP | VP 相对 TP 节省 |
-|---:|---:|---:|---:|---:|
-| 6,400 | 4148.79 MiB | 2781.92 MiB | 2554.47 MiB | 227.45 MiB（8.2%） |
-| 12,800 | 4625.41 MiB | 3237.01 MiB | 2782.34 MiB | 454.67 MiB（14.0%） |
-| 25,600 | 5577.66 MiB | 4147.36 MiB | 3237.44 MiB | 909.92 MiB（21.9%） |
-| 51,200 | 7476.97 MiB | 5971.36 MiB | 4144.78 MiB | 1826.58 MiB（30.6%） |
+```{ojs}
+//| echo: false
+//| classes: no-code-copy
+
+{
+  const rows = [
+    {vocab: "6,400", ddp: 4148.79, tp: 2781.92, vp: 2554.47},
+    {vocab: "12,800", ddp: 4625.41, tp: 3237.01, vp: 2782.34},
+    {vocab: "25,600", ddp: 5577.66, tp: 4147.36, vp: 3237.44},
+    {vocab: "51,200", ddp: 7476.97, tp: 5971.36, vp: 4144.78}
+  ]
+  const vocabDomain = rows.map(d => d.vocab)
+  const modeDomain = ["DDP", "TP", "TP + VP"]
+  const data = rows.flatMap(d => [
+    {vocab: d.vocab, mode: "DDP", value: d.ddp, change: 0},
+    {vocab: d.vocab, mode: "TP", value: d.tp, change: 0},
+    {vocab: d.vocab, mode: "TP + VP", value: d.vp, change: (1 - d.vp / d.tp) * 100}
+  ])
+
+  const chart = Plot.plot({
+    width: Math.max(760, Math.min(width, 1100)),
+    height: 390,
+    marginTop: 38,
+    marginRight: 18,
+    marginBottom: 46,
+    marginLeft: 68,
+    style: {background: "transparent", color: "currentColor", fontSize: "12px"},
+    title: "Per-rank peak memory",
+    x: {label: null, domain: modeDomain, axis: null},
+    fx: {
+      label: "Vocab size",
+      domain: vocabDomain,
+      axis: "bottom",
+      tickPadding: 6,
+      labelOffset: 27,
+      padding: 0.12
+    },
+    y: {
+      label: "Peak allocated memory (MiB)",
+      domain: [0, 8200],
+      grid: true,
+      tickFormat: d => d.toLocaleString("en-US")
+    },
+    color: {
+      domain: modeDomain,
+      range: ["#495057", "#1971c2", "#5f3dc4"],
+      legend: true
+    },
+    marks: [
+      Plot.barY(data, {
+        fx: "vocab",
+        x: "mode",
+        y: "value",
+        fill: "mode",
+        insetLeft: 5,
+        insetRight: 5
+      }),
+      Plot.text(data.filter(d => d.mode !== "TP + VP"), {
+        fx: "vocab",
+        x: "mode",
+        y: "value",
+        text: d => Math.round(d.value).toLocaleString("en-US"),
+        dy: -9,
+        fill: d => d.mode === "DDP" ? "#343a40" : "#1971c2",
+        fontWeight: 600
+      }),
+      Plot.text(data.filter(d => d.mode === "TP + VP"), {
+        fx: "vocab",
+        x: "mode",
+        y: "value",
+        text: d => Math.round(d.value).toLocaleString("en-US"),
+        dy: -24,
+        fill: "#5f3dc4",
+        fontWeight: 600
+      }),
+      Plot.text(data.filter(d => d.mode === "TP + VP"), {
+        fx: "vocab",
+        x: "mode",
+        y: "value",
+        text: d => `(-${d.change.toFixed(1)}%)`,
+        dy: -9,
+        fill: "#5f3dc4",
+        fontWeight: 600
+      }),
+      Plot.ruleY([0])
+    ]
+  })
+  chart.style.margin = "0"
+
+  const container = document.createElement("div")
+  container.className = "benchmark-charts"
+  container.style.overflowX = "auto"
+  container.appendChild(chart)
+  return container
+}
+```
 
 可以看到 vocab size 每次翻倍时，VP 节省的绝对显存也几乎翻倍：约 227、455、910 和 1827 MiB。Transformer block 的其他显存保持不变时，VP 的相对收益也随 $V$ 增大，从 8.2% 上升到 30.6%。
 
 对应的 end-to-end step time 为：
 
-| Vocab size | TP | TP + VP | 时间变化 |
-|---:|---:|---:|---:|
-| 6,400 | 129.46 ms | 132.94 ms | +2.7% |
-| 12,800 | 133.59 ms | 136.28 ms | +2.0% |
-| 25,600 | 144.10 ms | 142.03 ms | -1.4% |
-| 51,200 | 165.04 ms | 155.96 ms | -5.5% |
+```{ojs}
+//| echo: false
+//| classes: no-code-copy
+
+{
+  const rows = [
+    {vocab: "6,400", tp: 129.46, vp: 132.94},
+    {vocab: "12,800", tp: 133.59, vp: 136.28},
+    {vocab: "25,600", tp: 144.10, vp: 142.03},
+    {vocab: "51,200", tp: 165.04, vp: 155.96}
+  ]
+  const vocabDomain = rows.map(d => d.vocab)
+  const modeDomain = ["TP", "TP + VP"]
+  const data = rows.flatMap(d => [
+    {vocab: d.vocab, mode: "TP", value: d.tp, change: 0},
+    {vocab: d.vocab, mode: "TP + VP", value: d.vp, change: (d.vp / d.tp - 1) * 100}
+  ])
+
+  const chart = Plot.plot({
+    width: Math.max(760, Math.min(width, 1100)),
+    height: 390,
+    marginTop: 38,
+    marginRight: 18,
+    marginBottom: 46,
+    marginLeft: 62,
+    style: {background: "transparent", color: "currentColor", fontSize: "12px"},
+    title: "Step time",
+    x: {label: null, domain: modeDomain, axis: null},
+    fx: {
+      label: "Vocab size",
+      domain: vocabDomain,
+      axis: "bottom",
+      tickPadding: 6,
+      labelOffset: 27,
+      padding: 0.12
+    },
+    y: {label: "Step time (ms)", domain: [0, 185], grid: true},
+    color: {
+      domain: modeDomain,
+      range: ["#1971c2", "#5f3dc4"],
+      legend: true
+    },
+    marks: [
+      Plot.barY(data, {
+        fx: "vocab",
+        x: "mode",
+        y: "value",
+        fill: "mode",
+        insetLeft: 5,
+        insetRight: 5
+      }),
+      Plot.text(data.filter(d => d.mode === "TP"), {
+        fx: "vocab",
+        x: "mode",
+        y: "value",
+        text: d => d.value.toFixed(1),
+        dy: -9,
+        fill: "#1971c2",
+        fontWeight: 600
+      }),
+      Plot.text(data.filter(d => d.mode === "TP + VP"), {
+        fx: "vocab",
+        x: "mode",
+        y: "value",
+        text: d => d.value.toFixed(1),
+        dy: -24,
+        fill: "#5f3dc4",
+        fontWeight: 600
+      }),
+      Plot.text(data.filter(d => d.mode === "TP + VP"), {
+        fx: "vocab",
+        x: "mode",
+        y: "value",
+        text: d => `(${d.change > 0 ? "+" : ""}${d.change.toFixed(1)}%)`,
+        dy: -9,
+        fill: "#5f3dc4",
+        fontWeight: 600
+      }),
+      Plot.ruleY([0])
+    ]
+  })
+  chart.style.margin = "0"
+
+  const container = document.createElement("div")
+  container.className = "benchmark-charts"
+  container.style.overflowX = "auto"
+  container.appendChild(chart)
+  return container
+}
+```
 
 VP 确实引入了额外通信：Vocab Parallel Embedding 需要合并各 rank 的局部输出，Parallel Cross Entropy 也要同步 target logit、全局最大值和 sum-exp。但是这些 collective 传输的是 `[B,S,H]` 的 embedding 输出或 Cross Entropy 中 `[B,S]` 的统计量，通信 tensor 的 shape 并不随 vocab size 增长。
 
 与此同时，每个 rank 的 LM head 输出宽度从 $V$ 降为 $V/T$，本地 logits 以及交叉熵中的指数、归约和梯度计算也只覆盖自己的 vocab shard，这部分计算和显存访问会随 $V$ 增长，因此切分后减少的计算也随 $V$ 增长。在较小词表上，新增通信带来约 2%～3% 的时间开销。词表增大后，本地计算减少带来的收益逐渐抵消通信，实测 step time 甚至略有下降。这里的几百分点仍可能受到 kernel 和短时 benchmark 波动影响，但整体趋势说明 VP 并不是单纯用通信换显存，它同时切小了词表维度上的计算。
-
