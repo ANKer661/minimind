@@ -4,6 +4,7 @@ __pycache__/
 out
 website/
 docs-minimind/
+.vscode/
 
 # Quarto build output
 /book/_book/
