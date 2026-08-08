@@ -111,6 +111,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     "search-label": "搜索"
   }
 }</script>
+<script type="module" src="../site_libs/quarto-ojs/quarto-ojs-runtime.js"></script>
+<link href="../site_libs/quarto-ojs/quarto-ojs.css" rel="stylesheet">
 <script src="../site_libs/quarto-diagram/mermaid.min.js"></script>
 <script src="../site_libs/quarto-diagram/mermaid-init.js"></script>
 <link href="../site_libs/quarto-diagram/mermaid.css" rel="stylesheet">
@@ -285,7 +287,11 @@ window.Quarto = {
 
 <section id="sec-sp-benchmark" class="level2" data-number="4.1">
 <h2 data-number="4.1" class="anchored" data-anchor-id="sec-sp-benchmark"><span class="header-section-number">4.1</span> 基础 SP Benchmark</h2>
-<p>SP 没有改变模型的数学语义，数值验证仍可沿用 <a href="tensor_parallel.html#sec-tp-validation" class="quarto-xref"><span>小节 2.14</span></a> 的方法，只需增加 <code>--sequence_parallel</code>。这里直接回到 <a href="tensor_parallel.html#sec-tp-benchmark" class="quarto-xref"><span>小节 2.15</span></a> 的相同配置，观察将 TP 区域之间的 hidden states 切成 sequence shards 后，显存和时间如何变化。</p>
+<p>SP 没有改变模型的数学语义，数值验证仍可沿用 <a href="tensor_parallel.html#sec-tp-validation" class="quarto-xref"><span>小节 2.15</span></a> 的方法，只需增加 <code>--sequence_parallel</code>。这里直接回到 <a href="tensor_parallel.html#sec-tp-benchmark" class="quarto-xref"><span>小节 2.16</span></a> 的相同配置，观察将 TP 区域之间的 hidden states 切成 sequence shards 后，显存和时间如何变化。</p>
+<details>
+<summary>
+完整 benchmark 命令
+</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> evaluation.parallel benchmark <span class="dt">\</span></span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--kind</span> memory <span class="dt">\</span></span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--tp_size</span> 2 <span class="dt">\</span></span>
@@ -304,69 +310,191 @@ window.Quarto = {
 <span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dtype</span> bfloat16 <span class="dt">\</span></span>
 <span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">--warmup_iters</span> 2 <span class="dt">\</span></span>
 <span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">--benchmark_iters</span> 5 <span class="dt">\</span></span>
-<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">--sequence_parallel</span> <span class="dt">\</span></span>
-<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>  <span class="at">--output_csv</span> results/tp/tpsp2_layers.csv <span class="dt">\</span></span>
-<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>  <span class="at">--output_plot</span> results/tp/tpsp2_layers.png</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<table class="caption-top table">
-<colgroup>
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-</colgroup>
-<thead>
-<tr class="header">
-<th style="text-align: right;">Layers</th>
-<th style="text-align: right;">TP only 显存</th>
-<th style="text-align: right;">TP + SP 显存</th>
-<th style="text-align: right;">显存下降</th>
-<th style="text-align: right;">TP only step</th>
-<th style="text-align: right;">TP + SP step</th>
-<th style="text-align: right;">时间增加</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td style="text-align: right;">8</td>
-<td style="text-align: right;">1509.53 MiB</td>
-<td style="text-align: right;">1447.99 MiB</td>
-<td style="text-align: right;">4.1%</td>
-<td style="text-align: right;">66.47 ms</td>
-<td style="text-align: right;">74.53 ms</td>
-<td style="text-align: right;">12.1%</td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">16</td>
-<td style="text-align: right;">2717.69 MiB</td>
-<td style="text-align: right;">2608.19 MiB</td>
-<td style="text-align: right;">4.0%</td>
-<td style="text-align: right;">129.90 ms</td>
-<td style="text-align: right;">144.38 ms</td>
-<td style="text-align: right;">11.1%</td>
-</tr>
-<tr class="odd">
-<td style="text-align: right;">32</td>
-<td style="text-align: right;">5129.40 MiB</td>
-<td style="text-align: right;">4925.45 MiB</td>
-<td style="text-align: right;">4.0%</td>
-<td style="text-align: right;">255.60 ms</td>
-<td style="text-align: right;">284.55 ms</td>
-<td style="text-align: right;">11.3%</td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">64</td>
-<td style="text-align: right;">9956.83 MiB</td>
-<td style="text-align: right;">9560.83 MiB</td>
-<td style="text-align: right;">4.0%</td>
-<td style="text-align: right;">502.83 ms</td>
-<td style="text-align: right;">565.00 ms</td>
-<td style="text-align: right;">12.4%</td>
-</tr>
-</tbody>
-</table>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">--sequence_parallel</span> <span class="dt">\</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell no-code-copy">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code hidden" id="cb2" data-startfrom="34" data-source-offset="0"><pre class="sourceCode js code-with-copy"><code class="sourceCode javascript" style="counter-reset: source-line 33;"><span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a>{</span>
+<span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> rows <span class="op">=</span> [</span>
+<span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">layers</span><span class="op">:</span> <span class="dv">8</span><span class="op">,</span> <span class="dt">tpMemory</span><span class="op">:</span> <span class="fl">1509.53</span><span class="op">,</span> <span class="dt">spMemory</span><span class="op">:</span> <span class="fl">1447.99</span><span class="op">,</span> <span class="dt">tpTime</span><span class="op">:</span> <span class="fl">66.47</span><span class="op">,</span> <span class="dt">spTime</span><span class="op">:</span> <span class="fl">74.53</span>}<span class="op">,</span></span>
+<span id="cb2-37"><a href="#cb2-37" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">layers</span><span class="op">:</span> <span class="dv">16</span><span class="op">,</span> <span class="dt">tpMemory</span><span class="op">:</span> <span class="fl">2717.69</span><span class="op">,</span> <span class="dt">spMemory</span><span class="op">:</span> <span class="fl">2608.19</span><span class="op">,</span> <span class="dt">tpTime</span><span class="op">:</span> <span class="fl">129.90</span><span class="op">,</span> <span class="dt">spTime</span><span class="op">:</span> <span class="fl">144.38</span>}<span class="op">,</span></span>
+<span id="cb2-38"><a href="#cb2-38" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">layers</span><span class="op">:</span> <span class="dv">32</span><span class="op">,</span> <span class="dt">tpMemory</span><span class="op">:</span> <span class="fl">5129.40</span><span class="op">,</span> <span class="dt">spMemory</span><span class="op">:</span> <span class="fl">4925.45</span><span class="op">,</span> <span class="dt">tpTime</span><span class="op">:</span> <span class="fl">255.60</span><span class="op">,</span> <span class="dt">spTime</span><span class="op">:</span> <span class="fl">284.55</span>}<span class="op">,</span></span>
+<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">layers</span><span class="op">:</span> <span class="dv">64</span><span class="op">,</span> <span class="dt">tpMemory</span><span class="op">:</span> <span class="fl">9956.83</span><span class="op">,</span> <span class="dt">spMemory</span><span class="op">:</span> <span class="fl">9560.83</span><span class="op">,</span> <span class="dt">tpTime</span><span class="op">:</span> <span class="fl">502.83</span><span class="op">,</span> <span class="dt">spTime</span><span class="op">:</span> <span class="fl">565.00</span>}</span>
+<span id="cb2-40"><a href="#cb2-40" aria-hidden="true" tabindex="-1"></a>  ]<span class="op">.</span><span class="fu">map</span>(d <span class="kw">=&gt;</span> ({</span>
+<span id="cb2-41"><a href="#cb2-41" aria-hidden="true" tabindex="-1"></a>    <span class="op">...</span>d<span class="op">,</span></span>
+<span id="cb2-42"><a href="#cb2-42" aria-hidden="true" tabindex="-1"></a>    <span class="dt">memorySaving</span><span class="op">:</span> (<span class="dv">1</span> <span class="op">-</span> d<span class="op">.</span><span class="at">spMemory</span> <span class="op">/</span> d<span class="op">.</span><span class="at">tpMemory</span>) <span class="op">*</span> <span class="dv">100</span><span class="op">,</span></span>
+<span id="cb2-43"><a href="#cb2-43" aria-hidden="true" tabindex="-1"></a>    <span class="dt">timeIncrease</span><span class="op">:</span> (d<span class="op">.</span><span class="at">spTime</span> <span class="op">/</span> d<span class="op">.</span><span class="at">tpTime</span> <span class="op">-</span> <span class="dv">1</span>) <span class="op">*</span> <span class="dv">100</span></span>
+<span id="cb2-44"><a href="#cb2-44" aria-hidden="true" tabindex="-1"></a>  }))</span>
+<span id="cb2-45"><a href="#cb2-45" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-46"><a href="#cb2-46" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> chartWidth <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="dv">760</span><span class="op">,</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(width<span class="op">,</span> <span class="dv">1100</span>))</span>
+<span id="cb2-47"><a href="#cb2-47" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> style <span class="op">=</span> {<span class="dt">background</span><span class="op">:</span> <span class="st">"transparent"</span><span class="op">,</span> <span class="dt">color</span><span class="op">:</span> <span class="st">"currentColor"</span><span class="op">,</span> <span class="dt">fontSize</span><span class="op">:</span> <span class="st">"12px"</span>}</span>
+<span id="cb2-48"><a href="#cb2-48" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> layerDomain <span class="op">=</span> [<span class="st">"8"</span><span class="op">,</span> <span class="st">"16"</span><span class="op">,</span> <span class="st">"32"</span><span class="op">,</span> <span class="st">"64"</span>]</span>
+<span id="cb2-49"><a href="#cb2-49" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> modeDomain <span class="op">=</span> [<span class="st">"TP"</span><span class="op">,</span> <span class="st">"TP + SP"</span>]</span>
+<span id="cb2-50"><a href="#cb2-50" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-51"><a href="#cb2-51" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> memoryData <span class="op">=</span> rows<span class="op">.</span><span class="fu">flatMap</span>(d <span class="kw">=&gt;</span> [</span>
+<span id="cb2-52"><a href="#cb2-52" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">layers</span><span class="op">:</span> <span class="bu">String</span>(d<span class="op">.</span><span class="at">layers</span>)<span class="op">,</span> <span class="dt">mode</span><span class="op">:</span> <span class="st">"TP"</span><span class="op">,</span> <span class="dt">value</span><span class="op">:</span> d<span class="op">.</span><span class="at">tpMemory</span><span class="op">,</span> <span class="dt">change</span><span class="op">:</span> <span class="dv">0</span>}<span class="op">,</span></span>
+<span id="cb2-53"><a href="#cb2-53" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">layers</span><span class="op">:</span> <span class="bu">String</span>(d<span class="op">.</span><span class="at">layers</span>)<span class="op">,</span> <span class="dt">mode</span><span class="op">:</span> <span class="st">"TP + SP"</span><span class="op">,</span> <span class="dt">value</span><span class="op">:</span> d<span class="op">.</span><span class="at">spMemory</span><span class="op">,</span> <span class="dt">change</span><span class="op">:</span> d<span class="op">.</span><span class="at">memorySaving</span>}</span>
+<span id="cb2-54"><a href="#cb2-54" aria-hidden="true" tabindex="-1"></a>  ])</span>
+<span id="cb2-55"><a href="#cb2-55" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-56"><a href="#cb2-56" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> timeData <span class="op">=</span> rows<span class="op">.</span><span class="fu">flatMap</span>(d <span class="kw">=&gt;</span> [</span>
+<span id="cb2-57"><a href="#cb2-57" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">layers</span><span class="op">:</span> <span class="bu">String</span>(d<span class="op">.</span><span class="at">layers</span>)<span class="op">,</span> <span class="dt">mode</span><span class="op">:</span> <span class="st">"TP"</span><span class="op">,</span> <span class="dt">value</span><span class="op">:</span> d<span class="op">.</span><span class="at">tpTime</span><span class="op">,</span> <span class="dt">change</span><span class="op">:</span> <span class="dv">0</span>}<span class="op">,</span></span>
+<span id="cb2-58"><a href="#cb2-58" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">layers</span><span class="op">:</span> <span class="bu">String</span>(d<span class="op">.</span><span class="at">layers</span>)<span class="op">,</span> <span class="dt">mode</span><span class="op">:</span> <span class="st">"TP + SP"</span><span class="op">,</span> <span class="dt">value</span><span class="op">:</span> d<span class="op">.</span><span class="at">spTime</span><span class="op">,</span> <span class="dt">change</span><span class="op">:</span> d<span class="op">.</span><span class="at">timeIncrease</span>}</span>
+<span id="cb2-59"><a href="#cb2-59" aria-hidden="true" tabindex="-1"></a>  ])</span>
+<span id="cb2-60"><a href="#cb2-60" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-61"><a href="#cb2-61" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> memoryChart <span class="op">=</span> Plot<span class="op">.</span><span class="fu">plot</span>({</span>
+<span id="cb2-62"><a href="#cb2-62" aria-hidden="true" tabindex="-1"></a>    <span class="dt">width</span><span class="op">:</span> chartWidth<span class="op">,</span></span>
+<span id="cb2-63"><a href="#cb2-63" aria-hidden="true" tabindex="-1"></a>    <span class="dt">height</span><span class="op">:</span> <span class="dv">390</span><span class="op">,</span></span>
+<span id="cb2-64"><a href="#cb2-64" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginTop</span><span class="op">:</span> <span class="dv">38</span><span class="op">,</span></span>
+<span id="cb2-65"><a href="#cb2-65" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginRight</span><span class="op">:</span> <span class="dv">18</span><span class="op">,</span></span>
+<span id="cb2-66"><a href="#cb2-66" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginBottom</span><span class="op">:</span> <span class="dv">46</span><span class="op">,</span></span>
+<span id="cb2-67"><a href="#cb2-67" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginLeft</span><span class="op">:</span> <span class="dv">68</span><span class="op">,</span></span>
+<span id="cb2-68"><a href="#cb2-68" aria-hidden="true" tabindex="-1"></a>    style<span class="op">,</span></span>
+<span id="cb2-69"><a href="#cb2-69" aria-hidden="true" tabindex="-1"></a>    <span class="dt">title</span><span class="op">:</span> <span class="st">"Per-rank peak memory"</span><span class="op">,</span></span>
+<span id="cb2-70"><a href="#cb2-70" aria-hidden="true" tabindex="-1"></a>    <span class="dt">x</span><span class="op">:</span> {<span class="dt">label</span><span class="op">:</span> <span class="kw">null</span><span class="op">,</span> <span class="dt">domain</span><span class="op">:</span> modeDomain<span class="op">,</span> <span class="dt">axis</span><span class="op">:</span> <span class="kw">null</span>}<span class="op">,</span></span>
+<span id="cb2-71"><a href="#cb2-71" aria-hidden="true" tabindex="-1"></a>    <span class="dt">fx</span><span class="op">:</span> {</span>
+<span id="cb2-72"><a href="#cb2-72" aria-hidden="true" tabindex="-1"></a>      <span class="dt">label</span><span class="op">:</span> <span class="st">"Transformer layers"</span><span class="op">,</span></span>
+<span id="cb2-73"><a href="#cb2-73" aria-hidden="true" tabindex="-1"></a>      <span class="dt">domain</span><span class="op">:</span> layerDomain<span class="op">,</span></span>
+<span id="cb2-74"><a href="#cb2-74" aria-hidden="true" tabindex="-1"></a>      <span class="dt">axis</span><span class="op">:</span> <span class="st">"bottom"</span><span class="op">,</span></span>
+<span id="cb2-75"><a href="#cb2-75" aria-hidden="true" tabindex="-1"></a>      <span class="dt">tickPadding</span><span class="op">:</span> <span class="dv">6</span><span class="op">,</span></span>
+<span id="cb2-76"><a href="#cb2-76" aria-hidden="true" tabindex="-1"></a>      <span class="dt">labelOffset</span><span class="op">:</span> <span class="dv">27</span><span class="op">,</span></span>
+<span id="cb2-77"><a href="#cb2-77" aria-hidden="true" tabindex="-1"></a>      <span class="dt">padding</span><span class="op">:</span> <span class="fl">0.12</span></span>
+<span id="cb2-78"><a href="#cb2-78" aria-hidden="true" tabindex="-1"></a>    }<span class="op">,</span></span>
+<span id="cb2-79"><a href="#cb2-79" aria-hidden="true" tabindex="-1"></a>    <span class="dt">y</span><span class="op">:</span> {</span>
+<span id="cb2-80"><a href="#cb2-80" aria-hidden="true" tabindex="-1"></a>      <span class="dt">label</span><span class="op">:</span> <span class="st">"Peak allocated memory (MiB)"</span><span class="op">,</span></span>
+<span id="cb2-81"><a href="#cb2-81" aria-hidden="true" tabindex="-1"></a>      <span class="dt">domain</span><span class="op">:</span> [<span class="dv">0</span><span class="op">,</span> <span class="dv">11000</span>]<span class="op">,</span></span>
+<span id="cb2-82"><a href="#cb2-82" aria-hidden="true" tabindex="-1"></a>      <span class="dt">grid</span><span class="op">:</span> <span class="kw">true</span><span class="op">,</span></span>
+<span id="cb2-83"><a href="#cb2-83" aria-hidden="true" tabindex="-1"></a>      <span class="dt">tickFormat</span><span class="op">:</span> d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="fu">toLocaleString</span>(<span class="st">"en-US"</span>)</span>
+<span id="cb2-84"><a href="#cb2-84" aria-hidden="true" tabindex="-1"></a>    }<span class="op">,</span></span>
+<span id="cb2-85"><a href="#cb2-85" aria-hidden="true" tabindex="-1"></a>    <span class="dt">color</span><span class="op">:</span> {</span>
+<span id="cb2-86"><a href="#cb2-86" aria-hidden="true" tabindex="-1"></a>      <span class="dt">domain</span><span class="op">:</span> modeDomain<span class="op">,</span></span>
+<span id="cb2-87"><a href="#cb2-87" aria-hidden="true" tabindex="-1"></a>      <span class="dt">range</span><span class="op">:</span> [<span class="st">"#495057"</span><span class="op">,</span> <span class="st">"#5f3dc4"</span>]<span class="op">,</span></span>
+<span id="cb2-88"><a href="#cb2-88" aria-hidden="true" tabindex="-1"></a>      <span class="dt">legend</span><span class="op">:</span> <span class="kw">true</span></span>
+<span id="cb2-89"><a href="#cb2-89" aria-hidden="true" tabindex="-1"></a>    }<span class="op">,</span></span>
+<span id="cb2-90"><a href="#cb2-90" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marks</span><span class="op">:</span> [</span>
+<span id="cb2-91"><a href="#cb2-91" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">barY</span>(memoryData<span class="op">,</span> {</span>
+<span id="cb2-92"><a href="#cb2-92" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"layers"</span><span class="op">,</span></span>
+<span id="cb2-93"><a href="#cb2-93" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb2-94"><a href="#cb2-94" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb2-95"><a href="#cb2-95" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb2-96"><a href="#cb2-96" aria-hidden="true" tabindex="-1"></a>        <span class="dt">insetLeft</span><span class="op">:</span> <span class="dv">5</span><span class="op">,</span></span>
+<span id="cb2-97"><a href="#cb2-97" aria-hidden="true" tabindex="-1"></a>        <span class="dt">insetRight</span><span class="op">:</span> <span class="dv">5</span></span>
+<span id="cb2-98"><a href="#cb2-98" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb2-99"><a href="#cb2-99" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">text</span>(memoryData<span class="op">.</span><span class="fu">filter</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">===</span> <span class="st">"TP"</span>)<span class="op">,</span> {</span>
+<span id="cb2-100"><a href="#cb2-100" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"layers"</span><span class="op">,</span></span>
+<span id="cb2-101"><a href="#cb2-101" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb2-102"><a href="#cb2-102" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb2-103"><a href="#cb2-103" aria-hidden="true" tabindex="-1"></a>        <span class="dt">text</span><span class="op">:</span> d <span class="kw">=&gt;</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">round</span>(d<span class="op">.</span><span class="at">value</span>)<span class="op">.</span><span class="fu">toLocaleString</span>(<span class="st">"en-US"</span>)<span class="op">,</span></span>
+<span id="cb2-104"><a href="#cb2-104" aria-hidden="true" tabindex="-1"></a>        <span class="dt">dy</span><span class="op">:</span> <span class="op">-</span><span class="dv">9</span><span class="op">,</span></span>
+<span id="cb2-105"><a href="#cb2-105" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"#343a40"</span></span>
+<span id="cb2-106"><a href="#cb2-106" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb2-107"><a href="#cb2-107" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">text</span>(memoryData<span class="op">.</span><span class="fu">filter</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">===</span> <span class="st">"TP + SP"</span>)<span class="op">,</span> {</span>
+<span id="cb2-108"><a href="#cb2-108" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"layers"</span><span class="op">,</span></span>
+<span id="cb2-109"><a href="#cb2-109" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb2-110"><a href="#cb2-110" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb2-111"><a href="#cb2-111" aria-hidden="true" tabindex="-1"></a>        <span class="dt">text</span><span class="op">:</span> d <span class="kw">=&gt;</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">round</span>(d<span class="op">.</span><span class="at">value</span>)<span class="op">.</span><span class="fu">toLocaleString</span>(<span class="st">"en-US"</span>)<span class="op">,</span></span>
+<span id="cb2-112"><a href="#cb2-112" aria-hidden="true" tabindex="-1"></a>        <span class="dt">dy</span><span class="op">:</span> <span class="op">-</span><span class="dv">24</span><span class="op">,</span></span>
+<span id="cb2-113"><a href="#cb2-113" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"#5f3dc4"</span><span class="op">,</span></span>
+<span id="cb2-114"><a href="#cb2-114" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fontWeight</span><span class="op">:</span> <span class="dv">600</span></span>
+<span id="cb2-115"><a href="#cb2-115" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb2-116"><a href="#cb2-116" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">text</span>(memoryData<span class="op">.</span><span class="fu">filter</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">===</span> <span class="st">"TP + SP"</span>)<span class="op">,</span> {</span>
+<span id="cb2-117"><a href="#cb2-117" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"layers"</span><span class="op">,</span></span>
+<span id="cb2-118"><a href="#cb2-118" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb2-119"><a href="#cb2-119" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb2-120"><a href="#cb2-120" aria-hidden="true" tabindex="-1"></a>        <span class="dt">text</span><span class="op">:</span> d <span class="kw">=&gt;</span> <span class="vs">`(-</span><span class="sc">${</span>d<span class="op">.</span><span class="at">change</span><span class="op">.</span><span class="fu">toFixed</span>(<span class="dv">1</span>)<span class="sc">}</span><span class="vs">%)`</span><span class="op">,</span></span>
+<span id="cb2-121"><a href="#cb2-121" aria-hidden="true" tabindex="-1"></a>        <span class="dt">dy</span><span class="op">:</span> <span class="op">-</span><span class="dv">9</span><span class="op">,</span></span>
+<span id="cb2-122"><a href="#cb2-122" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"#5f3dc4"</span><span class="op">,</span></span>
+<span id="cb2-123"><a href="#cb2-123" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fontWeight</span><span class="op">:</span> <span class="dv">600</span></span>
+<span id="cb2-124"><a href="#cb2-124" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb2-125"><a href="#cb2-125" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">ruleY</span>([<span class="dv">0</span>])</span>
+<span id="cb2-126"><a href="#cb2-126" aria-hidden="true" tabindex="-1"></a>    ]</span>
+<span id="cb2-127"><a href="#cb2-127" aria-hidden="true" tabindex="-1"></a>  })</span>
+<span id="cb2-128"><a href="#cb2-128" aria-hidden="true" tabindex="-1"></a>  memoryChart<span class="op">.</span><span class="at">style</span><span class="op">.</span><span class="at">margin</span> <span class="op">=</span> <span class="st">"0"</span></span>
+<span id="cb2-129"><a href="#cb2-129" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-130"><a href="#cb2-130" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> timeChart <span class="op">=</span> Plot<span class="op">.</span><span class="fu">plot</span>({</span>
+<span id="cb2-131"><a href="#cb2-131" aria-hidden="true" tabindex="-1"></a>    <span class="dt">width</span><span class="op">:</span> chartWidth<span class="op">,</span></span>
+<span id="cb2-132"><a href="#cb2-132" aria-hidden="true" tabindex="-1"></a>    <span class="dt">height</span><span class="op">:</span> <span class="dv">390</span><span class="op">,</span></span>
+<span id="cb2-133"><a href="#cb2-133" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginTop</span><span class="op">:</span> <span class="dv">38</span><span class="op">,</span></span>
+<span id="cb2-134"><a href="#cb2-134" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginRight</span><span class="op">:</span> <span class="dv">18</span><span class="op">,</span></span>
+<span id="cb2-135"><a href="#cb2-135" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginBottom</span><span class="op">:</span> <span class="dv">46</span><span class="op">,</span></span>
+<span id="cb2-136"><a href="#cb2-136" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginLeft</span><span class="op">:</span> <span class="dv">62</span><span class="op">,</span></span>
+<span id="cb2-137"><a href="#cb2-137" aria-hidden="true" tabindex="-1"></a>    style<span class="op">,</span></span>
+<span id="cb2-138"><a href="#cb2-138" aria-hidden="true" tabindex="-1"></a>    <span class="dt">title</span><span class="op">:</span> <span class="st">"Step time"</span><span class="op">,</span></span>
+<span id="cb2-139"><a href="#cb2-139" aria-hidden="true" tabindex="-1"></a>    <span class="dt">x</span><span class="op">:</span> {<span class="dt">label</span><span class="op">:</span> <span class="kw">null</span><span class="op">,</span> <span class="dt">domain</span><span class="op">:</span> modeDomain<span class="op">,</span> <span class="dt">axis</span><span class="op">:</span> <span class="kw">null</span>}<span class="op">,</span></span>
+<span id="cb2-140"><a href="#cb2-140" aria-hidden="true" tabindex="-1"></a>    <span class="dt">fx</span><span class="op">:</span> {</span>
+<span id="cb2-141"><a href="#cb2-141" aria-hidden="true" tabindex="-1"></a>      <span class="dt">label</span><span class="op">:</span> <span class="st">"Transformer layers"</span><span class="op">,</span></span>
+<span id="cb2-142"><a href="#cb2-142" aria-hidden="true" tabindex="-1"></a>      <span class="dt">domain</span><span class="op">:</span> layerDomain<span class="op">,</span></span>
+<span id="cb2-143"><a href="#cb2-143" aria-hidden="true" tabindex="-1"></a>      <span class="dt">axis</span><span class="op">:</span> <span class="st">"bottom"</span><span class="op">,</span></span>
+<span id="cb2-144"><a href="#cb2-144" aria-hidden="true" tabindex="-1"></a>      <span class="dt">tickPadding</span><span class="op">:</span> <span class="dv">6</span><span class="op">,</span></span>
+<span id="cb2-145"><a href="#cb2-145" aria-hidden="true" tabindex="-1"></a>      <span class="dt">labelOffset</span><span class="op">:</span> <span class="dv">27</span><span class="op">,</span></span>
+<span id="cb2-146"><a href="#cb2-146" aria-hidden="true" tabindex="-1"></a>      <span class="dt">padding</span><span class="op">:</span> <span class="fl">0.12</span></span>
+<span id="cb2-147"><a href="#cb2-147" aria-hidden="true" tabindex="-1"></a>    }<span class="op">,</span></span>
+<span id="cb2-148"><a href="#cb2-148" aria-hidden="true" tabindex="-1"></a>    <span class="dt">y</span><span class="op">:</span> {<span class="dt">label</span><span class="op">:</span> <span class="st">"Step time (ms)"</span><span class="op">,</span> <span class="dt">domain</span><span class="op">:</span> [<span class="dv">0</span><span class="op">,</span> <span class="dv">620</span>]<span class="op">,</span> <span class="dt">grid</span><span class="op">:</span> <span class="kw">true</span>}<span class="op">,</span></span>
+<span id="cb2-149"><a href="#cb2-149" aria-hidden="true" tabindex="-1"></a>    <span class="dt">color</span><span class="op">:</span> {</span>
+<span id="cb2-150"><a href="#cb2-150" aria-hidden="true" tabindex="-1"></a>      <span class="dt">domain</span><span class="op">:</span> modeDomain<span class="op">,</span></span>
+<span id="cb2-151"><a href="#cb2-151" aria-hidden="true" tabindex="-1"></a>      <span class="dt">range</span><span class="op">:</span> [<span class="st">"#495057"</span><span class="op">,</span> <span class="st">"#5f3dc4"</span>]<span class="op">,</span></span>
+<span id="cb2-152"><a href="#cb2-152" aria-hidden="true" tabindex="-1"></a>      <span class="dt">legend</span><span class="op">:</span> <span class="kw">true</span></span>
+<span id="cb2-153"><a href="#cb2-153" aria-hidden="true" tabindex="-1"></a>    }<span class="op">,</span></span>
+<span id="cb2-154"><a href="#cb2-154" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marks</span><span class="op">:</span> [</span>
+<span id="cb2-155"><a href="#cb2-155" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">barY</span>(timeData<span class="op">,</span> {</span>
+<span id="cb2-156"><a href="#cb2-156" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"layers"</span><span class="op">,</span></span>
+<span id="cb2-157"><a href="#cb2-157" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb2-158"><a href="#cb2-158" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb2-159"><a href="#cb2-159" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb2-160"><a href="#cb2-160" aria-hidden="true" tabindex="-1"></a>        <span class="dt">insetLeft</span><span class="op">:</span> <span class="dv">5</span><span class="op">,</span></span>
+<span id="cb2-161"><a href="#cb2-161" aria-hidden="true" tabindex="-1"></a>        <span class="dt">insetRight</span><span class="op">:</span> <span class="dv">5</span></span>
+<span id="cb2-162"><a href="#cb2-162" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb2-163"><a href="#cb2-163" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">text</span>(timeData<span class="op">.</span><span class="fu">filter</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">===</span> <span class="st">"TP"</span>)<span class="op">,</span> {</span>
+<span id="cb2-164"><a href="#cb2-164" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"layers"</span><span class="op">,</span></span>
+<span id="cb2-165"><a href="#cb2-165" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb2-166"><a href="#cb2-166" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb2-167"><a href="#cb2-167" aria-hidden="true" tabindex="-1"></a>        <span class="dt">text</span><span class="op">:</span> d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">value</span><span class="op">.</span><span class="fu">toFixed</span>(<span class="dv">1</span>)<span class="op">,</span></span>
+<span id="cb2-168"><a href="#cb2-168" aria-hidden="true" tabindex="-1"></a>        <span class="dt">dy</span><span class="op">:</span> <span class="op">-</span><span class="dv">9</span><span class="op">,</span></span>
+<span id="cb2-169"><a href="#cb2-169" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"#343a40"</span></span>
+<span id="cb2-170"><a href="#cb2-170" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb2-171"><a href="#cb2-171" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">text</span>(timeData<span class="op">.</span><span class="fu">filter</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">===</span> <span class="st">"TP + SP"</span>)<span class="op">,</span> {</span>
+<span id="cb2-172"><a href="#cb2-172" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"layers"</span><span class="op">,</span></span>
+<span id="cb2-173"><a href="#cb2-173" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb2-174"><a href="#cb2-174" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb2-175"><a href="#cb2-175" aria-hidden="true" tabindex="-1"></a>        <span class="dt">text</span><span class="op">:</span> d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">value</span><span class="op">.</span><span class="fu">toFixed</span>(<span class="dv">1</span>)<span class="op">,</span></span>
+<span id="cb2-176"><a href="#cb2-176" aria-hidden="true" tabindex="-1"></a>        <span class="dt">dy</span><span class="op">:</span> <span class="op">-</span><span class="dv">24</span><span class="op">,</span></span>
+<span id="cb2-177"><a href="#cb2-177" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"#5f3dc4"</span><span class="op">,</span></span>
+<span id="cb2-178"><a href="#cb2-178" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fontWeight</span><span class="op">:</span> <span class="dv">600</span></span>
+<span id="cb2-179"><a href="#cb2-179" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb2-180"><a href="#cb2-180" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">text</span>(timeData<span class="op">.</span><span class="fu">filter</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">===</span> <span class="st">"TP + SP"</span>)<span class="op">,</span> {</span>
+<span id="cb2-181"><a href="#cb2-181" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"layers"</span><span class="op">,</span></span>
+<span id="cb2-182"><a href="#cb2-182" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb2-183"><a href="#cb2-183" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb2-184"><a href="#cb2-184" aria-hidden="true" tabindex="-1"></a>        <span class="dt">text</span><span class="op">:</span> d <span class="kw">=&gt;</span> <span class="vs">`(+</span><span class="sc">${</span>d<span class="op">.</span><span class="at">change</span><span class="op">.</span><span class="fu">toFixed</span>(<span class="dv">1</span>)<span class="sc">}</span><span class="vs">%)`</span><span class="op">,</span></span>
+<span id="cb2-185"><a href="#cb2-185" aria-hidden="true" tabindex="-1"></a>        <span class="dt">dy</span><span class="op">:</span> <span class="op">-</span><span class="dv">9</span><span class="op">,</span></span>
+<span id="cb2-186"><a href="#cb2-186" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"#5f3dc4"</span><span class="op">,</span></span>
+<span id="cb2-187"><a href="#cb2-187" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fontWeight</span><span class="op">:</span> <span class="dv">600</span></span>
+<span id="cb2-188"><a href="#cb2-188" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb2-189"><a href="#cb2-189" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">ruleY</span>([<span class="dv">0</span>])</span>
+<span id="cb2-190"><a href="#cb2-190" aria-hidden="true" tabindex="-1"></a>    ]</span>
+<span id="cb2-191"><a href="#cb2-191" aria-hidden="true" tabindex="-1"></a>  })</span>
+<span id="cb2-192"><a href="#cb2-192" aria-hidden="true" tabindex="-1"></a>  timeChart<span class="op">.</span><span class="at">style</span><span class="op">.</span><span class="at">margin</span> <span class="op">=</span> <span class="st">"0"</span></span>
+<span id="cb2-193"><a href="#cb2-193" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-194"><a href="#cb2-194" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> grid <span class="op">=</span> <span class="bu">document</span><span class="op">.</span><span class="fu">createElement</span>(<span class="st">"div"</span>)</span>
+<span id="cb2-195"><a href="#cb2-195" aria-hidden="true" tabindex="-1"></a>  <span class="bu">Object</span><span class="op">.</span><span class="fu">assign</span>(grid<span class="op">.</span><span class="at">style</span><span class="op">,</span> {</span>
+<span id="cb2-196"><a href="#cb2-196" aria-hidden="true" tabindex="-1"></a>    <span class="dt">display</span><span class="op">:</span> <span class="st">"grid"</span><span class="op">,</span></span>
+<span id="cb2-197"><a href="#cb2-197" aria-hidden="true" tabindex="-1"></a>    <span class="dt">gridTemplateColumns</span><span class="op">:</span> <span class="st">"minmax(760px, 1fr)"</span><span class="op">,</span></span>
+<span id="cb2-198"><a href="#cb2-198" aria-hidden="true" tabindex="-1"></a>    <span class="dt">gap</span><span class="op">:</span> <span class="st">"8px"</span><span class="op">,</span></span>
+<span id="cb2-199"><a href="#cb2-199" aria-hidden="true" tabindex="-1"></a>    <span class="dt">minWidth</span><span class="op">:</span> <span class="st">"760px"</span><span class="op">,</span></span>
+<span id="cb2-200"><a href="#cb2-200" aria-hidden="true" tabindex="-1"></a>    <span class="dt">margin</span><span class="op">:</span> <span class="st">"0"</span></span>
+<span id="cb2-201"><a href="#cb2-201" aria-hidden="true" tabindex="-1"></a>  })</span>
+<span id="cb2-202"><a href="#cb2-202" aria-hidden="true" tabindex="-1"></a>  grid<span class="op">.</span><span class="fu">append</span>(memoryChart<span class="op">,</span> timeChart)</span>
+<span id="cb2-203"><a href="#cb2-203" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-204"><a href="#cb2-204" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> container <span class="op">=</span> <span class="bu">document</span><span class="op">.</span><span class="fu">createElement</span>(<span class="st">"div"</span>)</span>
+<span id="cb2-205"><a href="#cb2-205" aria-hidden="true" tabindex="-1"></a>  container<span class="op">.</span><span class="at">className</span> <span class="op">=</span> <span class="st">"benchmark-charts"</span></span>
+<span id="cb2-206"><a href="#cb2-206" aria-hidden="true" tabindex="-1"></a>  container<span class="op">.</span><span class="at">style</span><span class="op">.</span><span class="at">overflowX</span> <span class="op">=</span> <span class="st">"auto"</span></span>
+<span id="cb2-207"><a href="#cb2-207" aria-hidden="true" tabindex="-1"></a>  container<span class="op">.</span><span class="fu">appendChild</span>(grid)</span>
+<span id="cb2-208"><a href="#cb2-208" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> container</span>
+<span id="cb2-209"><a href="#cb2-209" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-display">
+<div id="ojs-cell-1" data-nodetype="expression">
+
+</div>
+</div>
+</div>
 <p>基础 SP 的单卡峰值显存只比 TP only 低约 4%，远没有达到把所有 activation 都缩小到 <span class="math inline">\(1/T\)</span> 时可能产生的直觉收益；与此同时，额外的 all-gather 和 reduce-scatter 使 step time 增加了约 11%～12%。</p>
 <p>这个结果说明，<a href="sequence_parallel.html#sec-sp-block-lifecycle" class="quarto-xref"><span>小节 3.5</span></a> 中的 sequence-sharded layout 的确减少了 Norm、Dropout 和 residual 区域的重复 activation，但还有更大的 tensor 没有被这套布局覆盖。下一节将沿着 Column Parallel Linear 的 tensor 生命周期寻找它们。</p>
 </section>
@@ -374,31 +502,57 @@ window.Quarto = {
 <h2 data-number="4.2" class="anchored" data-anchor-id="sec-sp-memory-limit"><span class="header-section-number">4.2</span> 为什么基础 SP 的显存收益有限</h2>
 <p>基础 SP 已经具备正确的数值逻辑与语义，但它仅缩小了 <strong>TP 区域边界处</strong>（Norm、Dropout 和 Residual 路径）的 Activation。</p>
 <p>在同步版本的 Column Parallel Linear 中，前向传播依然需要执行：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>full_x <span class="op">=</span> gather_from_sequence_parallel_region(local_x, group)</span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>output <span class="op">=</span> F.linear(full_x, weight)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>full_x <span class="op">=</span> gather_from_sequence_parallel_region(local_x, group)</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>output <span class="op">=</span> F.linear(full_x, weight)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>PyTorch Autograd 为了在反向传播（Backward）中计算权重的梯度：</p>
 <p><span class="math display">\[dW = dY^T X\]</span></p>
 <p>会保存 Gather 后的完整张量 <code>full_x: [S, B, H]</code>。因此，Sequence Shard 虽在 Norm、Dropout 和 Residual 区域生效，但一进入 Linear 计算，主要的 Activation 又恢复为完整 Sequence，并持续占用显存直至反向传播结束。</p>
 <section id="activation-理论减少量推导" class="level3" data-number="4.2.1">
 <h3 data-number="4.2.1" class="anchored" data-anchor-id="activation-理论减少量推导"><span class="header-section-number">4.2.1</span> Activation 理论减少量推导</h3>
-<p>在基础 SP 下，真正得到省去的 Activation 仅包含每个 Transformer Block 中的两个 RMSNorm 输入，以及模型末端的最终 RMSNorm 输入。</p>
-<section id="层内-rmsnorm-的显存节省" class="level4" data-number="4.2.1.1">
-<h4 data-number="4.2.1.1" class="anchored" data-anchor-id="层内-rmsnorm-的显存节省"><span class="header-section-number">4.2.1.1</span> 层内 RMSNorm 的显存节省</h4>
-<p>每层两个 RMSNorm 输入 Activation 的理论减少量公式为（BF16精度）：</p>
-<p><span class="math display">\[M_{\text{saved}} \approx 2\text{ bytes} \times B \times S\left(1-\frac{1}{T}\right) \times H \times 2 \times L\]</span></p>
-<p>代入 <a href="#sec-sp-benchmark" class="quarto-xref"><span>小节 4.1</span></a> 的具体配置（<span class="math inline">\(B=2, S=2048, T=2, H=768\)</span>）， 对于 <span class="math inline">\(L\)</span> 层的模型，层内 RMSNorm 输入 Activation 的理论减少量为：</p>
-<p><span class="math display">\[2\text{ bytes} \times 2 \times 2048 \times \frac{1}{2} \times 2 \times 768 \times L = 6L\text{ MiB}\]</span></p>
-<p><span class="math display">\[\Delta M_{\text{layer}} = 6L\text{ MiB}\]</span></p>
+<p>根据 <a href="sequence_parallel.html#sec-sp-layout" class="quarto-xref"><span>小节 3.2.4</span></a> 的分析，基础 SP 只缩小了 Norm、Dropout 和 Residual 区域的 Activation。我们可以手动估计一下基础 SP 带来的显存节省。</p>
+<p>记一份 full-sequence BF16 tensor：<code>[S, B, H]</code> 的显存占用为：</p>
+<p><span class="math display">\[F = 2 \text{ Bytes} \times S B H\]</span></p>
+<section id="层内净显存变化" class="level4" data-number="4.2.1.1">
+<h4 data-number="4.2.1.1" class="anchored" data-anchor-id="层内净显存变化"><span class="header-section-number">4.2.1.1</span> 层内净显存变化</h4>
+<p>先看 RMSNorm。MiniMind 为了数值稳定性会先把输入转换为 FP32：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="cf">return</span> (weight <span class="op">*</span> <span class="va">self</span>.norm(x.<span class="bu">float</span>())).type_as(x)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>因此 Autograd 会为 backward 保留两份主要的 FP32 <code>[S,B,H]</code> 中间量：<code>x.float()</code> 和 <code>self.norm(x.float())</code>。每份 FP32 tensor 占用 <span class="math inline">\(2F\)</span>，因此每个 RMSNorm 主要保留 <span class="math inline">\(4F\)</span>；每个 Block 有两个 RMSNorm，SP 将它们沿 sequence 切分后，理论节省：</p>
+<p><span class="math display">\[
+\Delta M_{\text{norm}}
+=8F\left(1-\frac{1}{T}\right).
+\]</span></p>
+<p>但基础 SP 同时引入了新的开销。普通 TP 中，Q/K/V 的三个 Linear 共享一份完整 Attention 输入，gate/up 共享一份完整 MLP 输入，合计只有两份独立 storage：</p>
+<p><span class="math display">\[M_{\text{TP,column input}}=2F.\]</span></p>
+<p>基础 SP 将 all-gather 放在每个 Column Parallel Linear 内部，因此 Q/K/V 产生三份独立的 full input，gate/up 再产生两份，这些输入虽然内容一致，但是在各个 Linear 内部独立保存，共计 5 份：</p>
+<p><span class="math display">\[M_{\text{SP,column input}}=5F.\]</span></p>
+<p>这些 gather 输出需要保留到 backward 计算 <span class="math inline">\(dW\)</span>，所以基础 SP 相对 TP 新增：</p>
+<p><span class="math display">\[\Delta M_{\text{gather}}=5F-2F=3F.\]</span></p>
+<p>两项合在一起，每个 Block 的净显存减少量约为：</p>
+<p><span class="math display">\[
+\Delta M_{\text{block}}
+=8F\left(1-\frac{1}{T}\right)-3F.
+\]</span></p>
+<p>代入 <a href="#sec-sp-benchmark" class="quarto-xref"><span>小节 4.1</span></a> 的配置 <span class="math inline">\(B=2,S=2048,H=768,T=2\)</span>，一份 full-sequence BF16 tensor 为 <span class="math inline">\(F=6\text{ MiB}\)</span>，于是：</p>
+<p><span class="math display">\[
+\Delta M_{\text{block}}
+=4F-3F
+=F
+=6\text{ MiB}.
+\]</span></p>
+<p>因此 <span class="math inline">\(L\)</span> 层共减少：</p>
+<p><span class="math display">\[\Delta M_{\text{layer}}=6L\text{ MiB}.\]</span></p>
 </section>
 <section id="模型末端-rmsnorm-的显存节省" class="level4" data-number="4.2.1.2">
 <h4 data-number="4.2.1.2" class="anchored" data-anchor-id="模型末端-rmsnorm-的显存节省"><span class="header-section-number">4.2.1.2</span> 模型末端 RMSNorm 的显存节省</h4>
-<p>模型末端的最终 Norm 独立于 Transformer 层之外：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>hidden_states <span class="op">=</span> <span class="va">self</span>.norm(hidden_states)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>Minimind 的 RMSNorm 实现中，为保证数值稳定性会显式产生 FP32 的中间张量：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="cf">return</span> (weight <span class="op">*</span> <span class="va">self</span>.norm(x.<span class="bu">float</span>())).type_as(x)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>训练时，Autograd 需要为输入梯度计算和 Weight 梯度计算保留 <code>x.float()</code> 及其归一化结果。这两个张量均为 <code>[S, B, H]</code> 形状的 FP32 张量（单张量占用 <span class="math inline">\(4\text{ bytes}\)</span>）。</p>
-<p>在当前配置下，序列维度从 <span class="math inline">\(S=2048\)</span> 切分为 <span class="math inline">\(S/T=1024\)</span>，省去的显存量为：</p>
-<p><span class="math display">\[\begin{aligned} \Delta M_{\text{final\_norm}}  &amp;= 2 \times \left[ 4\text{ bytes} \times B \times S\left(1 - \frac{1}{T}\right) \times H \right] \\ &amp;= 2 \times \left[ 4\text{ bytes} \times 2 \times 1024 \times 768 \right] \\ &amp;= 12,582,912\text{ Bytes} = 12\text{ MiB} \end{aligned}\]</span></p>
+<p>模型的末端还有一个 RMSNorm，这里在基础 SP 中也只接受 local sequence shard 的输入，因此节省的显存量为：</p>
+<p><span class="math display">\[
+\Delta M_{\text{final norm}}
+=4F\left(1-\frac{1}{T}\right).
+\]</span></p>
+<p>带入 <a href="#sec-sp-benchmark" class="quarto-xref"><span>小节 4.1</span></a> 的配置，末端 RMSNorm 节省：</p>
+<p><span class="math display">\[
+\Delta M_{\text{final norm}} = 2F = 12\text{ MiB}.
+\]</span></p>
 </section>
 </section>
 <section id="理论估算与实测对比" class="level3" data-number="4.2.2">
@@ -449,7 +603,7 @@ window.Quarto = {
 </tbody>
 </table>
 <p><strong>结论</strong>：理论估算与实测结果高度吻合。</p>
-<p>这说明基础 SP 确实按 <span class="math inline">\(1/T\)</span> 缩小了 Norm 区域的输入 Activation，但这些 Activation 只是 model 中所有 Activation 的一部分，Column Parallel Linear 仍须为 Backward 保存全量 Sequence 的 Activation，若要进一步降低显存占用，就需要引入重计算，改写 Linear 保存至 Backward 的 Activation 结构。</p>
+<p>这说明基础 SP 确实按 <span class="math inline">\(1/T\)</span> 缩小了 Norm 区域的 Activation，但 Column Parallel Linear 为 backward 保存的独立 full-sequence gather outputs 抵消了其中一部分收益。若要进一步降低显存占用，就需要引入重计算，改写 Linear 保存至 backward 的 Activation 结构。</p>
 </section>
 </section>
 <section id="如何避免保存-full-sequence-activation" class="level2" data-number="4.3">
@@ -551,8 +705,8 @@ window.Quarto = {
 </tr>
 </tbody>
 </table>
-<p>MiniMind 源码中的额外 MLP projection 会让上述 Column Parallel 通信次数从 4 变为 5。融合投影可以减少通信次数，但会改变参数布局和 checkpoint 转换逻辑，不属于当前实现。</p>
-<p>TP+SP 的数值验证仍沿用 <a href="tensor_parallel.html#sec-tp-validation" class="quarto-xref"><span>小节 2.14</span></a> 的方法，比较 forward logits/loss、关键参数梯度和多步 AdamW；这里不再重复展开相同的验证步骤。</p>
+<p>MiniMind 源码中的额外 MLP projection 会让上述 Column Parallel 通信次数从 4 变为 5。融合投影可以减少通信次数，但会改变参数布局和 checkpoint 转换逻辑，当前不考虑这种优化。</p>
+<p>TP+SP 的数值验证仍沿用 <a href="tensor_parallel.html#sec-tp-validation" class="quarto-xref"><span>小节 2.15</span></a> 的方法，比较 forward logits/loss、关键参数梯度和多步 AdamW；这里不再重复展开相同的验证步骤。</p>
 </section>
 </section>
 <section id="sec-async-recompute-benchmark" class="level2" data-number="4.4">
@@ -561,6 +715,10 @@ window.Quarto = {
 <section id="普通-tpasync-能隐藏多少通信" class="level3" data-number="4.4.1">
 <h3 data-number="4.4.1" class="anchored" data-anchor-id="普通-tpasync-能隐藏多少通信"><span class="header-section-number">4.4.1</span> 普通 TP：Async 能隐藏多少通信</h3>
 <p>先运行同步 TP 基线：</p>
+<details>
+<summary>
+TP 基线 benchmark 命令
+</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="va">CUDA_DEVICE_MAX_CONNECTIONS</span><span class="op">=</span>1 <span class="ex">python</span> <span class="at">-m</span> evaluation.parallel benchmark <span class="dt">\</span></span>
 <span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--kind</span> memory <span class="dt">\</span></span>
 <span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--tp_size</span> 2 <span class="dt">\</span></span>
@@ -581,6 +739,7 @@ window.Quarto = {
 <span id="cb10-18"><a href="#cb10-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">--benchmark_iters</span> 5</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>异步版本保持其余参数不变，只增加：</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="ex">--async_communication</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <table class="caption-top table">
 <thead>
 <tr class="header">
@@ -645,6 +804,10 @@ window.Quarto = {
 <p><a href="#sec-sp-recompute" class="quarto-xref"><span>小节 4.3.2</span></a> 中的 SP Recompute 不再让 Column Parallel Linear 跨越 forward/backward 保存 full-sequence input，而是在 backward 中重新 all-gather。下面比较基础 SP 与这一实现的峰值显存和 step time。</p>
 <p>需要说明的是，本章所谓的“基础 SP”只是为了分步解释 tensor layout 而构造的中间版本，并不是 Megatron 中实际使用的一种独立 SP 配置。Megatron 所说的 Sequence Parallelism 已经包含只保存 local shard、在 backward 中重新 all-gather input 的过程；对应到 MiniMind，就是本节测试的 <code>sequence_parallel + async_communication</code>，也就是 <code>TP + SP + Async</code>。因此下面的基础 SP 数据只用于拆解这一步优化，最终应关注 Recompute 版本。</p>
 <p>先运行基础 SP：</p>
+<details>
+<summary>
+基础 SP benchmark 命令
+</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="va">CUDA_DEVICE_MAX_CONNECTIONS</span><span class="op">=</span>1 <span class="ex">python</span> <span class="at">-m</span> evaluation.parallel benchmark <span class="dt">\</span></span>
 <span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--kind</span> memory <span class="dt">\</span></span>
 <span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--tp_size</span> 2 <span class="dt">\</span></span>
@@ -666,77 +829,234 @@ window.Quarto = {
 <span id="cb12-19"><a href="#cb12-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">--sequence_parallel</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>Recompute 版本保持其余参数不变，只增加：</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="ex">--async_communication</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <p>当前实现用同一个开关同时启用 SP Recompute 和 backward 异步通信，因此这组实验不能把两者的时间影响单独拆开。显存变化来自只保存 local shard；step time 则同时包含额外 backward all-gather，以及 dgrad collective 与 wgrad GEMM 重叠后的净结果。</p>
-<table class="caption-top table">
-<colgroup>
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-</colgroup>
-<thead>
-<tr class="header">
-<th style="text-align: right;">Layers</th>
-<th style="text-align: right;">基础 SP 显存</th>
-<th style="text-align: right;">Recompute 显存</th>
-<th style="text-align: right;">显存下降</th>
-<th style="text-align: right;">基础 SP step</th>
-<th style="text-align: right;">Recompute step</th>
-<th style="text-align: right;">时间增加</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td style="text-align: right;">2</td>
-<td style="text-align: right;">1052.08 MiB</td>
-<td style="text-align: right;">956.73 MiB</td>
-<td style="text-align: right;">9.1%</td>
-<td style="text-align: right;">40.46 ms</td>
-<td style="text-align: right;">48.70 ms</td>
-<td style="text-align: right;">20.4%</td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">4</td>
-<td style="text-align: right;">1588.95 MiB</td>
-<td style="text-align: right;">1398.82 MiB</td>
-<td style="text-align: right;">12.0%</td>
-<td style="text-align: right;">74.19 ms</td>
-<td style="text-align: right;">91.16 ms</td>
-<td style="text-align: right;">22.9%</td>
-</tr>
-<tr class="odd">
-<td style="text-align: right;">8</td>
-<td style="text-align: right;">2665.97 MiB</td>
-<td style="text-align: right;">2282.97 MiB</td>
-<td style="text-align: right;">14.4%</td>
-<td style="text-align: right;">141.76 ms</td>
-<td style="text-align: right;">175.38 ms</td>
-<td style="text-align: right;">23.7%</td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">16</td>
-<td style="text-align: right;">4824.38 MiB</td>
-<td style="text-align: right;">4056.38 MiB</td>
-<td style="text-align: right;">15.9%</td>
-<td style="text-align: right;">276.60 ms</td>
-<td style="text-align: right;">343.93 ms</td>
-<td style="text-align: right;">24.3%</td>
-</tr>
-<tr class="odd">
-<td style="text-align: right;">32</td>
-<td style="text-align: right;">9136.96 MiB</td>
-<td style="text-align: right;">7600.27 MiB</td>
-<td style="text-align: right;">16.8%</td>
-<td style="text-align: right;">546.35 ms</td>
-<td style="text-align: right;">680.42 ms</td>
-<td style="text-align: right;">24.5%</td>
-</tr>
-</tbody>
-</table>
-<p>显存收益可以直接从 Column Parallel Linear 保存的输入验算。当前配置为：</p>
+<div class="cell no-code-copy">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code hidden" id="cb14" data-startfrom="522" data-source-offset="0"><pre class="sourceCode js code-with-copy"><code class="sourceCode javascript" style="counter-reset: source-line 521;"><span id="cb14-522"><a href="#cb14-522" aria-hidden="true" tabindex="-1"></a>{</span>
+<span id="cb14-523"><a href="#cb14-523" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> rows <span class="op">=</span> [</span>
+<span id="cb14-524"><a href="#cb14-524" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">layers</span><span class="op">:</span> <span class="dv">2</span><span class="op">,</span> <span class="dt">tpMemory</span><span class="op">:</span> <span class="fl">1097.94</span><span class="op">,</span> <span class="dt">baseMemory</span><span class="op">:</span> <span class="fl">1052.08</span><span class="op">,</span> <span class="dt">recomputeMemory</span><span class="op">:</span> <span class="fl">956.73</span><span class="op">,</span> <span class="dt">tpTime</span><span class="op">:</span> <span class="fl">35.82</span><span class="op">,</span> <span class="dt">baseTime</span><span class="op">:</span> <span class="fl">40.46</span><span class="op">,</span> <span class="dt">recomputeTime</span><span class="op">:</span> <span class="fl">48.70</span>}<span class="op">,</span></span>
+<span id="cb14-525"><a href="#cb14-525" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">layers</span><span class="op">:</span> <span class="dv">4</span><span class="op">,</span> <span class="dt">tpMemory</span><span class="op">:</span> <span class="fl">1658.71</span><span class="op">,</span> <span class="dt">baseMemory</span><span class="op">:</span> <span class="fl">1588.95</span><span class="op">,</span> <span class="dt">recomputeMemory</span><span class="op">:</span> <span class="fl">1398.82</span><span class="op">,</span> <span class="dt">tpTime</span><span class="op">:</span> <span class="fl">66.55</span><span class="op">,</span> <span class="dt">baseTime</span><span class="op">:</span> <span class="fl">74.19</span><span class="op">,</span> <span class="dt">recomputeTime</span><span class="op">:</span> <span class="fl">91.16</span>}<span class="op">,</span></span>
+<span id="cb14-526"><a href="#cb14-526" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">layers</span><span class="op">:</span> <span class="dv">8</span><span class="op">,</span> <span class="dt">tpMemory</span><span class="op">:</span> <span class="fl">2781.92</span><span class="op">,</span> <span class="dt">baseMemory</span><span class="op">:</span> <span class="fl">2665.97</span><span class="op">,</span> <span class="dt">recomputeMemory</span><span class="op">:</span> <span class="fl">2282.97</span><span class="op">,</span> <span class="dt">tpTime</span><span class="op">:</span> <span class="fl">127.84</span><span class="op">,</span> <span class="dt">baseTime</span><span class="op">:</span> <span class="fl">141.76</span><span class="op">,</span> <span class="dt">recomputeTime</span><span class="op">:</span> <span class="fl">175.38</span>}<span class="op">,</span></span>
+<span id="cb14-527"><a href="#cb14-527" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">layers</span><span class="op">:</span> <span class="dv">16</span><span class="op">,</span> <span class="dt">tpMemory</span><span class="op">:</span> <span class="fl">5026.93</span><span class="op">,</span> <span class="dt">baseMemory</span><span class="op">:</span> <span class="fl">4824.38</span><span class="op">,</span> <span class="dt">recomputeMemory</span><span class="op">:</span> <span class="fl">4056.38</span><span class="op">,</span> <span class="dt">tpTime</span><span class="op">:</span> <span class="fl">249.51</span><span class="op">,</span> <span class="dt">baseTime</span><span class="op">:</span> <span class="fl">276.60</span><span class="op">,</span> <span class="dt">recomputeTime</span><span class="op">:</span> <span class="fl">343.93</span>}<span class="op">,</span></span>
+<span id="cb14-528"><a href="#cb14-528" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">layers</span><span class="op">:</span> <span class="dv">32</span><span class="op">,</span> <span class="dt">tpMemory</span><span class="op">:</span> <span class="fl">9521.13</span><span class="op">,</span> <span class="dt">baseMemory</span><span class="op">:</span> <span class="fl">9136.96</span><span class="op">,</span> <span class="dt">recomputeMemory</span><span class="op">:</span> <span class="fl">7600.27</span><span class="op">,</span> <span class="dt">tpTime</span><span class="op">:</span> <span class="fl">493.13</span><span class="op">,</span> <span class="dt">baseTime</span><span class="op">:</span> <span class="fl">546.35</span><span class="op">,</span> <span class="dt">recomputeTime</span><span class="op">:</span> <span class="fl">680.42</span>}</span>
+<span id="cb14-529"><a href="#cb14-529" aria-hidden="true" tabindex="-1"></a>  ]<span class="op">.</span><span class="fu">map</span>(d <span class="kw">=&gt;</span> ({</span>
+<span id="cb14-530"><a href="#cb14-530" aria-hidden="true" tabindex="-1"></a>    <span class="op">...</span>d<span class="op">,</span></span>
+<span id="cb14-531"><a href="#cb14-531" aria-hidden="true" tabindex="-1"></a>    <span class="dt">baseMemorySaving</span><span class="op">:</span> (<span class="dv">1</span> <span class="op">-</span> d<span class="op">.</span><span class="at">baseMemory</span> <span class="op">/</span> d<span class="op">.</span><span class="at">tpMemory</span>) <span class="op">*</span> <span class="dv">100</span><span class="op">,</span></span>
+<span id="cb14-532"><a href="#cb14-532" aria-hidden="true" tabindex="-1"></a>    <span class="dt">recomputeMemorySaving</span><span class="op">:</span> (<span class="dv">1</span> <span class="op">-</span> d<span class="op">.</span><span class="at">recomputeMemory</span> <span class="op">/</span> d<span class="op">.</span><span class="at">baseMemory</span>) <span class="op">*</span> <span class="dv">100</span><span class="op">,</span></span>
+<span id="cb14-533"><a href="#cb14-533" aria-hidden="true" tabindex="-1"></a>    <span class="dt">baseTimeIncrease</span><span class="op">:</span> (d<span class="op">.</span><span class="at">baseTime</span> <span class="op">/</span> d<span class="op">.</span><span class="at">tpTime</span> <span class="op">-</span> <span class="dv">1</span>) <span class="op">*</span> <span class="dv">100</span><span class="op">,</span></span>
+<span id="cb14-534"><a href="#cb14-534" aria-hidden="true" tabindex="-1"></a>    <span class="dt">recomputeTimeIncrease</span><span class="op">:</span> (d<span class="op">.</span><span class="at">recomputeTime</span> <span class="op">/</span> d<span class="op">.</span><span class="at">baseTime</span> <span class="op">-</span> <span class="dv">1</span>) <span class="op">*</span> <span class="dv">100</span></span>
+<span id="cb14-535"><a href="#cb14-535" aria-hidden="true" tabindex="-1"></a>  }))</span>
+<span id="cb14-536"><a href="#cb14-536" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-537"><a href="#cb14-537" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> chartWidth <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="dv">760</span><span class="op">,</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(width<span class="op">,</span> <span class="dv">1100</span>))</span>
+<span id="cb14-538"><a href="#cb14-538" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> style <span class="op">=</span> {<span class="dt">background</span><span class="op">:</span> <span class="st">"transparent"</span><span class="op">,</span> <span class="dt">color</span><span class="op">:</span> <span class="st">"currentColor"</span><span class="op">,</span> <span class="dt">fontSize</span><span class="op">:</span> <span class="st">"12px"</span>}</span>
+<span id="cb14-539"><a href="#cb14-539" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> layerDomain <span class="op">=</span> [<span class="st">"2"</span><span class="op">,</span> <span class="st">"4"</span><span class="op">,</span> <span class="st">"8"</span><span class="op">,</span> <span class="st">"16"</span><span class="op">,</span> <span class="st">"32"</span>]</span>
+<span id="cb14-540"><a href="#cb14-540" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> modeDomain <span class="op">=</span> [<span class="st">"TP"</span><span class="op">,</span> <span class="st">"基础 SP"</span><span class="op">,</span> <span class="st">"SP + Recompute"</span>]</span>
+<span id="cb14-541"><a href="#cb14-541" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-542"><a href="#cb14-542" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> memoryData <span class="op">=</span> rows<span class="op">.</span><span class="fu">flatMap</span>(d <span class="kw">=&gt;</span> [</span>
+<span id="cb14-543"><a href="#cb14-543" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">layers</span><span class="op">:</span> <span class="bu">String</span>(d<span class="op">.</span><span class="at">layers</span>)<span class="op">,</span> <span class="dt">mode</span><span class="op">:</span> <span class="st">"TP"</span><span class="op">,</span> <span class="dt">value</span><span class="op">:</span> d<span class="op">.</span><span class="at">tpMemory</span><span class="op">,</span> <span class="dt">change</span><span class="op">:</span> <span class="dv">0</span>}<span class="op">,</span></span>
+<span id="cb14-544"><a href="#cb14-544" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">layers</span><span class="op">:</span> <span class="bu">String</span>(d<span class="op">.</span><span class="at">layers</span>)<span class="op">,</span> <span class="dt">mode</span><span class="op">:</span> <span class="st">"基础 SP"</span><span class="op">,</span> <span class="dt">value</span><span class="op">:</span> d<span class="op">.</span><span class="at">baseMemory</span><span class="op">,</span> <span class="dt">change</span><span class="op">:</span> d<span class="op">.</span><span class="at">baseMemorySaving</span>}<span class="op">,</span></span>
+<span id="cb14-545"><a href="#cb14-545" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">layers</span><span class="op">:</span> <span class="bu">String</span>(d<span class="op">.</span><span class="at">layers</span>)<span class="op">,</span> <span class="dt">mode</span><span class="op">:</span> <span class="st">"SP + Recompute"</span><span class="op">,</span> <span class="dt">value</span><span class="op">:</span> d<span class="op">.</span><span class="at">recomputeMemory</span><span class="op">,</span> <span class="dt">change</span><span class="op">:</span> d<span class="op">.</span><span class="at">recomputeMemorySaving</span>}</span>
+<span id="cb14-546"><a href="#cb14-546" aria-hidden="true" tabindex="-1"></a>  ])</span>
+<span id="cb14-547"><a href="#cb14-547" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-548"><a href="#cb14-548" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> timeData <span class="op">=</span> rows<span class="op">.</span><span class="fu">flatMap</span>(d <span class="kw">=&gt;</span> [</span>
+<span id="cb14-549"><a href="#cb14-549" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">layers</span><span class="op">:</span> <span class="bu">String</span>(d<span class="op">.</span><span class="at">layers</span>)<span class="op">,</span> <span class="dt">mode</span><span class="op">:</span> <span class="st">"TP"</span><span class="op">,</span> <span class="dt">value</span><span class="op">:</span> d<span class="op">.</span><span class="at">tpTime</span><span class="op">,</span> <span class="dt">change</span><span class="op">:</span> <span class="dv">0</span>}<span class="op">,</span></span>
+<span id="cb14-550"><a href="#cb14-550" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">layers</span><span class="op">:</span> <span class="bu">String</span>(d<span class="op">.</span><span class="at">layers</span>)<span class="op">,</span> <span class="dt">mode</span><span class="op">:</span> <span class="st">"基础 SP"</span><span class="op">,</span> <span class="dt">value</span><span class="op">:</span> d<span class="op">.</span><span class="at">baseTime</span><span class="op">,</span> <span class="dt">change</span><span class="op">:</span> d<span class="op">.</span><span class="at">baseTimeIncrease</span>}<span class="op">,</span></span>
+<span id="cb14-551"><a href="#cb14-551" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">layers</span><span class="op">:</span> <span class="bu">String</span>(d<span class="op">.</span><span class="at">layers</span>)<span class="op">,</span> <span class="dt">mode</span><span class="op">:</span> <span class="st">"SP + Recompute"</span><span class="op">,</span> <span class="dt">value</span><span class="op">:</span> d<span class="op">.</span><span class="at">recomputeTime</span><span class="op">,</span> <span class="dt">change</span><span class="op">:</span> d<span class="op">.</span><span class="at">recomputeTimeIncrease</span>}</span>
+<span id="cb14-552"><a href="#cb14-552" aria-hidden="true" tabindex="-1"></a>  ])</span>
+<span id="cb14-553"><a href="#cb14-553" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-554"><a href="#cb14-554" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> memoryChart <span class="op">=</span> Plot<span class="op">.</span><span class="fu">plot</span>({</span>
+<span id="cb14-555"><a href="#cb14-555" aria-hidden="true" tabindex="-1"></a>    <span class="dt">width</span><span class="op">:</span> chartWidth<span class="op">,</span></span>
+<span id="cb14-556"><a href="#cb14-556" aria-hidden="true" tabindex="-1"></a>    <span class="dt">height</span><span class="op">:</span> <span class="dv">390</span><span class="op">,</span></span>
+<span id="cb14-557"><a href="#cb14-557" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginTop</span><span class="op">:</span> <span class="dv">38</span><span class="op">,</span></span>
+<span id="cb14-558"><a href="#cb14-558" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginRight</span><span class="op">:</span> <span class="dv">18</span><span class="op">,</span></span>
+<span id="cb14-559"><a href="#cb14-559" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginBottom</span><span class="op">:</span> <span class="dv">46</span><span class="op">,</span></span>
+<span id="cb14-560"><a href="#cb14-560" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginLeft</span><span class="op">:</span> <span class="dv">68</span><span class="op">,</span></span>
+<span id="cb14-561"><a href="#cb14-561" aria-hidden="true" tabindex="-1"></a>    style<span class="op">,</span></span>
+<span id="cb14-562"><a href="#cb14-562" aria-hidden="true" tabindex="-1"></a>    <span class="dt">title</span><span class="op">:</span> <span class="st">"Per-rank peak memory"</span><span class="op">,</span></span>
+<span id="cb14-563"><a href="#cb14-563" aria-hidden="true" tabindex="-1"></a>    <span class="dt">x</span><span class="op">:</span> {<span class="dt">label</span><span class="op">:</span> <span class="kw">null</span><span class="op">,</span> <span class="dt">domain</span><span class="op">:</span> modeDomain<span class="op">,</span> <span class="dt">axis</span><span class="op">:</span> <span class="kw">null</span>}<span class="op">,</span></span>
+<span id="cb14-564"><a href="#cb14-564" aria-hidden="true" tabindex="-1"></a>    <span class="dt">fx</span><span class="op">:</span> {</span>
+<span id="cb14-565"><a href="#cb14-565" aria-hidden="true" tabindex="-1"></a>      <span class="dt">label</span><span class="op">:</span> <span class="st">"Transformer layers"</span><span class="op">,</span></span>
+<span id="cb14-566"><a href="#cb14-566" aria-hidden="true" tabindex="-1"></a>      <span class="dt">domain</span><span class="op">:</span> layerDomain<span class="op">,</span></span>
+<span id="cb14-567"><a href="#cb14-567" aria-hidden="true" tabindex="-1"></a>      <span class="dt">axis</span><span class="op">:</span> <span class="st">"bottom"</span><span class="op">,</span></span>
+<span id="cb14-568"><a href="#cb14-568" aria-hidden="true" tabindex="-1"></a>      <span class="dt">tickPadding</span><span class="op">:</span> <span class="dv">6</span><span class="op">,</span></span>
+<span id="cb14-569"><a href="#cb14-569" aria-hidden="true" tabindex="-1"></a>      <span class="dt">labelOffset</span><span class="op">:</span> <span class="dv">27</span><span class="op">,</span></span>
+<span id="cb14-570"><a href="#cb14-570" aria-hidden="true" tabindex="-1"></a>      <span class="dt">padding</span><span class="op">:</span> <span class="fl">0.12</span></span>
+<span id="cb14-571"><a href="#cb14-571" aria-hidden="true" tabindex="-1"></a>    }<span class="op">,</span></span>
+<span id="cb14-572"><a href="#cb14-572" aria-hidden="true" tabindex="-1"></a>    <span class="dt">y</span><span class="op">:</span> {</span>
+<span id="cb14-573"><a href="#cb14-573" aria-hidden="true" tabindex="-1"></a>      <span class="dt">label</span><span class="op">:</span> <span class="st">"Peak allocated memory (MiB)"</span><span class="op">,</span></span>
+<span id="cb14-574"><a href="#cb14-574" aria-hidden="true" tabindex="-1"></a>      <span class="dt">domain</span><span class="op">:</span> [<span class="dv">0</span><span class="op">,</span> <span class="dv">10000</span>]<span class="op">,</span></span>
+<span id="cb14-575"><a href="#cb14-575" aria-hidden="true" tabindex="-1"></a>      <span class="dt">grid</span><span class="op">:</span> <span class="kw">true</span><span class="op">,</span></span>
+<span id="cb14-576"><a href="#cb14-576" aria-hidden="true" tabindex="-1"></a>      <span class="dt">tickFormat</span><span class="op">:</span> d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="fu">toLocaleString</span>(<span class="st">"en-US"</span>)</span>
+<span id="cb14-577"><a href="#cb14-577" aria-hidden="true" tabindex="-1"></a>    }<span class="op">,</span></span>
+<span id="cb14-578"><a href="#cb14-578" aria-hidden="true" tabindex="-1"></a>    <span class="dt">color</span><span class="op">:</span> {</span>
+<span id="cb14-579"><a href="#cb14-579" aria-hidden="true" tabindex="-1"></a>      <span class="dt">domain</span><span class="op">:</span> modeDomain<span class="op">,</span></span>
+<span id="cb14-580"><a href="#cb14-580" aria-hidden="true" tabindex="-1"></a>      <span class="dt">range</span><span class="op">:</span> [<span class="st">"#495057"</span><span class="op">,</span> <span class="st">"#1971c2"</span><span class="op">,</span> <span class="st">"#5f3dc4"</span>]<span class="op">,</span></span>
+<span id="cb14-581"><a href="#cb14-581" aria-hidden="true" tabindex="-1"></a>      <span class="dt">legend</span><span class="op">:</span> <span class="kw">true</span></span>
+<span id="cb14-582"><a href="#cb14-582" aria-hidden="true" tabindex="-1"></a>    }<span class="op">,</span></span>
+<span id="cb14-583"><a href="#cb14-583" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marks</span><span class="op">:</span> [</span>
+<span id="cb14-584"><a href="#cb14-584" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">barY</span>(memoryData<span class="op">,</span> {</span>
+<span id="cb14-585"><a href="#cb14-585" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"layers"</span><span class="op">,</span></span>
+<span id="cb14-586"><a href="#cb14-586" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb14-587"><a href="#cb14-587" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb14-588"><a href="#cb14-588" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb14-589"><a href="#cb14-589" aria-hidden="true" tabindex="-1"></a>        <span class="dt">insetLeft</span><span class="op">:</span> <span class="dv">5</span><span class="op">,</span></span>
+<span id="cb14-590"><a href="#cb14-590" aria-hidden="true" tabindex="-1"></a>        <span class="dt">insetRight</span><span class="op">:</span> <span class="dv">5</span></span>
+<span id="cb14-591"><a href="#cb14-591" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb14-592"><a href="#cb14-592" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">text</span>(memoryData<span class="op">.</span><span class="fu">filter</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">===</span> <span class="st">"TP"</span>)<span class="op">,</span> {</span>
+<span id="cb14-593"><a href="#cb14-593" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"layers"</span><span class="op">,</span></span>
+<span id="cb14-594"><a href="#cb14-594" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb14-595"><a href="#cb14-595" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb14-596"><a href="#cb14-596" aria-hidden="true" tabindex="-1"></a>        <span class="dt">text</span><span class="op">:</span> d <span class="kw">=&gt;</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">round</span>(d<span class="op">.</span><span class="at">value</span>)<span class="op">.</span><span class="fu">toLocaleString</span>(<span class="st">"en-US"</span>)<span class="op">,</span></span>
+<span id="cb14-597"><a href="#cb14-597" aria-hidden="true" tabindex="-1"></a>        <span class="dt">dy</span><span class="op">:</span> <span class="op">-</span><span class="dv">9</span><span class="op">,</span></span>
+<span id="cb14-598"><a href="#cb14-598" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"#343a40"</span></span>
+<span id="cb14-599"><a href="#cb14-599" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb14-600"><a href="#cb14-600" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">text</span>(memoryData<span class="op">.</span><span class="fu">filter</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">===</span> <span class="st">"基础 SP"</span>)<span class="op">,</span> {</span>
+<span id="cb14-601"><a href="#cb14-601" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"layers"</span><span class="op">,</span></span>
+<span id="cb14-602"><a href="#cb14-602" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb14-603"><a href="#cb14-603" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb14-604"><a href="#cb14-604" aria-hidden="true" tabindex="-1"></a>        <span class="dt">text</span><span class="op">:</span> d <span class="kw">=&gt;</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">round</span>(d<span class="op">.</span><span class="at">value</span>)<span class="op">.</span><span class="fu">toLocaleString</span>(<span class="st">"en-US"</span>)<span class="op">,</span></span>
+<span id="cb14-605"><a href="#cb14-605" aria-hidden="true" tabindex="-1"></a>        <span class="dt">dy</span><span class="op">:</span> <span class="op">-</span><span class="dv">24</span><span class="op">,</span></span>
+<span id="cb14-606"><a href="#cb14-606" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"#1971c2"</span><span class="op">,</span></span>
+<span id="cb14-607"><a href="#cb14-607" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fontWeight</span><span class="op">:</span> <span class="dv">600</span></span>
+<span id="cb14-608"><a href="#cb14-608" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb14-609"><a href="#cb14-609" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">text</span>(memoryData<span class="op">.</span><span class="fu">filter</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">===</span> <span class="st">"基础 SP"</span>)<span class="op">,</span> {</span>
+<span id="cb14-610"><a href="#cb14-610" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"layers"</span><span class="op">,</span></span>
+<span id="cb14-611"><a href="#cb14-611" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb14-612"><a href="#cb14-612" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb14-613"><a href="#cb14-613" aria-hidden="true" tabindex="-1"></a>        <span class="dt">text</span><span class="op">:</span> d <span class="kw">=&gt;</span> <span class="vs">`(-</span><span class="sc">${</span>d<span class="op">.</span><span class="at">change</span><span class="op">.</span><span class="fu">toFixed</span>(<span class="dv">1</span>)<span class="sc">}</span><span class="vs">%)`</span><span class="op">,</span></span>
+<span id="cb14-614"><a href="#cb14-614" aria-hidden="true" tabindex="-1"></a>        <span class="dt">dy</span><span class="op">:</span> <span class="op">-</span><span class="dv">9</span><span class="op">,</span></span>
+<span id="cb14-615"><a href="#cb14-615" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"#1971c2"</span><span class="op">,</span></span>
+<span id="cb14-616"><a href="#cb14-616" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fontWeight</span><span class="op">:</span> <span class="dv">600</span></span>
+<span id="cb14-617"><a href="#cb14-617" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb14-618"><a href="#cb14-618" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">text</span>(memoryData<span class="op">.</span><span class="fu">filter</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">===</span> <span class="st">"SP + Recompute"</span>)<span class="op">,</span> {</span>
+<span id="cb14-619"><a href="#cb14-619" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"layers"</span><span class="op">,</span></span>
+<span id="cb14-620"><a href="#cb14-620" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb14-621"><a href="#cb14-621" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb14-622"><a href="#cb14-622" aria-hidden="true" tabindex="-1"></a>        <span class="dt">text</span><span class="op">:</span> d <span class="kw">=&gt;</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">round</span>(d<span class="op">.</span><span class="at">value</span>)<span class="op">.</span><span class="fu">toLocaleString</span>(<span class="st">"en-US"</span>)<span class="op">,</span></span>
+<span id="cb14-623"><a href="#cb14-623" aria-hidden="true" tabindex="-1"></a>        <span class="dt">dy</span><span class="op">:</span> <span class="op">-</span><span class="dv">24</span><span class="op">,</span></span>
+<span id="cb14-624"><a href="#cb14-624" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"#5f3dc4"</span><span class="op">,</span></span>
+<span id="cb14-625"><a href="#cb14-625" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fontWeight</span><span class="op">:</span> <span class="dv">600</span></span>
+<span id="cb14-626"><a href="#cb14-626" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb14-627"><a href="#cb14-627" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">text</span>(memoryData<span class="op">.</span><span class="fu">filter</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">===</span> <span class="st">"SP + Recompute"</span>)<span class="op">,</span> {</span>
+<span id="cb14-628"><a href="#cb14-628" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"layers"</span><span class="op">,</span></span>
+<span id="cb14-629"><a href="#cb14-629" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb14-630"><a href="#cb14-630" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb14-631"><a href="#cb14-631" aria-hidden="true" tabindex="-1"></a>        <span class="dt">text</span><span class="op">:</span> d <span class="kw">=&gt;</span> <span class="vs">`(-</span><span class="sc">${</span>d<span class="op">.</span><span class="at">change</span><span class="op">.</span><span class="fu">toFixed</span>(<span class="dv">1</span>)<span class="sc">}</span><span class="vs">%)`</span><span class="op">,</span></span>
+<span id="cb14-632"><a href="#cb14-632" aria-hidden="true" tabindex="-1"></a>        <span class="dt">dy</span><span class="op">:</span> <span class="op">-</span><span class="dv">9</span><span class="op">,</span></span>
+<span id="cb14-633"><a href="#cb14-633" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"#5f3dc4"</span><span class="op">,</span></span>
+<span id="cb14-634"><a href="#cb14-634" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fontWeight</span><span class="op">:</span> <span class="dv">600</span></span>
+<span id="cb14-635"><a href="#cb14-635" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb14-636"><a href="#cb14-636" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">ruleY</span>([<span class="dv">0</span>])</span>
+<span id="cb14-637"><a href="#cb14-637" aria-hidden="true" tabindex="-1"></a>    ]</span>
+<span id="cb14-638"><a href="#cb14-638" aria-hidden="true" tabindex="-1"></a>  })</span>
+<span id="cb14-639"><a href="#cb14-639" aria-hidden="true" tabindex="-1"></a>  memoryChart<span class="op">.</span><span class="at">style</span><span class="op">.</span><span class="at">margin</span> <span class="op">=</span> <span class="st">"0"</span></span>
+<span id="cb14-640"><a href="#cb14-640" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-641"><a href="#cb14-641" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> timeChart <span class="op">=</span> Plot<span class="op">.</span><span class="fu">plot</span>({</span>
+<span id="cb14-642"><a href="#cb14-642" aria-hidden="true" tabindex="-1"></a>    <span class="dt">width</span><span class="op">:</span> chartWidth<span class="op">,</span></span>
+<span id="cb14-643"><a href="#cb14-643" aria-hidden="true" tabindex="-1"></a>    <span class="dt">height</span><span class="op">:</span> <span class="dv">390</span><span class="op">,</span></span>
+<span id="cb14-644"><a href="#cb14-644" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginTop</span><span class="op">:</span> <span class="dv">38</span><span class="op">,</span></span>
+<span id="cb14-645"><a href="#cb14-645" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginRight</span><span class="op">:</span> <span class="dv">18</span><span class="op">,</span></span>
+<span id="cb14-646"><a href="#cb14-646" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginBottom</span><span class="op">:</span> <span class="dv">46</span><span class="op">,</span></span>
+<span id="cb14-647"><a href="#cb14-647" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginLeft</span><span class="op">:</span> <span class="dv">62</span><span class="op">,</span></span>
+<span id="cb14-648"><a href="#cb14-648" aria-hidden="true" tabindex="-1"></a>    style<span class="op">,</span></span>
+<span id="cb14-649"><a href="#cb14-649" aria-hidden="true" tabindex="-1"></a>    <span class="dt">title</span><span class="op">:</span> <span class="st">"Step time"</span><span class="op">,</span></span>
+<span id="cb14-650"><a href="#cb14-650" aria-hidden="true" tabindex="-1"></a>    <span class="dt">x</span><span class="op">:</span> {<span class="dt">label</span><span class="op">:</span> <span class="kw">null</span><span class="op">,</span> <span class="dt">domain</span><span class="op">:</span> modeDomain<span class="op">,</span> <span class="dt">axis</span><span class="op">:</span> <span class="kw">null</span>}<span class="op">,</span></span>
+<span id="cb14-651"><a href="#cb14-651" aria-hidden="true" tabindex="-1"></a>    <span class="dt">fx</span><span class="op">:</span> {</span>
+<span id="cb14-652"><a href="#cb14-652" aria-hidden="true" tabindex="-1"></a>      <span class="dt">label</span><span class="op">:</span> <span class="st">"Transformer layers"</span><span class="op">,</span></span>
+<span id="cb14-653"><a href="#cb14-653" aria-hidden="true" tabindex="-1"></a>      <span class="dt">domain</span><span class="op">:</span> layerDomain<span class="op">,</span></span>
+<span id="cb14-654"><a href="#cb14-654" aria-hidden="true" tabindex="-1"></a>      <span class="dt">axis</span><span class="op">:</span> <span class="st">"bottom"</span><span class="op">,</span></span>
+<span id="cb14-655"><a href="#cb14-655" aria-hidden="true" tabindex="-1"></a>      <span class="dt">tickPadding</span><span class="op">:</span> <span class="dv">6</span><span class="op">,</span></span>
+<span id="cb14-656"><a href="#cb14-656" aria-hidden="true" tabindex="-1"></a>      <span class="dt">labelOffset</span><span class="op">:</span> <span class="dv">27</span><span class="op">,</span></span>
+<span id="cb14-657"><a href="#cb14-657" aria-hidden="true" tabindex="-1"></a>      <span class="dt">padding</span><span class="op">:</span> <span class="fl">0.12</span></span>
+<span id="cb14-658"><a href="#cb14-658" aria-hidden="true" tabindex="-1"></a>    }<span class="op">,</span></span>
+<span id="cb14-659"><a href="#cb14-659" aria-hidden="true" tabindex="-1"></a>    <span class="dt">y</span><span class="op">:</span> {<span class="dt">label</span><span class="op">:</span> <span class="st">"Step time (ms)"</span><span class="op">,</span> <span class="dt">domain</span><span class="op">:</span> [<span class="dv">0</span><span class="op">,</span> <span class="dv">750</span>]<span class="op">,</span> <span class="dt">grid</span><span class="op">:</span> <span class="kw">true</span>}<span class="op">,</span></span>
+<span id="cb14-660"><a href="#cb14-660" aria-hidden="true" tabindex="-1"></a>    <span class="dt">color</span><span class="op">:</span> {</span>
+<span id="cb14-661"><a href="#cb14-661" aria-hidden="true" tabindex="-1"></a>      <span class="dt">domain</span><span class="op">:</span> modeDomain<span class="op">,</span></span>
+<span id="cb14-662"><a href="#cb14-662" aria-hidden="true" tabindex="-1"></a>      <span class="dt">range</span><span class="op">:</span> [<span class="st">"#495057"</span><span class="op">,</span> <span class="st">"#1971c2"</span><span class="op">,</span> <span class="st">"#5f3dc4"</span>]<span class="op">,</span></span>
+<span id="cb14-663"><a href="#cb14-663" aria-hidden="true" tabindex="-1"></a>      <span class="dt">legend</span><span class="op">:</span> <span class="kw">true</span></span>
+<span id="cb14-664"><a href="#cb14-664" aria-hidden="true" tabindex="-1"></a>    }<span class="op">,</span></span>
+<span id="cb14-665"><a href="#cb14-665" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marks</span><span class="op">:</span> [</span>
+<span id="cb14-666"><a href="#cb14-666" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">barY</span>(timeData<span class="op">,</span> {</span>
+<span id="cb14-667"><a href="#cb14-667" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"layers"</span><span class="op">,</span></span>
+<span id="cb14-668"><a href="#cb14-668" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb14-669"><a href="#cb14-669" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb14-670"><a href="#cb14-670" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb14-671"><a href="#cb14-671" aria-hidden="true" tabindex="-1"></a>        <span class="dt">insetLeft</span><span class="op">:</span> <span class="dv">5</span><span class="op">,</span></span>
+<span id="cb14-672"><a href="#cb14-672" aria-hidden="true" tabindex="-1"></a>        <span class="dt">insetRight</span><span class="op">:</span> <span class="dv">5</span></span>
+<span id="cb14-673"><a href="#cb14-673" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb14-674"><a href="#cb14-674" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">text</span>(timeData<span class="op">.</span><span class="fu">filter</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">===</span> <span class="st">"TP"</span>)<span class="op">,</span> {</span>
+<span id="cb14-675"><a href="#cb14-675" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"layers"</span><span class="op">,</span></span>
+<span id="cb14-676"><a href="#cb14-676" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb14-677"><a href="#cb14-677" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb14-678"><a href="#cb14-678" aria-hidden="true" tabindex="-1"></a>        <span class="dt">text</span><span class="op">:</span> d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">value</span><span class="op">.</span><span class="fu">toFixed</span>(<span class="dv">1</span>)<span class="op">,</span></span>
+<span id="cb14-679"><a href="#cb14-679" aria-hidden="true" tabindex="-1"></a>        <span class="dt">dy</span><span class="op">:</span> <span class="op">-</span><span class="dv">9</span><span class="op">,</span></span>
+<span id="cb14-680"><a href="#cb14-680" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"#343a40"</span></span>
+<span id="cb14-681"><a href="#cb14-681" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb14-682"><a href="#cb14-682" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">text</span>(timeData<span class="op">.</span><span class="fu">filter</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">===</span> <span class="st">"基础 SP"</span>)<span class="op">,</span> {</span>
+<span id="cb14-683"><a href="#cb14-683" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"layers"</span><span class="op">,</span></span>
+<span id="cb14-684"><a href="#cb14-684" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb14-685"><a href="#cb14-685" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb14-686"><a href="#cb14-686" aria-hidden="true" tabindex="-1"></a>        <span class="dt">text</span><span class="op">:</span> d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">value</span><span class="op">.</span><span class="fu">toFixed</span>(<span class="dv">1</span>)<span class="op">,</span></span>
+<span id="cb14-687"><a href="#cb14-687" aria-hidden="true" tabindex="-1"></a>        <span class="dt">dy</span><span class="op">:</span> <span class="op">-</span><span class="dv">24</span><span class="op">,</span></span>
+<span id="cb14-688"><a href="#cb14-688" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"#1971c2"</span><span class="op">,</span></span>
+<span id="cb14-689"><a href="#cb14-689" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fontWeight</span><span class="op">:</span> <span class="dv">600</span></span>
+<span id="cb14-690"><a href="#cb14-690" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb14-691"><a href="#cb14-691" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">text</span>(timeData<span class="op">.</span><span class="fu">filter</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">===</span> <span class="st">"基础 SP"</span>)<span class="op">,</span> {</span>
+<span id="cb14-692"><a href="#cb14-692" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"layers"</span><span class="op">,</span></span>
+<span id="cb14-693"><a href="#cb14-693" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb14-694"><a href="#cb14-694" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb14-695"><a href="#cb14-695" aria-hidden="true" tabindex="-1"></a>        <span class="dt">text</span><span class="op">:</span> d <span class="kw">=&gt;</span> <span class="vs">`(+</span><span class="sc">${</span>d<span class="op">.</span><span class="at">change</span><span class="op">.</span><span class="fu">toFixed</span>(<span class="dv">1</span>)<span class="sc">}</span><span class="vs">%)`</span><span class="op">,</span></span>
+<span id="cb14-696"><a href="#cb14-696" aria-hidden="true" tabindex="-1"></a>        <span class="dt">dy</span><span class="op">:</span> <span class="op">-</span><span class="dv">9</span><span class="op">,</span></span>
+<span id="cb14-697"><a href="#cb14-697" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"#1971c2"</span><span class="op">,</span></span>
+<span id="cb14-698"><a href="#cb14-698" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fontWeight</span><span class="op">:</span> <span class="dv">600</span></span>
+<span id="cb14-699"><a href="#cb14-699" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb14-700"><a href="#cb14-700" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">text</span>(timeData<span class="op">.</span><span class="fu">filter</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">===</span> <span class="st">"SP + Recompute"</span>)<span class="op">,</span> {</span>
+<span id="cb14-701"><a href="#cb14-701" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"layers"</span><span class="op">,</span></span>
+<span id="cb14-702"><a href="#cb14-702" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb14-703"><a href="#cb14-703" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb14-704"><a href="#cb14-704" aria-hidden="true" tabindex="-1"></a>        <span class="dt">text</span><span class="op">:</span> d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">value</span><span class="op">.</span><span class="fu">toFixed</span>(<span class="dv">1</span>)<span class="op">,</span></span>
+<span id="cb14-705"><a href="#cb14-705" aria-hidden="true" tabindex="-1"></a>        <span class="dt">dy</span><span class="op">:</span> <span class="op">-</span><span class="dv">24</span><span class="op">,</span></span>
+<span id="cb14-706"><a href="#cb14-706" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"#5f3dc4"</span><span class="op">,</span></span>
+<span id="cb14-707"><a href="#cb14-707" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fontWeight</span><span class="op">:</span> <span class="dv">600</span></span>
+<span id="cb14-708"><a href="#cb14-708" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb14-709"><a href="#cb14-709" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">text</span>(timeData<span class="op">.</span><span class="fu">filter</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">===</span> <span class="st">"SP + Recompute"</span>)<span class="op">,</span> {</span>
+<span id="cb14-710"><a href="#cb14-710" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"layers"</span><span class="op">,</span></span>
+<span id="cb14-711"><a href="#cb14-711" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb14-712"><a href="#cb14-712" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb14-713"><a href="#cb14-713" aria-hidden="true" tabindex="-1"></a>        <span class="dt">text</span><span class="op">:</span> d <span class="kw">=&gt;</span> <span class="vs">`(+</span><span class="sc">${</span>d<span class="op">.</span><span class="at">change</span><span class="op">.</span><span class="fu">toFixed</span>(<span class="dv">1</span>)<span class="sc">}</span><span class="vs">%)`</span><span class="op">,</span></span>
+<span id="cb14-714"><a href="#cb14-714" aria-hidden="true" tabindex="-1"></a>        <span class="dt">dy</span><span class="op">:</span> <span class="op">-</span><span class="dv">9</span><span class="op">,</span></span>
+<span id="cb14-715"><a href="#cb14-715" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"#5f3dc4"</span><span class="op">,</span></span>
+<span id="cb14-716"><a href="#cb14-716" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fontWeight</span><span class="op">:</span> <span class="dv">600</span></span>
+<span id="cb14-717"><a href="#cb14-717" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb14-718"><a href="#cb14-718" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">ruleY</span>([<span class="dv">0</span>])</span>
+<span id="cb14-719"><a href="#cb14-719" aria-hidden="true" tabindex="-1"></a>    ]</span>
+<span id="cb14-720"><a href="#cb14-720" aria-hidden="true" tabindex="-1"></a>  })</span>
+<span id="cb14-721"><a href="#cb14-721" aria-hidden="true" tabindex="-1"></a>  timeChart<span class="op">.</span><span class="at">style</span><span class="op">.</span><span class="at">margin</span> <span class="op">=</span> <span class="st">"0"</span></span>
+<span id="cb14-722"><a href="#cb14-722" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-723"><a href="#cb14-723" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> grid <span class="op">=</span> <span class="bu">document</span><span class="op">.</span><span class="fu">createElement</span>(<span class="st">"div"</span>)</span>
+<span id="cb14-724"><a href="#cb14-724" aria-hidden="true" tabindex="-1"></a>  <span class="bu">Object</span><span class="op">.</span><span class="fu">assign</span>(grid<span class="op">.</span><span class="at">style</span><span class="op">,</span> {</span>
+<span id="cb14-725"><a href="#cb14-725" aria-hidden="true" tabindex="-1"></a>    <span class="dt">display</span><span class="op">:</span> <span class="st">"grid"</span><span class="op">,</span></span>
+<span id="cb14-726"><a href="#cb14-726" aria-hidden="true" tabindex="-1"></a>    <span class="dt">gridTemplateColumns</span><span class="op">:</span> <span class="st">"minmax(760px, 1fr)"</span><span class="op">,</span></span>
+<span id="cb14-727"><a href="#cb14-727" aria-hidden="true" tabindex="-1"></a>    <span class="dt">gap</span><span class="op">:</span> <span class="st">"8px"</span><span class="op">,</span></span>
+<span id="cb14-728"><a href="#cb14-728" aria-hidden="true" tabindex="-1"></a>    <span class="dt">minWidth</span><span class="op">:</span> <span class="st">"760px"</span><span class="op">,</span></span>
+<span id="cb14-729"><a href="#cb14-729" aria-hidden="true" tabindex="-1"></a>    <span class="dt">margin</span><span class="op">:</span> <span class="st">"0"</span></span>
+<span id="cb14-730"><a href="#cb14-730" aria-hidden="true" tabindex="-1"></a>  })</span>
+<span id="cb14-731"><a href="#cb14-731" aria-hidden="true" tabindex="-1"></a>  grid<span class="op">.</span><span class="fu">append</span>(memoryChart<span class="op">,</span> timeChart)</span>
+<span id="cb14-732"><a href="#cb14-732" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-733"><a href="#cb14-733" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> container <span class="op">=</span> <span class="bu">document</span><span class="op">.</span><span class="fu">createElement</span>(<span class="st">"div"</span>)</span>
+<span id="cb14-734"><a href="#cb14-734" aria-hidden="true" tabindex="-1"></a>  container<span class="op">.</span><span class="at">className</span> <span class="op">=</span> <span class="st">"benchmark-charts"</span></span>
+<span id="cb14-735"><a href="#cb14-735" aria-hidden="true" tabindex="-1"></a>  container<span class="op">.</span><span class="at">style</span><span class="op">.</span><span class="at">overflowX</span> <span class="op">=</span> <span class="st">"auto"</span></span>
+<span id="cb14-736"><a href="#cb14-736" aria-hidden="true" tabindex="-1"></a>  container<span class="op">.</span><span class="fu">appendChild</span>(grid)</span>
+<span id="cb14-737"><a href="#cb14-737" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> container</span>
+<span id="cb14-738"><a href="#cb14-738" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-display">
+<div id="ojs-cell-2" data-nodetype="expression">
+
+</div>
+</div>
+</div>
+<p>图中基础 SP 的百分比相对 TP 计算，SP + Recompute 的百分比相对基础 SP 计算。</p>
+<p>显存收益可以直接从 Column Parallel Linear 保存的输入估计。当前配置为：</p>
 <p><span class="math display">\[
 B=4,\qquad S=2048,\qquad H=768,\qquad T=2.
 \]</span></p>
@@ -754,6 +1074,7 @@ M_{\text{basic, per block}}
 (3+2)\times12
 =60\text{ MiB}.
 \]</span></p>
+<p>这里计算的是基础 SP 到 Recompute 的变化。作为参照，普通 TP 的 Q/K/V 共享一份 full input storage，gate/up 共享另一份；基础 SP 多出的三份 full input 已经在 <a href="#sec-sp-memory-limit" class="quarto-xref"><span>小节 4.2</span></a> 中计入了 TP 与基础 SP 的比较。</p>
 <p>Recompute 版本不保存这些 gather 输出。三个 Attention projections 只引用同一份 local input storage，两个 MLP projections 也只引用同一份 local input storage：</p>
 <p><span class="math display">\[
 M_{\text{recompute, per block}}
@@ -801,7 +1122,7 @@ M_{\text{recompute, per block}}
 </tr>
 </tbody>
 </table>
-<p>理论值与实测结果基本一致，说明显存下降确实来自 <a href="#sec-sp-recompute" class="quarto-xref"><span>小节 4.3.2</span></a> 描述的 activation 生命周期变化。随着层数增加，固定的参数、optimizer states 和模型边界显存被逐渐摊薄，因此 Recompute 的相对显存收益从 9.1% 上升到 16.8%；但每层新增的 backward all-gather 也使时间代价逐渐稳定在约 24%～25%。</p>
+<p>理论值与实测结果基本一致，说明显存下降确实来自 <a href="#sec-sp-recompute" class="quarto-xref"><span>小节 4.3.2</span></a> 描述的 activation 生命周期变化。随着层数增加，固定的参数、optimizer states 和模型边界显存被逐渐摊薄，因此 Recompute 相对基础 SP 的显存收益从 9.1% 上升到 16.8%；但每层新增的 backward all-gather 需要额外付出约 24%～25%的时间代价。</p>
 <p>这组结果展示的是一项明确的取舍：Recompute 用更长的 step time，换取更少的单卡峰值显存。</p>
 
 
@@ -809,6 +1130,17 @@ M_{\text{recompute, per block}}
 </section>
 
 </main> <!-- /main -->
+<script type="ojs-module-contents">
+eyJjb250ZW50cyI6W3sibWV0aG9kTmFtZSI6ImludGVycHJldCIsImNlbGxOYW1lIjoib2pzLWNlbGwtMSIsImlubGluZSI6ZmFsc2UsInNvdXJjZSI6Ilxue1xuICBjb25zdCByb3dzID0gW1xuICAgIHtsYXllcnM6IDgsIHRwTWVtb3J5OiAxNTA5LjUzLCBzcE1lbW9yeTogMTQ0Ny45OSwgdHBUaW1lOiA2Ni40Nywgc3BUaW1lOiA3NC41M30sXG4gICAge2xheWVyczogMTYsIHRwTWVtb3J5OiAyNzE3LjY5LCBzcE1lbW9yeTogMjYwOC4xOSwgdHBUaW1lOiAxMjkuOTAsIHNwVGltZTogMTQ0LjM4fSxcbiAgICB7bGF5ZXJzOiAzMiwgdHBNZW1vcnk6IDUxMjkuNDAsIHNwTWVtb3J5OiA0OTI1LjQ1LCB0cFRpbWU6IDI1NS42MCwgc3BUaW1lOiAyODQuNTV9LFxuICAgIHtsYXllcnM6IDY0LCB0cE1lbW9yeTogOTk1Ni44Mywgc3BNZW1vcnk6IDk1NjAuODMsIHRwVGltZTogNTAyLjgzLCBzcFRpbWU6IDU2NS4wMH1cbiAgXS5tYXAoZCA9PiAoe1xuICAgIC4uLmQsXG4gICAgbWVtb3J5U2F2aW5nOiAoMSAtIGQuc3BNZW1vcnkgLyBkLnRwTWVtb3J5KSAqIDEwMCxcbiAgICB0aW1lSW5jcmVhc2U6IChkLnNwVGltZSAvIGQudHBUaW1lIC0gMSkgKiAxMDBcbiAgfSkpXG5cbiAgY29uc3QgY2hhcnRXaWR0aCA9IE1hdGgubWF4KDc2MCwgTWF0aC5taW4od2lkdGgsIDExMDApKVxuICBjb25zdCBzdHlsZSA9IHtiYWNrZ3JvdW5kOiBcInRyYW5zcGFyZW50XCIsIGNvbG9yOiBcImN1cnJlbnRDb2xvclwiLCBmb250U2l6ZTogXCIxMnB4XCJ9XG4gIGNvbnN0IGxheWVyRG9tYWluID0gW1wiOFwiLCBcIjE2XCIsIFwiMzJcIiwgXCI2NFwiXVxuICBjb25zdCBtb2RlRG9tYWluID0gW1wiVFBcIiwgXCJUUCArIFNQXCJdXG5cbiAgY29uc3QgbWVtb3J5RGF0YSA9IHJvd3MuZmxhdE1hcChkID0+IFtcbiAgICB7bGF5ZXJzOiBTdHJpbmcoZC5sYXllcnMpLCBtb2RlOiBcIlRQXCIsIHZhbHVlOiBkLnRwTWVtb3J5LCBjaGFuZ2U6IDB9LFxuICAgIHtsYXllcnM6IFN0cmluZyhkLmxheWVycyksIG1vZGU6IFwiVFAgKyBTUFwiLCB2YWx1ZTogZC5zcE1lbW9yeSwgY2hhbmdlOiBkLm1lbW9yeVNhdmluZ31cbiAgXSlcblxuICBjb25zdCB0aW1lRGF0YSA9IHJvd3MuZmxhdE1hcChkID0+IFtcbiAgICB7bGF5ZXJzOiBTdHJpbmcoZC5sYXllcnMpLCBtb2RlOiBcIlRQXCIsIHZhbHVlOiBkLnRwVGltZSwgY2hhbmdlOiAwfSxcbiAgICB7bGF5ZXJzOiBTdHJpbmcoZC5sYXllcnMpLCBtb2RlOiBcIlRQICsgU1BcIiwgdmFsdWU6IGQuc3BUaW1lLCBjaGFuZ2U6IGQudGltZUluY3JlYXNlfVxuICBdKVxuXG4gIGNvbnN0IG1lbW9yeUNoYXJ0ID0gUGxvdC5wbG90KHtcbiAgICB3aWR0aDogY2hhcnRXaWR0aCxcbiAgICBoZWlnaHQ6IDM5MCxcbiAgICBtYXJnaW5Ub3A6IDM4LFxuICAgIG1hcmdpblJpZ2h0OiAxOCxcbiAgICBtYXJnaW5Cb3R0b206IDQ2LFxuICAgIG1hcmdpbkxlZnQ6IDY4LFxuICAgIHN0eWxlLFxuICAgIHRpdGxlOiBcIlBlci1yYW5rIHBlYWsgbWVtb3J5XCIsXG4gICAgeDoge2xhYmVsOiBudWxsLCBkb21haW46IG1vZGVEb21haW4sIGF4aXM6IG51bGx9LFxuICAgIGZ4OiB7XG4gICAgICBsYWJlbDogXCJUcmFuc2Zvcm1lciBsYXllcnNcIixcbiAgICAgIGRvbWFpbjogbGF5ZXJEb21haW4sXG4gICAgICBheGlzOiBcImJvdHRvbVwiLFxuICAgICAgdGlja1BhZGRpbmc6IDYsXG4gICAgICBsYWJlbE9mZnNldDogMjcsXG4gICAgICBwYWRkaW5nOiAwLjEyXG4gICAgfSxcbiAgICB5OiB7XG4gICAgICBsYWJlbDogXCJQZWFrIGFsbG9jYXRlZCBtZW1vcnkgKE1pQilcIixcbiAgICAgIGRvbWFpbjogWzAsIDExMDAwXSxcbiAgICAgIGdyaWQ6IHRydWUsXG4gICAgICB0aWNrRm9ybWF0OiBkID0+IGQudG9Mb2NhbGVTdHJpbmcoXCJlbi1VU1wiKVxuICAgIH0sXG4gICAgY29sb3I6IHtcbiAgICAgIGRvbWFpbjogbW9kZURvbWFpbixcbiAgICAgIHJhbmdlOiBbXCIjNDk1MDU3XCIsIFwiIzVmM2RjNFwiXSxcbiAgICAgIGxlZ2VuZDogdHJ1ZVxuICAgIH0sXG4gICAgbWFya3M6IFtcbiAgICAgIFBsb3QuYmFyWShtZW1vcnlEYXRhLCB7XG4gICAgICAgIGZ4OiBcImxheWVyc1wiLFxuICAgICAgICB4OiBcIm1vZGVcIixcbiAgICAgICAgeTogXCJ2YWx1ZVwiLFxuICAgICAgICBmaWxsOiBcIm1vZGVcIixcbiAgICAgICAgaW5zZXRMZWZ0OiA1LFxuICAgICAgICBpbnNldFJpZ2h0OiA1XG4gICAgICB9KSxcbiAgICAgIFBsb3QudGV4dChtZW1vcnlEYXRhLmZpbHRlcihkID0+IGQubW9kZSA9PT0gXCJUUFwiKSwge1xuICAgICAgICBmeDogXCJsYXllcnNcIixcbiAgICAgICAgeDogXCJtb2RlXCIsXG4gICAgICAgIHk6IFwidmFsdWVcIixcbiAgICAgICAgdGV4dDogZCA9PiBNYXRoLnJvdW5kKGQudmFsdWUpLnRvTG9jYWxlU3RyaW5nKFwiZW4tVVNcIiksXG4gICAgICAgIGR5OiAtOSxcbiAgICAgICAgZmlsbDogXCIjMzQzYTQwXCJcbiAgICAgIH0pLFxuICAgICAgUGxvdC50ZXh0KG1lbW9yeURhdGEuZmlsdGVyKGQgPT4gZC5tb2RlID09PSBcIlRQICsgU1BcIiksIHtcbiAgICAgICAgZng6IFwibGF5ZXJzXCIsXG4gICAgICAgIHg6IFwibW9kZVwiLFxuICAgICAgICB5OiBcInZhbHVlXCIsXG4gICAgICAgIHRleHQ6IGQgPT4gTWF0aC5yb3VuZChkLnZhbHVlKS50b0xvY2FsZVN0cmluZyhcImVuLVVTXCIpLFxuICAgICAgICBkeTogLTI0LFxuICAgICAgICBmaWxsOiBcIiM1ZjNkYzRcIixcbiAgICAgICAgZm9udFdlaWdodDogNjAwXG4gICAgICB9KSxcbiAgICAgIFBsb3QudGV4dChtZW1vcnlEYXRhLmZpbHRlcihkID0+IGQubW9kZSA9PT0gXCJUUCArIFNQXCIpLCB7XG4gICAgICAgIGZ4OiBcImxheWVyc1wiLFxuICAgICAgICB4OiBcIm1vZGVcIixcbiAgICAgICAgeTogXCJ2YWx1ZVwiLFxuICAgICAgICB0ZXh0OiBkID0+IGAoLSR7ZC5jaGFuZ2UudG9GaXhlZCgxKX0lKWAsXG4gICAgICAgIGR5OiAtOSxcbiAgICAgICAgZmlsbDogXCIjNWYzZGM0XCIsXG4gICAgICAgIGZvbnRXZWlnaHQ6IDYwMFxuICAgICAgfSksXG4gICAgICBQbG90LnJ1bGVZKFswXSlcbiAgICBdXG4gIH0pXG4gIG1lbW9yeUNoYXJ0LnN0eWxlLm1hcmdpbiA9IFwiMFwiXG5cbiAgY29uc3QgdGltZUNoYXJ0ID0gUGxvdC5wbG90KHtcbiAgICB3aWR0aDogY2hhcnRXaWR0aCxcbiAgICBoZWlnaHQ6IDM5MCxcbiAgICBtYXJnaW5Ub3A6IDM4LFxuICAgIG1hcmdpblJpZ2h0OiAxOCxcbiAgICBtYXJnaW5Cb3R0b206IDQ2LFxuICAgIG1hcmdpbkxlZnQ6IDYyLFxuICAgIHN0eWxlLFxuICAgIHRpdGxlOiBcIlN0ZXAgdGltZVwiLFxuICAgIHg6IHtsYWJlbDogbnVsbCwgZG9tYWluOiBtb2RlRG9tYWluLCBheGlzOiBudWxsfSxcbiAgICBmeDoge1xuICAgICAgbGFiZWw6IFwiVHJhbnNmb3JtZXIgbGF5ZXJzXCIsXG4gICAgICBkb21haW46IGxheWVyRG9tYWluLFxuICAgICAgYXhpczogXCJib3R0b21cIixcbiAgICAgIHRpY2tQYWRkaW5nOiA2LFxuICAgICAgbGFiZWxPZmZzZXQ6IDI3LFxuICAgICAgcGFkZGluZzogMC4xMlxuICAgIH0sXG4gICAgeToge2xhYmVsOiBcIlN0ZXAgdGltZSAobXMpXCIsIGRvbWFpbjogWzAsIDYyMF0sIGdyaWQ6IHRydWV9LFxuICAgIGNvbG9yOiB7XG4gICAgICBkb21haW46IG1vZGVEb21haW4sXG4gICAgICByYW5nZTogW1wiIzQ5NTA1N1wiLCBcIiM1ZjNkYzRcIl0sXG4gICAgICBsZWdlbmQ6IHRydWVcbiAgICB9LFxuICAgIG1hcmtzOiBbXG4gICAgICBQbG90LmJhclkodGltZURhdGEsIHtcbiAgICAgICAgZng6IFwibGF5ZXJzXCIsXG4gICAgICAgIHg6IFwibW9kZVwiLFxuICAgICAgICB5OiBcInZhbHVlXCIsXG4gICAgICAgIGZpbGw6IFwibW9kZVwiLFxuICAgICAgICBpbnNldExlZnQ6IDUsXG4gICAgICAgIGluc2V0UmlnaHQ6IDVcbiAgICAgIH0pLFxuICAgICAgUGxvdC50ZXh0KHRpbWVEYXRhLmZpbHRlcihkID0+IGQubW9kZSA9PT0gXCJUUFwiKSwge1xuICAgICAgICBmeDogXCJsYXllcnNcIixcbiAgICAgICAgeDogXCJtb2RlXCIsXG4gICAgICAgIHk6IFwidmFsdWVcIixcbiAgICAgICAgdGV4dDogZCA9PiBkLnZhbHVlLnRvRml4ZWQoMSksXG4gICAgICAgIGR5OiAtOSxcbiAgICAgICAgZmlsbDogXCIjMzQzYTQwXCJcbiAgICAgIH0pLFxuICAgICAgUGxvdC50ZXh0KHRpbWVEYXRhLmZpbHRlcihkID0+IGQubW9kZSA9PT0gXCJUUCArIFNQXCIpLCB7XG4gICAgICAgIGZ4OiBcImxheWVyc1wiLFxuICAgICAgICB4OiBcIm1vZGVcIixcbiAgICAgICAgeTogXCJ2YWx1ZVwiLFxuICAgICAgICB0ZXh0OiBkID0+IGQudmFsdWUudG9GaXhlZCgxKSxcbiAgICAgICAgZHk6IC0yNCxcbiAgICAgICAgZmlsbDogXCIjNWYzZGM0XCIsXG4gICAgICAgIGZvbnRXZWlnaHQ6IDYwMFxuICAgICAgfSksXG4gICAgICBQbG90LnRleHQodGltZURhdGEuZmlsdGVyKGQgPT4gZC5tb2RlID09PSBcIlRQICsgU1BcIiksIHtcbiAgICAgICAgZng6IFwibGF5ZXJzXCIsXG4gICAgICAgIHg6IFwibW9kZVwiLFxuICAgICAgICB5OiBcInZhbHVlXCIsXG4gICAgICAgIHRleHQ6IGQgPT4gYCgrJHtkLmNoYW5nZS50b0ZpeGVkKDEpfSUpYCxcbiAgICAgICAgZHk6IC05LFxuICAgICAgICBmaWxsOiBcIiM1ZjNkYzRcIixcbiAgICAgICAgZm9udFdlaWdodDogNjAwXG4gICAgICB9KSxcbiAgICAgIFBsb3QucnVsZVkoWzBdKVxuICAgIF1cbiAgfSlcbiAgdGltZUNoYXJ0LnN0eWxlLm1hcmdpbiA9IFwiMFwiXG5cbiAgY29uc3QgZ3JpZCA9IGRvY3VtZW50LmNyZWF0ZUVsZW1lbnQoXCJkaXZcIilcbiAgT2JqZWN0LmFzc2lnbihncmlkLnN0eWxlLCB7XG4gICAgZGlzcGxheTogXCJncmlkXCIsXG4gICAgZ3JpZFRlbXBsYXRlQ29sdW1uczogXCJtaW5tYXgoNzYwcHgsIDFmcilcIixcbiAgICBnYXA6IFwiOHB4XCIsXG4gICAgbWluV2lkdGg6IFwiNzYwcHhcIixcbiAgICBtYXJnaW46IFwiMFwiXG4gIH0pXG4gIGdyaWQuYXBwZW5kKG1lbW9yeUNoYXJ0LCB0aW1lQ2hhcnQpXG5cbiAgY29uc3QgY29udGFpbmVyID0gZG9jdW1lbnQuY3JlYXRlRWxlbWVudChcImRpdlwiKVxuICBjb250YWluZXIuY2xhc3NOYW1lID0gXCJiZW5jaG1hcmstY2hhcnRzXCJcbiAgY29udGFpbmVyLnN0eWxlLm92ZXJmbG93WCA9IFwiYXV0b1wiXG4gIGNvbnRhaW5lci5hcHBlbmRDaGlsZChncmlkKVxuICByZXR1cm4gY29udGFpbmVyXG59XG4ifSx7Im1ldGhvZE5hbWUiOiJpbnRlcnByZXQiLCJjZWxsTmFtZSI6Im9qcy1jZWxsLTIiLCJpbmxpbmUiOmZhbHNlLCJzb3VyY2UiOiJcbntcbiAgY29uc3Qgcm93cyA9IFtcbiAgICB7bGF5ZXJzOiAyLCB0cE1lbW9yeTogMTA5Ny45NCwgYmFzZU1lbW9yeTogMTA1Mi4wOCwgcmVjb21wdXRlTWVtb3J5OiA5NTYuNzMsIHRwVGltZTogMzUuODIsIGJhc2VUaW1lOiA0MC40NiwgcmVjb21wdXRlVGltZTogNDguNzB9LFxuICAgIHtsYXllcnM6IDQsIHRwTWVtb3J5OiAxNjU4LjcxLCBiYXNlTWVtb3J5OiAxNTg4Ljk1LCByZWNvbXB1dGVNZW1vcnk6IDEzOTguODIsIHRwVGltZTogNjYuNTUsIGJhc2VUaW1lOiA3NC4xOSwgcmVjb21wdXRlVGltZTogOTEuMTZ9LFxuICAgIHtsYXllcnM6IDgsIHRwTWVtb3J5OiAyNzgxLjkyLCBiYXNlTWVtb3J5OiAyNjY1Ljk3LCByZWNvbXB1dGVNZW1vcnk6IDIyODIuOTcsIHRwVGltZTogMTI3Ljg0LCBiYXNlVGltZTogMTQxLjc2LCByZWNvbXB1dGVUaW1lOiAxNzUuMzh9LFxuICAgIHtsYXllcnM6IDE2LCB0cE1lbW9yeTogNTAyNi45MywgYmFzZU1lbW9yeTogNDgyNC4zOCwgcmVjb21wdXRlTWVtb3J5OiA0MDU2LjM4LCB0cFRpbWU6IDI0OS41MSwgYmFzZVRpbWU6IDI3Ni42MCwgcmVjb21wdXRlVGltZTogMzQzLjkzfSxcbiAgICB7bGF5ZXJzOiAzMiwgdHBNZW1vcnk6IDk1MjEuMTMsIGJhc2VNZW1vcnk6IDkxMzYuOTYsIHJlY29tcHV0ZU1lbW9yeTogNzYwMC4yNywgdHBUaW1lOiA0OTMuMTMsIGJhc2VUaW1lOiA1NDYuMzUsIHJlY29tcHV0ZVRpbWU6IDY4MC40Mn1cbiAgXS5tYXAoZCA9PiAoe1xuICAgIC4uLmQsXG4gICAgYmFzZU1lbW9yeVNhdmluZzogKDEgLSBkLmJhc2VNZW1vcnkgLyBkLnRwTWVtb3J5KSAqIDEwMCxcbiAgICByZWNvbXB1dGVNZW1vcnlTYXZpbmc6ICgxIC0gZC5yZWNvbXB1dGVNZW1vcnkgLyBkLmJhc2VNZW1vcnkpICogMTAwLFxuICAgIGJhc2VUaW1lSW5jcmVhc2U6IChkLmJhc2VUaW1lIC8gZC50cFRpbWUgLSAxKSAqIDEwMCxcbiAgICByZWNvbXB1dGVUaW1lSW5jcmVhc2U6IChkLnJlY29tcHV0ZVRpbWUgLyBkLmJhc2VUaW1lIC0gMSkgKiAxMDBcbiAgfSkpXG5cbiAgY29uc3QgY2hhcnRXaWR0aCA9IE1hdGgubWF4KDc2MCwgTWF0aC5taW4od2lkdGgsIDExMDApKVxuICBjb25zdCBzdHlsZSA9IHtiYWNrZ3JvdW5kOiBcInRyYW5zcGFyZW50XCIsIGNvbG9yOiBcImN1cnJlbnRDb2xvclwiLCBmb250U2l6ZTogXCIxMnB4XCJ9XG4gIGNvbnN0IGxheWVyRG9tYWluID0gW1wiMlwiLCBcIjRcIiwgXCI4XCIsIFwiMTZcIiwgXCIzMlwiXVxuICBjb25zdCBtb2RlRG9tYWluID0gW1wiVFBcIiwgXCLln7rnoYAgU1BcIiwgXCJTUCArIFJlY29tcHV0ZVwiXVxuXG4gIGNvbnN0IG1lbW9yeURhdGEgPSByb3dzLmZsYXRNYXAoZCA9PiBbXG4gICAge2xheWVyczogU3RyaW5nKGQubGF5ZXJzKSwgbW9kZTogXCJUUFwiLCB2YWx1ZTogZC50cE1lbW9yeSwgY2hhbmdlOiAwfSxcbiAgICB7bGF5ZXJzOiBTdHJpbmcoZC5sYXllcnMpLCBtb2RlOiBcIuWfuuehgCBTUFwiLCB2YWx1ZTogZC5iYXNlTWVtb3J5LCBjaGFuZ2U6IGQuYmFzZU1lbW9yeVNhdmluZ30sXG4gICAge2xheWVyczogU3RyaW5nKGQubGF5ZXJzKSwgbW9kZTogXCJTUCArIFJlY29tcHV0ZVwiLCB2YWx1ZTogZC5yZWNvbXB1dGVNZW1vcnksIGNoYW5nZTogZC5yZWNvbXB1dGVNZW1vcnlTYXZpbmd9XG4gIF0pXG5cbiAgY29uc3QgdGltZURhdGEgPSByb3dzLmZsYXRNYXAoZCA9PiBbXG4gICAge2xheWVyczogU3RyaW5nKGQubGF5ZXJzKSwgbW9kZTogXCJUUFwiLCB2YWx1ZTogZC50cFRpbWUsIGNoYW5nZTogMH0sXG4gICAge2xheWVyczogU3RyaW5nKGQubGF5ZXJzKSwgbW9kZTogXCLln7rnoYAgU1BcIiwgdmFsdWU6IGQuYmFzZVRpbWUsIGNoYW5nZTogZC5iYXNlVGltZUluY3JlYXNlfSxcbiAgICB7bGF5ZXJzOiBTdHJpbmcoZC5sYXllcnMpLCBtb2RlOiBcIlNQICsgUmVjb21wdXRlXCIsIHZhbHVlOiBkLnJlY29tcHV0ZVRpbWUsIGNoYW5nZTogZC5yZWNvbXB1dGVUaW1lSW5jcmVhc2V9XG4gIF0pXG5cbiAgY29uc3QgbWVtb3J5Q2hhcnQgPSBQbG90LnBsb3Qoe1xuICAgIHdpZHRoOiBjaGFydFdpZHRoLFxuICAgIGhlaWdodDogMzkwLFxuICAgIG1hcmdpblRvcDogMzgsXG4gICAgbWFyZ2luUmlnaHQ6IDE4LFxuICAgIG1hcmdpbkJvdHRvbTogNDYsXG4gICAgbWFyZ2luTGVmdDogNjgsXG4gICAgc3R5bGUsXG4gICAgdGl0bGU6IFwiUGVyLXJhbmsgcGVhayBtZW1vcnlcIixcbiAgICB4OiB7bGFiZWw6IG51bGwsIGRvbWFpbjogbW9kZURvbWFpbiwgYXhpczogbnVsbH0sXG4gICAgZng6IHtcbiAgICAgIGxhYmVsOiBcIlRyYW5zZm9ybWVyIGxheWVyc1wiLFxuICAgICAgZG9tYWluOiBsYXllckRvbWFpbixcbiAgICAgIGF4aXM6IFwiYm90dG9tXCIsXG4gICAgICB0aWNrUGFkZGluZzogNixcbiAgICAgIGxhYmVsT2Zmc2V0OiAyNyxcbiAgICAgIHBhZGRpbmc6IDAuMTJcbiAgICB9LFxuICAgIHk6IHtcbiAgICAgIGxhYmVsOiBcIlBlYWsgYWxsb2NhdGVkIG1lbW9yeSAoTWlCKVwiLFxuICAgICAgZG9tYWluOiBbMCwgMTAwMDBdLFxuICAgICAgZ3JpZDogdHJ1ZSxcbiAgICAgIHRpY2tGb3JtYXQ6IGQgPT4gZC50b0xvY2FsZVN0cmluZyhcImVuLVVTXCIpXG4gICAgfSxcbiAgICBjb2xvcjoge1xuICAgICAgZG9tYWluOiBtb2RlRG9tYWluLFxuICAgICAgcmFuZ2U6IFtcIiM0OTUwNTdcIiwgXCIjMTk3MWMyXCIsIFwiIzVmM2RjNFwiXSxcbiAgICAgIGxlZ2VuZDogdHJ1ZVxuICAgIH0sXG4gICAgbWFya3M6IFtcbiAgICAgIFBsb3QuYmFyWShtZW1vcnlEYXRhLCB7XG4gICAgICAgIGZ4OiBcImxheWVyc1wiLFxuICAgICAgICB4OiBcIm1vZGVcIixcbiAgICAgICAgeTogXCJ2YWx1ZVwiLFxuICAgICAgICBmaWxsOiBcIm1vZGVcIixcbiAgICAgICAgaW5zZXRMZWZ0OiA1LFxuICAgICAgICBpbnNldFJpZ2h0OiA1XG4gICAgICB9KSxcbiAgICAgIFBsb3QudGV4dChtZW1vcnlEYXRhLmZpbHRlcihkID0+IGQubW9kZSA9PT0gXCJUUFwiKSwge1xuICAgICAgICBmeDogXCJsYXllcnNcIixcbiAgICAgICAgeDogXCJtb2RlXCIsXG4gICAgICAgIHk6IFwidmFsdWVcIixcbiAgICAgICAgdGV4dDogZCA9PiBNYXRoLnJvdW5kKGQudmFsdWUpLnRvTG9jYWxlU3RyaW5nKFwiZW4tVVNcIiksXG4gICAgICAgIGR5OiAtOSxcbiAgICAgICAgZmlsbDogXCIjMzQzYTQwXCJcbiAgICAgIH0pLFxuICAgICAgUGxvdC50ZXh0KG1lbW9yeURhdGEuZmlsdGVyKGQgPT4gZC5tb2RlID09PSBcIuWfuuehgCBTUFwiKSwge1xuICAgICAgICBmeDogXCJsYXllcnNcIixcbiAgICAgICAgeDogXCJtb2RlXCIsXG4gICAgICAgIHk6IFwidmFsdWVcIixcbiAgICAgICAgdGV4dDogZCA9PiBNYXRoLnJvdW5kKGQudmFsdWUpLnRvTG9jYWxlU3RyaW5nKFwiZW4tVVNcIiksXG4gICAgICAgIGR5OiAtMjQsXG4gICAgICAgIGZpbGw6IFwiIzE5NzFjMlwiLFxuICAgICAgICBmb250V2VpZ2h0OiA2MDBcbiAgICAgIH0pLFxuICAgICAgUGxvdC50ZXh0KG1lbW9yeURhdGEuZmlsdGVyKGQgPT4gZC5tb2RlID09PSBcIuWfuuehgCBTUFwiKSwge1xuICAgICAgICBmeDogXCJsYXllcnNcIixcbiAgICAgICAgeDogXCJtb2RlXCIsXG4gICAgICAgIHk6IFwidmFsdWVcIixcbiAgICAgICAgdGV4dDogZCA9PiBgKC0ke2QuY2hhbmdlLnRvRml4ZWQoMSl9JSlgLFxuICAgICAgICBkeTogLTksXG4gICAgICAgIGZpbGw6IFwiIzE5NzFjMlwiLFxuICAgICAgICBmb250V2VpZ2h0OiA2MDBcbiAgICAgIH0pLFxuICAgICAgUGxvdC50ZXh0KG1lbW9yeURhdGEuZmlsdGVyKGQgPT4gZC5tb2RlID09PSBcIlNQICsgUmVjb21wdXRlXCIpLCB7XG4gICAgICAgIGZ4OiBcImxheWVyc1wiLFxuICAgICAgICB4OiBcIm1vZGVcIixcbiAgICAgICAgeTogXCJ2YWx1ZVwiLFxuICAgICAgICB0ZXh0OiBkID0+IE1hdGgucm91bmQoZC52YWx1ZSkudG9Mb2NhbGVTdHJpbmcoXCJlbi1VU1wiKSxcbiAgICAgICAgZHk6IC0yNCxcbiAgICAgICAgZmlsbDogXCIjNWYzZGM0XCIsXG4gICAgICAgIGZvbnRXZWlnaHQ6IDYwMFxuICAgICAgfSksXG4gICAgICBQbG90LnRleHQobWVtb3J5RGF0YS5maWx0ZXIoZCA9PiBkLm1vZGUgPT09IFwiU1AgKyBSZWNvbXB1dGVcIiksIHtcbiAgICAgICAgZng6IFwibGF5ZXJzXCIsXG4gICAgICAgIHg6IFwibW9kZVwiLFxuICAgICAgICB5OiBcInZhbHVlXCIsXG4gICAgICAgIHRleHQ6IGQgPT4gYCgtJHtkLmNoYW5nZS50b0ZpeGVkKDEpfSUpYCxcbiAgICAgICAgZHk6IC05LFxuICAgICAgICBmaWxsOiBcIiM1ZjNkYzRcIixcbiAgICAgICAgZm9udFdlaWdodDogNjAwXG4gICAgICB9KSxcbiAgICAgIFBsb3QucnVsZVkoWzBdKVxuICAgIF1cbiAgfSlcbiAgbWVtb3J5Q2hhcnQuc3R5bGUubWFyZ2luID0gXCIwXCJcblxuICBjb25zdCB0aW1lQ2hhcnQgPSBQbG90LnBsb3Qoe1xuICAgIHdpZHRoOiBjaGFydFdpZHRoLFxuICAgIGhlaWdodDogMzkwLFxuICAgIG1hcmdpblRvcDogMzgsXG4gICAgbWFyZ2luUmlnaHQ6IDE4LFxuICAgIG1hcmdpbkJvdHRvbTogNDYsXG4gICAgbWFyZ2luTGVmdDogNjIsXG4gICAgc3R5bGUsXG4gICAgdGl0bGU6IFwiU3RlcCB0aW1lXCIsXG4gICAgeDoge2xhYmVsOiBudWxsLCBkb21haW46IG1vZGVEb21haW4sIGF4aXM6IG51bGx9LFxuICAgIGZ4OiB7XG4gICAgICBsYWJlbDogXCJUcmFuc2Zvcm1lciBsYXllcnNcIixcbiAgICAgIGRvbWFpbjogbGF5ZXJEb21haW4sXG4gICAgICBheGlzOiBcImJvdHRvbVwiLFxuICAgICAgdGlja1BhZGRpbmc6IDYsXG4gICAgICBsYWJlbE9mZnNldDogMjcsXG4gICAgICBwYWRkaW5nOiAwLjEyXG4gICAgfSxcbiAgICB5OiB7bGFiZWw6IFwiU3RlcCB0aW1lIChtcylcIiwgZG9tYWluOiBbMCwgNzUwXSwgZ3JpZDogdHJ1ZX0sXG4gICAgY29sb3I6IHtcbiAgICAgIGRvbWFpbjogbW9kZURvbWFpbixcbiAgICAgIHJhbmdlOiBbXCIjNDk1MDU3XCIsIFwiIzE5NzFjMlwiLCBcIiM1ZjNkYzRcIl0sXG4gICAgICBsZWdlbmQ6IHRydWVcbiAgICB9LFxuICAgIG1hcmtzOiBbXG4gICAgICBQbG90LmJhclkodGltZURhdGEsIHtcbiAgICAgICAgZng6IFwibGF5ZXJzXCIsXG4gICAgICAgIHg6IFwibW9kZVwiLFxuICAgICAgICB5OiBcInZhbHVlXCIsXG4gICAgICAgIGZpbGw6IFwibW9kZVwiLFxuICAgICAgICBpbnNldExlZnQ6IDUsXG4gICAgICAgIGluc2V0UmlnaHQ6IDVcbiAgICAgIH0pLFxuICAgICAgUGxvdC50ZXh0KHRpbWVEYXRhLmZpbHRlcihkID0+IGQubW9kZSA9PT0gXCJUUFwiKSwge1xuICAgICAgICBmeDogXCJsYXllcnNcIixcbiAgICAgICAgeDogXCJtb2RlXCIsXG4gICAgICAgIHk6IFwidmFsdWVcIixcbiAgICAgICAgdGV4dDogZCA9PiBkLnZhbHVlLnRvRml4ZWQoMSksXG4gICAgICAgIGR5OiAtOSxcbiAgICAgICAgZmlsbDogXCIjMzQzYTQwXCJcbiAgICAgIH0pLFxuICAgICAgUGxvdC50ZXh0KHRpbWVEYXRhLmZpbHRlcihkID0+IGQubW9kZSA9PT0gXCLln7rnoYAgU1BcIiksIHtcbiAgICAgICAgZng6IFwibGF5ZXJzXCIsXG4gICAgICAgIHg6IFwibW9kZVwiLFxuICAgICAgICB5OiBcInZhbHVlXCIsXG4gICAgICAgIHRleHQ6IGQgPT4gZC52YWx1ZS50b0ZpeGVkKDEpLFxuICAgICAgICBkeTogLTI0LFxuICAgICAgICBmaWxsOiBcIiMxOTcxYzJcIixcbiAgICAgICAgZm9udFdlaWdodDogNjAwXG4gICAgICB9KSxcbiAgICAgIFBsb3QudGV4dCh0aW1lRGF0YS5maWx0ZXIoZCA9PiBkLm1vZGUgPT09IFwi5Z+656GAIFNQXCIpLCB7XG4gICAgICAgIGZ4OiBcImxheWVyc1wiLFxuICAgICAgICB4OiBcIm1vZGVcIixcbiAgICAgICAgeTogXCJ2YWx1ZVwiLFxuICAgICAgICB0ZXh0OiBkID0+IGAoKyR7ZC5jaGFuZ2UudG9GaXhlZCgxKX0lKWAsXG4gICAgICAgIGR5OiAtOSxcbiAgICAgICAgZmlsbDogXCIjMTk3MWMyXCIsXG4gICAgICAgIGZvbnRXZWlnaHQ6IDYwMFxuICAgICAgfSksXG4gICAgICBQbG90LnRleHQodGltZURhdGEuZmlsdGVyKGQgPT4gZC5tb2RlID09PSBcIlNQICsgUmVjb21wdXRlXCIpLCB7XG4gICAgICAgIGZ4OiBcImxheWVyc1wiLFxuICAgICAgICB4OiBcIm1vZGVcIixcbiAgICAgICAgeTogXCJ2YWx1ZVwiLFxuICAgICAgICB0ZXh0OiBkID0+IGQudmFsdWUudG9GaXhlZCgxKSxcbiAgICAgICAgZHk6IC0yNCxcbiAgICAgICAgZmlsbDogXCIjNWYzZGM0XCIsXG4gICAgICAgIGZvbnRXZWlnaHQ6IDYwMFxuICAgICAgfSksXG4gICAgICBQbG90LnRleHQodGltZURhdGEuZmlsdGVyKGQgPT4gZC5tb2RlID09PSBcIlNQICsgUmVjb21wdXRlXCIpLCB7XG4gICAgICAgIGZ4OiBcImxheWVyc1wiLFxuICAgICAgICB4OiBcIm1vZGVcIixcbiAgICAgICAgeTogXCJ2YWx1ZVwiLFxuICAgICAgICB0ZXh0OiBkID0+IGAoKyR7ZC5jaGFuZ2UudG9GaXhlZCgxKX0lKWAsXG4gICAgICAgIGR5OiAtOSxcbiAgICAgICAgZmlsbDogXCIjNWYzZGM0XCIsXG4gICAgICAgIGZvbnRXZWlnaHQ6IDYwMFxuICAgICAgfSksXG4gICAgICBQbG90LnJ1bGVZKFswXSlcbiAgICBdXG4gIH0pXG4gIHRpbWVDaGFydC5zdHlsZS5tYXJnaW4gPSBcIjBcIlxuXG4gIGNvbnN0IGdyaWQgPSBkb2N1bWVudC5jcmVhdGVFbGVtZW50KFwiZGl2XCIpXG4gIE9iamVjdC5hc3NpZ24oZ3JpZC5zdHlsZSwge1xuICAgIGRpc3BsYXk6IFwiZ3JpZFwiLFxuICAgIGdyaWRUZW1wbGF0ZUNvbHVtbnM6IFwibWlubWF4KDc2MHB4LCAxZnIpXCIsXG4gICAgZ2FwOiBcIjhweFwiLFxuICAgIG1pbldpZHRoOiBcIjc2MHB4XCIsXG4gICAgbWFyZ2luOiBcIjBcIlxuICB9KVxuICBncmlkLmFwcGVuZChtZW1vcnlDaGFydCwgdGltZUNoYXJ0KVxuXG4gIGNvbnN0IGNvbnRhaW5lciA9IGRvY3VtZW50LmNyZWF0ZUVsZW1lbnQoXCJkaXZcIilcbiAgY29udGFpbmVyLmNsYXNzTmFtZSA9IFwiYmVuY2htYXJrLWNoYXJ0c1wiXG4gIGNvbnRhaW5lci5zdHlsZS5vdmVyZmxvd1ggPSBcImF1dG9cIlxuICBjb250YWluZXIuYXBwZW5kQ2hpbGQoZ3JpZClcbiAgcmV0dXJuIGNvbnRhaW5lclxufVxuIn1dfQ==
+</script>
+<script type="module">
+if (window.location.protocol === "file:") { alert("The OJS runtime does not work with file:// URLs. Please use a web server to view this document."); }
+window._ojs.paths.runtimeToDoc = "../../src";
+window._ojs.paths.runtimeToRoot = "../..";
+window._ojs.paths.docToRoot = "..";
+window._ojs.selfContained = false;
+window._ojs.runtime.interpretFromScriptTags();
+</script>
 <script id="quarto-html-after-body" type="application/javascript">
   window.document.addEventListener("DOMContentLoaded", function (event) {
     const icon = "";

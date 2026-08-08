@@ -111,6 +111,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     "search-label": "搜索"
   }
 }</script>
+<script type="module" src="../site_libs/quarto-ojs/quarto-ojs-runtime.js"></script>
+<link href="../site_libs/quarto-ojs/quarto-ojs.css" rel="stylesheet">
 <script src="../site_libs/quarto-diagram/mermaid.min.js"></script>
 <script src="../site_libs/quarto-diagram/mermaid-init.js"></script>
 <link href="../site_libs/quarto-diagram/mermaid.css" rel="stylesheet">
@@ -432,7 +434,10 @@ window.Quarto = {
 <li>one-hot <span class="math inline">\(y_i\)</span> 可以通过掩码逻辑判断 target 是否属于当前 rank：若在本地，则在 target 位置减 1；若不在，则减 0。</li>
 </ul>
 <p>因此，backward 阶段的梯度计算完全不需要额外的跨卡通信，各 rank 均可在本地独立完成。</p>
-<p>伪代码如下：</p>
+<details>
+<summary>
+Vocab Parallel Cross Entropy 的 forward/backward 关键逻辑
+</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="co"># forward 阶段</span></span>
 <span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>target_mask <span class="op">=</span> (target <span class="op">&lt;</span> vocab_start) <span class="op">|</span> (target <span class="op">&gt;=</span> vocab_end)  <span class="co"># [B, S]，True 表示不在当前 rank</span></span>
 <span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>masked_target <span class="op">=</span> target.clone() <span class="op">-</span> vocab_start</span>
@@ -455,6 +460,7 @@ window.Quarto = {
 <span id="cb10-20"><a href="#cb10-20" aria-hidden="true" tabindex="-1"></a><span class="co"># 逻辑说明：</span></span>
 <span id="cb10-21"><a href="#cb10-21" aria-hidden="true" tabindex="-1"></a><span class="co"># 1. 若 target 在本地：masked_target 为有效的 local id，prob_update 为 1.0，对应位置执行 p - 1.0。</span></span>
 <span id="cb10-22"><a href="#cb10-22" aria-hidden="true" tabindex="-1"></a><span class="co"># 2. 若 target 不在本地：masked_target 虽被置 0，但 prob_update 为 0.0，0 号位置执行 p - 0.0，保持不变。</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 </section>
 <section id="ignore_index" class="level3" data-number="5.3.3">
 <h3 data-number="5.3.3" class="anchored" data-anchor-id="ignore_index"><span class="header-section-number">5.3.3</span> ignore_index</h3>
@@ -472,6 +478,10 @@ window.Quarto = {
 <section id="sec-vp-benefit" class="level2" data-number="5.4">
 <h2 data-number="5.4" class="anchored" data-anchor-id="sec-vp-benefit"><span class="header-section-number">5.4</span> 收益验证</h2>
 <p>前面的推导说明，VP 直接作用于随词表大小 <span class="math inline">\(V\)</span> 增长的 embedding、LM head、logits 和交叉熵中间状态。为了观察这部分收益如何随 <span class="math inline">\(V\)</span> 变化，固定 8 层 Transformer 和 2048 sequence length，只扫描 vocab size：</p>
+<details>
+<summary>
+Vocab size benchmark 命令
+</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> v <span class="kw">in</span> 6400 12800 25600 51200<span class="kw">;</span> <span class="cf">do</span></span>
 <span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>  <span class="va">CUDA_DEVICE_MAX_CONNECTIONS</span><span class="op">=</span>1 <span class="ex">python</span> <span class="at">-m</span> evaluation.parallel benchmark <span class="dt">\</span></span>
 <span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>    <span class="at">--kind</span> memory <span class="dt">\</span></span>
@@ -494,93 +504,200 @@ window.Quarto = {
 <span id="cb12-20"><a href="#cb12-20" aria-hidden="true" tabindex="-1"></a>    <span class="at">--output_csv</span> <span class="st">"results/tp/vp_vocab_</span><span class="va">${v}</span><span class="st">.csv"</span> <span class="dt">\</span></span>
 <span id="cb12-21"><a href="#cb12-21" aria-hidden="true" tabindex="-1"></a>    <span class="at">--output_plot</span> <span class="st">"results/tp/vp_vocab_</span><span class="va">${v}</span><span class="st">.png"</span></span>
 <span id="cb12-22"><a href="#cb12-22" aria-hidden="true" tabindex="-1"></a><span class="cf">done</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <p>峰值 allocated memory 如下：</p>
-<table class="caption-top table">
-<colgroup>
-<col style="width: 20%">
-<col style="width: 20%">
-<col style="width: 20%">
-<col style="width: 20%">
-<col style="width: 20%">
-</colgroup>
-<thead>
-<tr class="header">
-<th style="text-align: right;">Vocab size</th>
-<th style="text-align: right;">DDP</th>
-<th style="text-align: right;">TP</th>
-<th style="text-align: right;">TP + VP</th>
-<th style="text-align: right;">VP 相对 TP 节省</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td style="text-align: right;">6,400</td>
-<td style="text-align: right;">4148.79 MiB</td>
-<td style="text-align: right;">2781.92 MiB</td>
-<td style="text-align: right;">2554.47 MiB</td>
-<td style="text-align: right;">227.45 MiB（8.2%）</td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">12,800</td>
-<td style="text-align: right;">4625.41 MiB</td>
-<td style="text-align: right;">3237.01 MiB</td>
-<td style="text-align: right;">2782.34 MiB</td>
-<td style="text-align: right;">454.67 MiB（14.0%）</td>
-</tr>
-<tr class="odd">
-<td style="text-align: right;">25,600</td>
-<td style="text-align: right;">5577.66 MiB</td>
-<td style="text-align: right;">4147.36 MiB</td>
-<td style="text-align: right;">3237.44 MiB</td>
-<td style="text-align: right;">909.92 MiB（21.9%）</td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">51,200</td>
-<td style="text-align: right;">7476.97 MiB</td>
-<td style="text-align: right;">5971.36 MiB</td>
-<td style="text-align: right;">4144.78 MiB</td>
-<td style="text-align: right;">1826.58 MiB（30.6%）</td>
-</tr>
-</tbody>
-</table>
+<div class="cell no-code-copy">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code hidden" id="cb13" data-startfrom="263" data-source-offset="0"><pre class="sourceCode js code-with-copy"><code class="sourceCode javascript" style="counter-reset: source-line 262;"><span id="cb13-263"><a href="#cb13-263" aria-hidden="true" tabindex="-1"></a>{</span>
+<span id="cb13-264"><a href="#cb13-264" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> rows <span class="op">=</span> [</span>
+<span id="cb13-265"><a href="#cb13-265" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">vocab</span><span class="op">:</span> <span class="st">"6,400"</span><span class="op">,</span> <span class="dt">ddp</span><span class="op">:</span> <span class="fl">4148.79</span><span class="op">,</span> <span class="dt">tp</span><span class="op">:</span> <span class="fl">2781.92</span><span class="op">,</span> <span class="dt">vp</span><span class="op">:</span> <span class="fl">2554.47</span>}<span class="op">,</span></span>
+<span id="cb13-266"><a href="#cb13-266" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">vocab</span><span class="op">:</span> <span class="st">"12,800"</span><span class="op">,</span> <span class="dt">ddp</span><span class="op">:</span> <span class="fl">4625.41</span><span class="op">,</span> <span class="dt">tp</span><span class="op">:</span> <span class="fl">3237.01</span><span class="op">,</span> <span class="dt">vp</span><span class="op">:</span> <span class="fl">2782.34</span>}<span class="op">,</span></span>
+<span id="cb13-267"><a href="#cb13-267" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">vocab</span><span class="op">:</span> <span class="st">"25,600"</span><span class="op">,</span> <span class="dt">ddp</span><span class="op">:</span> <span class="fl">5577.66</span><span class="op">,</span> <span class="dt">tp</span><span class="op">:</span> <span class="fl">4147.36</span><span class="op">,</span> <span class="dt">vp</span><span class="op">:</span> <span class="fl">3237.44</span>}<span class="op">,</span></span>
+<span id="cb13-268"><a href="#cb13-268" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">vocab</span><span class="op">:</span> <span class="st">"51,200"</span><span class="op">,</span> <span class="dt">ddp</span><span class="op">:</span> <span class="fl">7476.97</span><span class="op">,</span> <span class="dt">tp</span><span class="op">:</span> <span class="fl">5971.36</span><span class="op">,</span> <span class="dt">vp</span><span class="op">:</span> <span class="fl">4144.78</span>}</span>
+<span id="cb13-269"><a href="#cb13-269" aria-hidden="true" tabindex="-1"></a>  ]</span>
+<span id="cb13-270"><a href="#cb13-270" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> vocabDomain <span class="op">=</span> rows<span class="op">.</span><span class="fu">map</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">vocab</span>)</span>
+<span id="cb13-271"><a href="#cb13-271" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> modeDomain <span class="op">=</span> [<span class="st">"DDP"</span><span class="op">,</span> <span class="st">"TP"</span><span class="op">,</span> <span class="st">"TP + VP"</span>]</span>
+<span id="cb13-272"><a href="#cb13-272" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> data <span class="op">=</span> rows<span class="op">.</span><span class="fu">flatMap</span>(d <span class="kw">=&gt;</span> [</span>
+<span id="cb13-273"><a href="#cb13-273" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">vocab</span><span class="op">:</span> d<span class="op">.</span><span class="at">vocab</span><span class="op">,</span> <span class="dt">mode</span><span class="op">:</span> <span class="st">"DDP"</span><span class="op">,</span> <span class="dt">value</span><span class="op">:</span> d<span class="op">.</span><span class="at">ddp</span><span class="op">,</span> <span class="dt">change</span><span class="op">:</span> <span class="dv">0</span>}<span class="op">,</span></span>
+<span id="cb13-274"><a href="#cb13-274" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">vocab</span><span class="op">:</span> d<span class="op">.</span><span class="at">vocab</span><span class="op">,</span> <span class="dt">mode</span><span class="op">:</span> <span class="st">"TP"</span><span class="op">,</span> <span class="dt">value</span><span class="op">:</span> d<span class="op">.</span><span class="at">tp</span><span class="op">,</span> <span class="dt">change</span><span class="op">:</span> <span class="dv">0</span>}<span class="op">,</span></span>
+<span id="cb13-275"><a href="#cb13-275" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">vocab</span><span class="op">:</span> d<span class="op">.</span><span class="at">vocab</span><span class="op">,</span> <span class="dt">mode</span><span class="op">:</span> <span class="st">"TP + VP"</span><span class="op">,</span> <span class="dt">value</span><span class="op">:</span> d<span class="op">.</span><span class="at">vp</span><span class="op">,</span> <span class="dt">change</span><span class="op">:</span> (<span class="dv">1</span> <span class="op">-</span> d<span class="op">.</span><span class="at">vp</span> <span class="op">/</span> d<span class="op">.</span><span class="at">tp</span>) <span class="op">*</span> <span class="dv">100</span>}</span>
+<span id="cb13-276"><a href="#cb13-276" aria-hidden="true" tabindex="-1"></a>  ])</span>
+<span id="cb13-277"><a href="#cb13-277" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-278"><a href="#cb13-278" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> chart <span class="op">=</span> Plot<span class="op">.</span><span class="fu">plot</span>({</span>
+<span id="cb13-279"><a href="#cb13-279" aria-hidden="true" tabindex="-1"></a>    <span class="dt">width</span><span class="op">:</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="dv">760</span><span class="op">,</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(width<span class="op">,</span> <span class="dv">1100</span>))<span class="op">,</span></span>
+<span id="cb13-280"><a href="#cb13-280" aria-hidden="true" tabindex="-1"></a>    <span class="dt">height</span><span class="op">:</span> <span class="dv">390</span><span class="op">,</span></span>
+<span id="cb13-281"><a href="#cb13-281" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginTop</span><span class="op">:</span> <span class="dv">38</span><span class="op">,</span></span>
+<span id="cb13-282"><a href="#cb13-282" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginRight</span><span class="op">:</span> <span class="dv">18</span><span class="op">,</span></span>
+<span id="cb13-283"><a href="#cb13-283" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginBottom</span><span class="op">:</span> <span class="dv">46</span><span class="op">,</span></span>
+<span id="cb13-284"><a href="#cb13-284" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginLeft</span><span class="op">:</span> <span class="dv">68</span><span class="op">,</span></span>
+<span id="cb13-285"><a href="#cb13-285" aria-hidden="true" tabindex="-1"></a>    <span class="dt">style</span><span class="op">:</span> {<span class="dt">background</span><span class="op">:</span> <span class="st">"transparent"</span><span class="op">,</span> <span class="dt">color</span><span class="op">:</span> <span class="st">"currentColor"</span><span class="op">,</span> <span class="dt">fontSize</span><span class="op">:</span> <span class="st">"12px"</span>}<span class="op">,</span></span>
+<span id="cb13-286"><a href="#cb13-286" aria-hidden="true" tabindex="-1"></a>    <span class="dt">title</span><span class="op">:</span> <span class="st">"Per-rank peak memory"</span><span class="op">,</span></span>
+<span id="cb13-287"><a href="#cb13-287" aria-hidden="true" tabindex="-1"></a>    <span class="dt">x</span><span class="op">:</span> {<span class="dt">label</span><span class="op">:</span> <span class="kw">null</span><span class="op">,</span> <span class="dt">domain</span><span class="op">:</span> modeDomain<span class="op">,</span> <span class="dt">axis</span><span class="op">:</span> <span class="kw">null</span>}<span class="op">,</span></span>
+<span id="cb13-288"><a href="#cb13-288" aria-hidden="true" tabindex="-1"></a>    <span class="dt">fx</span><span class="op">:</span> {</span>
+<span id="cb13-289"><a href="#cb13-289" aria-hidden="true" tabindex="-1"></a>      <span class="dt">label</span><span class="op">:</span> <span class="st">"Vocab size"</span><span class="op">,</span></span>
+<span id="cb13-290"><a href="#cb13-290" aria-hidden="true" tabindex="-1"></a>      <span class="dt">domain</span><span class="op">:</span> vocabDomain<span class="op">,</span></span>
+<span id="cb13-291"><a href="#cb13-291" aria-hidden="true" tabindex="-1"></a>      <span class="dt">axis</span><span class="op">:</span> <span class="st">"bottom"</span><span class="op">,</span></span>
+<span id="cb13-292"><a href="#cb13-292" aria-hidden="true" tabindex="-1"></a>      <span class="dt">tickPadding</span><span class="op">:</span> <span class="dv">6</span><span class="op">,</span></span>
+<span id="cb13-293"><a href="#cb13-293" aria-hidden="true" tabindex="-1"></a>      <span class="dt">labelOffset</span><span class="op">:</span> <span class="dv">27</span><span class="op">,</span></span>
+<span id="cb13-294"><a href="#cb13-294" aria-hidden="true" tabindex="-1"></a>      <span class="dt">padding</span><span class="op">:</span> <span class="fl">0.12</span></span>
+<span id="cb13-295"><a href="#cb13-295" aria-hidden="true" tabindex="-1"></a>    }<span class="op">,</span></span>
+<span id="cb13-296"><a href="#cb13-296" aria-hidden="true" tabindex="-1"></a>    <span class="dt">y</span><span class="op">:</span> {</span>
+<span id="cb13-297"><a href="#cb13-297" aria-hidden="true" tabindex="-1"></a>      <span class="dt">label</span><span class="op">:</span> <span class="st">"Peak allocated memory (MiB)"</span><span class="op">,</span></span>
+<span id="cb13-298"><a href="#cb13-298" aria-hidden="true" tabindex="-1"></a>      <span class="dt">domain</span><span class="op">:</span> [<span class="dv">0</span><span class="op">,</span> <span class="dv">8200</span>]<span class="op">,</span></span>
+<span id="cb13-299"><a href="#cb13-299" aria-hidden="true" tabindex="-1"></a>      <span class="dt">grid</span><span class="op">:</span> <span class="kw">true</span><span class="op">,</span></span>
+<span id="cb13-300"><a href="#cb13-300" aria-hidden="true" tabindex="-1"></a>      <span class="dt">tickFormat</span><span class="op">:</span> d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="fu">toLocaleString</span>(<span class="st">"en-US"</span>)</span>
+<span id="cb13-301"><a href="#cb13-301" aria-hidden="true" tabindex="-1"></a>    }<span class="op">,</span></span>
+<span id="cb13-302"><a href="#cb13-302" aria-hidden="true" tabindex="-1"></a>    <span class="dt">color</span><span class="op">:</span> {</span>
+<span id="cb13-303"><a href="#cb13-303" aria-hidden="true" tabindex="-1"></a>      <span class="dt">domain</span><span class="op">:</span> modeDomain<span class="op">,</span></span>
+<span id="cb13-304"><a href="#cb13-304" aria-hidden="true" tabindex="-1"></a>      <span class="dt">range</span><span class="op">:</span> [<span class="st">"#495057"</span><span class="op">,</span> <span class="st">"#1971c2"</span><span class="op">,</span> <span class="st">"#5f3dc4"</span>]<span class="op">,</span></span>
+<span id="cb13-305"><a href="#cb13-305" aria-hidden="true" tabindex="-1"></a>      <span class="dt">legend</span><span class="op">:</span> <span class="kw">true</span></span>
+<span id="cb13-306"><a href="#cb13-306" aria-hidden="true" tabindex="-1"></a>    }<span class="op">,</span></span>
+<span id="cb13-307"><a href="#cb13-307" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marks</span><span class="op">:</span> [</span>
+<span id="cb13-308"><a href="#cb13-308" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">barY</span>(data<span class="op">,</span> {</span>
+<span id="cb13-309"><a href="#cb13-309" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"vocab"</span><span class="op">,</span></span>
+<span id="cb13-310"><a href="#cb13-310" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb13-311"><a href="#cb13-311" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb13-312"><a href="#cb13-312" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb13-313"><a href="#cb13-313" aria-hidden="true" tabindex="-1"></a>        <span class="dt">insetLeft</span><span class="op">:</span> <span class="dv">5</span><span class="op">,</span></span>
+<span id="cb13-314"><a href="#cb13-314" aria-hidden="true" tabindex="-1"></a>        <span class="dt">insetRight</span><span class="op">:</span> <span class="dv">5</span></span>
+<span id="cb13-315"><a href="#cb13-315" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb13-316"><a href="#cb13-316" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">text</span>(data<span class="op">.</span><span class="fu">filter</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">!==</span> <span class="st">"TP + VP"</span>)<span class="op">,</span> {</span>
+<span id="cb13-317"><a href="#cb13-317" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"vocab"</span><span class="op">,</span></span>
+<span id="cb13-318"><a href="#cb13-318" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb13-319"><a href="#cb13-319" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb13-320"><a href="#cb13-320" aria-hidden="true" tabindex="-1"></a>        <span class="dt">text</span><span class="op">:</span> d <span class="kw">=&gt;</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">round</span>(d<span class="op">.</span><span class="at">value</span>)<span class="op">.</span><span class="fu">toLocaleString</span>(<span class="st">"en-US"</span>)<span class="op">,</span></span>
+<span id="cb13-321"><a href="#cb13-321" aria-hidden="true" tabindex="-1"></a>        <span class="dt">dy</span><span class="op">:</span> <span class="op">-</span><span class="dv">9</span><span class="op">,</span></span>
+<span id="cb13-322"><a href="#cb13-322" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">===</span> <span class="st">"DDP"</span> <span class="op">?</span> <span class="st">"#343a40"</span> <span class="op">:</span> <span class="st">"#1971c2"</span><span class="op">,</span></span>
+<span id="cb13-323"><a href="#cb13-323" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fontWeight</span><span class="op">:</span> <span class="dv">600</span></span>
+<span id="cb13-324"><a href="#cb13-324" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb13-325"><a href="#cb13-325" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">text</span>(data<span class="op">.</span><span class="fu">filter</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">===</span> <span class="st">"TP + VP"</span>)<span class="op">,</span> {</span>
+<span id="cb13-326"><a href="#cb13-326" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"vocab"</span><span class="op">,</span></span>
+<span id="cb13-327"><a href="#cb13-327" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb13-328"><a href="#cb13-328" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb13-329"><a href="#cb13-329" aria-hidden="true" tabindex="-1"></a>        <span class="dt">text</span><span class="op">:</span> d <span class="kw">=&gt;</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">round</span>(d<span class="op">.</span><span class="at">value</span>)<span class="op">.</span><span class="fu">toLocaleString</span>(<span class="st">"en-US"</span>)<span class="op">,</span></span>
+<span id="cb13-330"><a href="#cb13-330" aria-hidden="true" tabindex="-1"></a>        <span class="dt">dy</span><span class="op">:</span> <span class="op">-</span><span class="dv">24</span><span class="op">,</span></span>
+<span id="cb13-331"><a href="#cb13-331" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"#5f3dc4"</span><span class="op">,</span></span>
+<span id="cb13-332"><a href="#cb13-332" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fontWeight</span><span class="op">:</span> <span class="dv">600</span></span>
+<span id="cb13-333"><a href="#cb13-333" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb13-334"><a href="#cb13-334" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">text</span>(data<span class="op">.</span><span class="fu">filter</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">===</span> <span class="st">"TP + VP"</span>)<span class="op">,</span> {</span>
+<span id="cb13-335"><a href="#cb13-335" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"vocab"</span><span class="op">,</span></span>
+<span id="cb13-336"><a href="#cb13-336" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb13-337"><a href="#cb13-337" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb13-338"><a href="#cb13-338" aria-hidden="true" tabindex="-1"></a>        <span class="dt">text</span><span class="op">:</span> d <span class="kw">=&gt;</span> <span class="vs">`(-</span><span class="sc">${</span>d<span class="op">.</span><span class="at">change</span><span class="op">.</span><span class="fu">toFixed</span>(<span class="dv">1</span>)<span class="sc">}</span><span class="vs">%)`</span><span class="op">,</span></span>
+<span id="cb13-339"><a href="#cb13-339" aria-hidden="true" tabindex="-1"></a>        <span class="dt">dy</span><span class="op">:</span> <span class="op">-</span><span class="dv">9</span><span class="op">,</span></span>
+<span id="cb13-340"><a href="#cb13-340" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"#5f3dc4"</span><span class="op">,</span></span>
+<span id="cb13-341"><a href="#cb13-341" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fontWeight</span><span class="op">:</span> <span class="dv">600</span></span>
+<span id="cb13-342"><a href="#cb13-342" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb13-343"><a href="#cb13-343" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">ruleY</span>([<span class="dv">0</span>])</span>
+<span id="cb13-344"><a href="#cb13-344" aria-hidden="true" tabindex="-1"></a>    ]</span>
+<span id="cb13-345"><a href="#cb13-345" aria-hidden="true" tabindex="-1"></a>  })</span>
+<span id="cb13-346"><a href="#cb13-346" aria-hidden="true" tabindex="-1"></a>  chart<span class="op">.</span><span class="at">style</span><span class="op">.</span><span class="at">margin</span> <span class="op">=</span> <span class="st">"0"</span></span>
+<span id="cb13-347"><a href="#cb13-347" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-348"><a href="#cb13-348" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> container <span class="op">=</span> <span class="bu">document</span><span class="op">.</span><span class="fu">createElement</span>(<span class="st">"div"</span>)</span>
+<span id="cb13-349"><a href="#cb13-349" aria-hidden="true" tabindex="-1"></a>  container<span class="op">.</span><span class="at">className</span> <span class="op">=</span> <span class="st">"benchmark-charts"</span></span>
+<span id="cb13-350"><a href="#cb13-350" aria-hidden="true" tabindex="-1"></a>  container<span class="op">.</span><span class="at">style</span><span class="op">.</span><span class="at">overflowX</span> <span class="op">=</span> <span class="st">"auto"</span></span>
+<span id="cb13-351"><a href="#cb13-351" aria-hidden="true" tabindex="-1"></a>  container<span class="op">.</span><span class="fu">appendChild</span>(chart)</span>
+<span id="cb13-352"><a href="#cb13-352" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> container</span>
+<span id="cb13-353"><a href="#cb13-353" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-display">
+<div id="ojs-cell-1" data-nodetype="expression">
+
+</div>
+</div>
+</div>
 <p>可以看到 vocab size 每次翻倍时，VP 节省的绝对显存也几乎翻倍：约 227、455、910 和 1827 MiB。Transformer block 的其他显存保持不变时，VP 的相对收益也随 <span class="math inline">\(V\)</span> 增大，从 8.2% 上升到 30.6%。</p>
 <p>对应的 end-to-end step time 为：</p>
-<table class="caption-top table">
-<thead>
-<tr class="header">
-<th style="text-align: right;">Vocab size</th>
-<th style="text-align: right;">TP</th>
-<th style="text-align: right;">TP + VP</th>
-<th style="text-align: right;">时间变化</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td style="text-align: right;">6,400</td>
-<td style="text-align: right;">129.46 ms</td>
-<td style="text-align: right;">132.94 ms</td>
-<td style="text-align: right;">+2.7%</td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">12,800</td>
-<td style="text-align: right;">133.59 ms</td>
-<td style="text-align: right;">136.28 ms</td>
-<td style="text-align: right;">+2.0%</td>
-</tr>
-<tr class="odd">
-<td style="text-align: right;">25,600</td>
-<td style="text-align: right;">144.10 ms</td>
-<td style="text-align: right;">142.03 ms</td>
-<td style="text-align: right;">-1.4%</td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">51,200</td>
-<td style="text-align: right;">165.04 ms</td>
-<td style="text-align: right;">155.96 ms</td>
-<td style="text-align: right;">-5.5%</td>
-</tr>
-</tbody>
-</table>
+<div class="cell no-code-copy">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code hidden" id="cb14" data-startfrom="364" data-source-offset="0"><pre class="sourceCode js code-with-copy"><code class="sourceCode javascript" style="counter-reset: source-line 363;"><span id="cb14-364"><a href="#cb14-364" aria-hidden="true" tabindex="-1"></a>{</span>
+<span id="cb14-365"><a href="#cb14-365" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> rows <span class="op">=</span> [</span>
+<span id="cb14-366"><a href="#cb14-366" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">vocab</span><span class="op">:</span> <span class="st">"6,400"</span><span class="op">,</span> <span class="dt">tp</span><span class="op">:</span> <span class="fl">129.46</span><span class="op">,</span> <span class="dt">vp</span><span class="op">:</span> <span class="fl">132.94</span>}<span class="op">,</span></span>
+<span id="cb14-367"><a href="#cb14-367" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">vocab</span><span class="op">:</span> <span class="st">"12,800"</span><span class="op">,</span> <span class="dt">tp</span><span class="op">:</span> <span class="fl">133.59</span><span class="op">,</span> <span class="dt">vp</span><span class="op">:</span> <span class="fl">136.28</span>}<span class="op">,</span></span>
+<span id="cb14-368"><a href="#cb14-368" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">vocab</span><span class="op">:</span> <span class="st">"25,600"</span><span class="op">,</span> <span class="dt">tp</span><span class="op">:</span> <span class="fl">144.10</span><span class="op">,</span> <span class="dt">vp</span><span class="op">:</span> <span class="fl">142.03</span>}<span class="op">,</span></span>
+<span id="cb14-369"><a href="#cb14-369" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">vocab</span><span class="op">:</span> <span class="st">"51,200"</span><span class="op">,</span> <span class="dt">tp</span><span class="op">:</span> <span class="fl">165.04</span><span class="op">,</span> <span class="dt">vp</span><span class="op">:</span> <span class="fl">155.96</span>}</span>
+<span id="cb14-370"><a href="#cb14-370" aria-hidden="true" tabindex="-1"></a>  ]</span>
+<span id="cb14-371"><a href="#cb14-371" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> vocabDomain <span class="op">=</span> rows<span class="op">.</span><span class="fu">map</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">vocab</span>)</span>
+<span id="cb14-372"><a href="#cb14-372" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> modeDomain <span class="op">=</span> [<span class="st">"TP"</span><span class="op">,</span> <span class="st">"TP + VP"</span>]</span>
+<span id="cb14-373"><a href="#cb14-373" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> data <span class="op">=</span> rows<span class="op">.</span><span class="fu">flatMap</span>(d <span class="kw">=&gt;</span> [</span>
+<span id="cb14-374"><a href="#cb14-374" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">vocab</span><span class="op">:</span> d<span class="op">.</span><span class="at">vocab</span><span class="op">,</span> <span class="dt">mode</span><span class="op">:</span> <span class="st">"TP"</span><span class="op">,</span> <span class="dt">value</span><span class="op">:</span> d<span class="op">.</span><span class="at">tp</span><span class="op">,</span> <span class="dt">change</span><span class="op">:</span> <span class="dv">0</span>}<span class="op">,</span></span>
+<span id="cb14-375"><a href="#cb14-375" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">vocab</span><span class="op">:</span> d<span class="op">.</span><span class="at">vocab</span><span class="op">,</span> <span class="dt">mode</span><span class="op">:</span> <span class="st">"TP + VP"</span><span class="op">,</span> <span class="dt">value</span><span class="op">:</span> d<span class="op">.</span><span class="at">vp</span><span class="op">,</span> <span class="dt">change</span><span class="op">:</span> (d<span class="op">.</span><span class="at">vp</span> <span class="op">/</span> d<span class="op">.</span><span class="at">tp</span> <span class="op">-</span> <span class="dv">1</span>) <span class="op">*</span> <span class="dv">100</span>}</span>
+<span id="cb14-376"><a href="#cb14-376" aria-hidden="true" tabindex="-1"></a>  ])</span>
+<span id="cb14-377"><a href="#cb14-377" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-378"><a href="#cb14-378" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> chart <span class="op">=</span> Plot<span class="op">.</span><span class="fu">plot</span>({</span>
+<span id="cb14-379"><a href="#cb14-379" aria-hidden="true" tabindex="-1"></a>    <span class="dt">width</span><span class="op">:</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="dv">760</span><span class="op">,</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(width<span class="op">,</span> <span class="dv">1100</span>))<span class="op">,</span></span>
+<span id="cb14-380"><a href="#cb14-380" aria-hidden="true" tabindex="-1"></a>    <span class="dt">height</span><span class="op">:</span> <span class="dv">390</span><span class="op">,</span></span>
+<span id="cb14-381"><a href="#cb14-381" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginTop</span><span class="op">:</span> <span class="dv">38</span><span class="op">,</span></span>
+<span id="cb14-382"><a href="#cb14-382" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginRight</span><span class="op">:</span> <span class="dv">18</span><span class="op">,</span></span>
+<span id="cb14-383"><a href="#cb14-383" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginBottom</span><span class="op">:</span> <span class="dv">46</span><span class="op">,</span></span>
+<span id="cb14-384"><a href="#cb14-384" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginLeft</span><span class="op">:</span> <span class="dv">62</span><span class="op">,</span></span>
+<span id="cb14-385"><a href="#cb14-385" aria-hidden="true" tabindex="-1"></a>    <span class="dt">style</span><span class="op">:</span> {<span class="dt">background</span><span class="op">:</span> <span class="st">"transparent"</span><span class="op">,</span> <span class="dt">color</span><span class="op">:</span> <span class="st">"currentColor"</span><span class="op">,</span> <span class="dt">fontSize</span><span class="op">:</span> <span class="st">"12px"</span>}<span class="op">,</span></span>
+<span id="cb14-386"><a href="#cb14-386" aria-hidden="true" tabindex="-1"></a>    <span class="dt">title</span><span class="op">:</span> <span class="st">"Step time"</span><span class="op">,</span></span>
+<span id="cb14-387"><a href="#cb14-387" aria-hidden="true" tabindex="-1"></a>    <span class="dt">x</span><span class="op">:</span> {<span class="dt">label</span><span class="op">:</span> <span class="kw">null</span><span class="op">,</span> <span class="dt">domain</span><span class="op">:</span> modeDomain<span class="op">,</span> <span class="dt">axis</span><span class="op">:</span> <span class="kw">null</span>}<span class="op">,</span></span>
+<span id="cb14-388"><a href="#cb14-388" aria-hidden="true" tabindex="-1"></a>    <span class="dt">fx</span><span class="op">:</span> {</span>
+<span id="cb14-389"><a href="#cb14-389" aria-hidden="true" tabindex="-1"></a>      <span class="dt">label</span><span class="op">:</span> <span class="st">"Vocab size"</span><span class="op">,</span></span>
+<span id="cb14-390"><a href="#cb14-390" aria-hidden="true" tabindex="-1"></a>      <span class="dt">domain</span><span class="op">:</span> vocabDomain<span class="op">,</span></span>
+<span id="cb14-391"><a href="#cb14-391" aria-hidden="true" tabindex="-1"></a>      <span class="dt">axis</span><span class="op">:</span> <span class="st">"bottom"</span><span class="op">,</span></span>
+<span id="cb14-392"><a href="#cb14-392" aria-hidden="true" tabindex="-1"></a>      <span class="dt">tickPadding</span><span class="op">:</span> <span class="dv">6</span><span class="op">,</span></span>
+<span id="cb14-393"><a href="#cb14-393" aria-hidden="true" tabindex="-1"></a>      <span class="dt">labelOffset</span><span class="op">:</span> <span class="dv">27</span><span class="op">,</span></span>
+<span id="cb14-394"><a href="#cb14-394" aria-hidden="true" tabindex="-1"></a>      <span class="dt">padding</span><span class="op">:</span> <span class="fl">0.12</span></span>
+<span id="cb14-395"><a href="#cb14-395" aria-hidden="true" tabindex="-1"></a>    }<span class="op">,</span></span>
+<span id="cb14-396"><a href="#cb14-396" aria-hidden="true" tabindex="-1"></a>    <span class="dt">y</span><span class="op">:</span> {<span class="dt">label</span><span class="op">:</span> <span class="st">"Step time (ms)"</span><span class="op">,</span> <span class="dt">domain</span><span class="op">:</span> [<span class="dv">0</span><span class="op">,</span> <span class="dv">185</span>]<span class="op">,</span> <span class="dt">grid</span><span class="op">:</span> <span class="kw">true</span>}<span class="op">,</span></span>
+<span id="cb14-397"><a href="#cb14-397" aria-hidden="true" tabindex="-1"></a>    <span class="dt">color</span><span class="op">:</span> {</span>
+<span id="cb14-398"><a href="#cb14-398" aria-hidden="true" tabindex="-1"></a>      <span class="dt">domain</span><span class="op">:</span> modeDomain<span class="op">,</span></span>
+<span id="cb14-399"><a href="#cb14-399" aria-hidden="true" tabindex="-1"></a>      <span class="dt">range</span><span class="op">:</span> [<span class="st">"#1971c2"</span><span class="op">,</span> <span class="st">"#5f3dc4"</span>]<span class="op">,</span></span>
+<span id="cb14-400"><a href="#cb14-400" aria-hidden="true" tabindex="-1"></a>      <span class="dt">legend</span><span class="op">:</span> <span class="kw">true</span></span>
+<span id="cb14-401"><a href="#cb14-401" aria-hidden="true" tabindex="-1"></a>    }<span class="op">,</span></span>
+<span id="cb14-402"><a href="#cb14-402" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marks</span><span class="op">:</span> [</span>
+<span id="cb14-403"><a href="#cb14-403" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">barY</span>(data<span class="op">,</span> {</span>
+<span id="cb14-404"><a href="#cb14-404" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"vocab"</span><span class="op">,</span></span>
+<span id="cb14-405"><a href="#cb14-405" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb14-406"><a href="#cb14-406" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb14-407"><a href="#cb14-407" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb14-408"><a href="#cb14-408" aria-hidden="true" tabindex="-1"></a>        <span class="dt">insetLeft</span><span class="op">:</span> <span class="dv">5</span><span class="op">,</span></span>
+<span id="cb14-409"><a href="#cb14-409" aria-hidden="true" tabindex="-1"></a>        <span class="dt">insetRight</span><span class="op">:</span> <span class="dv">5</span></span>
+<span id="cb14-410"><a href="#cb14-410" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb14-411"><a href="#cb14-411" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">text</span>(data<span class="op">.</span><span class="fu">filter</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">===</span> <span class="st">"TP"</span>)<span class="op">,</span> {</span>
+<span id="cb14-412"><a href="#cb14-412" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"vocab"</span><span class="op">,</span></span>
+<span id="cb14-413"><a href="#cb14-413" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb14-414"><a href="#cb14-414" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb14-415"><a href="#cb14-415" aria-hidden="true" tabindex="-1"></a>        <span class="dt">text</span><span class="op">:</span> d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">value</span><span class="op">.</span><span class="fu">toFixed</span>(<span class="dv">1</span>)<span class="op">,</span></span>
+<span id="cb14-416"><a href="#cb14-416" aria-hidden="true" tabindex="-1"></a>        <span class="dt">dy</span><span class="op">:</span> <span class="op">-</span><span class="dv">9</span><span class="op">,</span></span>
+<span id="cb14-417"><a href="#cb14-417" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"#1971c2"</span><span class="op">,</span></span>
+<span id="cb14-418"><a href="#cb14-418" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fontWeight</span><span class="op">:</span> <span class="dv">600</span></span>
+<span id="cb14-419"><a href="#cb14-419" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb14-420"><a href="#cb14-420" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">text</span>(data<span class="op">.</span><span class="fu">filter</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">===</span> <span class="st">"TP + VP"</span>)<span class="op">,</span> {</span>
+<span id="cb14-421"><a href="#cb14-421" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"vocab"</span><span class="op">,</span></span>
+<span id="cb14-422"><a href="#cb14-422" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb14-423"><a href="#cb14-423" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb14-424"><a href="#cb14-424" aria-hidden="true" tabindex="-1"></a>        <span class="dt">text</span><span class="op">:</span> d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">value</span><span class="op">.</span><span class="fu">toFixed</span>(<span class="dv">1</span>)<span class="op">,</span></span>
+<span id="cb14-425"><a href="#cb14-425" aria-hidden="true" tabindex="-1"></a>        <span class="dt">dy</span><span class="op">:</span> <span class="op">-</span><span class="dv">24</span><span class="op">,</span></span>
+<span id="cb14-426"><a href="#cb14-426" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"#5f3dc4"</span><span class="op">,</span></span>
+<span id="cb14-427"><a href="#cb14-427" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fontWeight</span><span class="op">:</span> <span class="dv">600</span></span>
+<span id="cb14-428"><a href="#cb14-428" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb14-429"><a href="#cb14-429" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">text</span>(data<span class="op">.</span><span class="fu">filter</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">===</span> <span class="st">"TP + VP"</span>)<span class="op">,</span> {</span>
+<span id="cb14-430"><a href="#cb14-430" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"vocab"</span><span class="op">,</span></span>
+<span id="cb14-431"><a href="#cb14-431" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb14-432"><a href="#cb14-432" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"value"</span><span class="op">,</span></span>
+<span id="cb14-433"><a href="#cb14-433" aria-hidden="true" tabindex="-1"></a>        <span class="dt">text</span><span class="op">:</span> d <span class="kw">=&gt;</span> <span class="vs">`(</span><span class="sc">${</span>d<span class="op">.</span><span class="at">change</span> <span class="op">&gt;</span> <span class="dv">0</span> <span class="op">?</span> <span class="st">"+"</span> <span class="op">:</span> <span class="st">""</span><span class="sc">}${</span>d<span class="op">.</span><span class="at">change</span><span class="op">.</span><span class="fu">toFixed</span>(<span class="dv">1</span>)<span class="sc">}</span><span class="vs">%)`</span><span class="op">,</span></span>
+<span id="cb14-434"><a href="#cb14-434" aria-hidden="true" tabindex="-1"></a>        <span class="dt">dy</span><span class="op">:</span> <span class="op">-</span><span class="dv">9</span><span class="op">,</span></span>
+<span id="cb14-435"><a href="#cb14-435" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"#5f3dc4"</span><span class="op">,</span></span>
+<span id="cb14-436"><a href="#cb14-436" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fontWeight</span><span class="op">:</span> <span class="dv">600</span></span>
+<span id="cb14-437"><a href="#cb14-437" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb14-438"><a href="#cb14-438" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">ruleY</span>([<span class="dv">0</span>])</span>
+<span id="cb14-439"><a href="#cb14-439" aria-hidden="true" tabindex="-1"></a>    ]</span>
+<span id="cb14-440"><a href="#cb14-440" aria-hidden="true" tabindex="-1"></a>  })</span>
+<span id="cb14-441"><a href="#cb14-441" aria-hidden="true" tabindex="-1"></a>  chart<span class="op">.</span><span class="at">style</span><span class="op">.</span><span class="at">margin</span> <span class="op">=</span> <span class="st">"0"</span></span>
+<span id="cb14-442"><a href="#cb14-442" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-443"><a href="#cb14-443" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> container <span class="op">=</span> <span class="bu">document</span><span class="op">.</span><span class="fu">createElement</span>(<span class="st">"div"</span>)</span>
+<span id="cb14-444"><a href="#cb14-444" aria-hidden="true" tabindex="-1"></a>  container<span class="op">.</span><span class="at">className</span> <span class="op">=</span> <span class="st">"benchmark-charts"</span></span>
+<span id="cb14-445"><a href="#cb14-445" aria-hidden="true" tabindex="-1"></a>  container<span class="op">.</span><span class="at">style</span><span class="op">.</span><span class="at">overflowX</span> <span class="op">=</span> <span class="st">"auto"</span></span>
+<span id="cb14-446"><a href="#cb14-446" aria-hidden="true" tabindex="-1"></a>  container<span class="op">.</span><span class="fu">appendChild</span>(chart)</span>
+<span id="cb14-447"><a href="#cb14-447" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> container</span>
+<span id="cb14-448"><a href="#cb14-448" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-display">
+<div id="ojs-cell-2" data-nodetype="expression">
+
+</div>
+</div>
+</div>
 <p>VP 确实引入了额外通信：Vocab Parallel Embedding 需要合并各 rank 的局部输出，Parallel Cross Entropy 也要同步 target logit、全局最大值和 sum-exp。但是这些 collective 传输的是 <code>[B,S,H]</code> 的 embedding 输出或 Cross Entropy 中 <code>[B,S]</code> 的统计量，通信 tensor 的 shape 并不随 vocab size 增长。</p>
 <p>与此同时，每个 rank 的 LM head 输出宽度从 <span class="math inline">\(V\)</span> 降为 <span class="math inline">\(V/T\)</span>，本地 logits 以及交叉熵中的指数、归约和梯度计算也只覆盖自己的 vocab shard，这部分计算和显存访问会随 <span class="math inline">\(V\)</span> 增长，因此切分后减少的计算也随 <span class="math inline">\(V\)</span> 增长。在较小词表上，新增通信带来约 2%～3% 的时间开销。词表增大后，本地计算减少带来的收益逐渐抵消通信，实测 step time 甚至略有下降。这里的几百分点仍可能受到 kernel 和短时 benchmark 波动影响，但整体趋势说明 VP 并不是单纯用通信换显存，它同时切小了词表维度上的计算。</p>
 
@@ -588,6 +705,17 @@ window.Quarto = {
 </section>
 
 </main> <!-- /main -->
+<script type="ojs-module-contents">
+eyJjb250ZW50cyI6W3sibWV0aG9kTmFtZSI6ImludGVycHJldCIsImNlbGxOYW1lIjoib2pzLWNlbGwtMSIsImlubGluZSI6ZmFsc2UsInNvdXJjZSI6Ilxue1xuICBjb25zdCByb3dzID0gW1xuICAgIHt2b2NhYjogXCI2LDQwMFwiLCBkZHA6IDQxNDguNzksIHRwOiAyNzgxLjkyLCB2cDogMjU1NC40N30sXG4gICAge3ZvY2FiOiBcIjEyLDgwMFwiLCBkZHA6IDQ2MjUuNDEsIHRwOiAzMjM3LjAxLCB2cDogMjc4Mi4zNH0sXG4gICAge3ZvY2FiOiBcIjI1LDYwMFwiLCBkZHA6IDU1NzcuNjYsIHRwOiA0MTQ3LjM2LCB2cDogMzIzNy40NH0sXG4gICAge3ZvY2FiOiBcIjUxLDIwMFwiLCBkZHA6IDc0NzYuOTcsIHRwOiA1OTcxLjM2LCB2cDogNDE0NC43OH1cbiAgXVxuICBjb25zdCB2b2NhYkRvbWFpbiA9IHJvd3MubWFwKGQgPT4gZC52b2NhYilcbiAgY29uc3QgbW9kZURvbWFpbiA9IFtcIkREUFwiLCBcIlRQXCIsIFwiVFAgKyBWUFwiXVxuICBjb25zdCBkYXRhID0gcm93cy5mbGF0TWFwKGQgPT4gW1xuICAgIHt2b2NhYjogZC52b2NhYiwgbW9kZTogXCJERFBcIiwgdmFsdWU6IGQuZGRwLCBjaGFuZ2U6IDB9LFxuICAgIHt2b2NhYjogZC52b2NhYiwgbW9kZTogXCJUUFwiLCB2YWx1ZTogZC50cCwgY2hhbmdlOiAwfSxcbiAgICB7dm9jYWI6IGQudm9jYWIsIG1vZGU6IFwiVFAgKyBWUFwiLCB2YWx1ZTogZC52cCwgY2hhbmdlOiAoMSAtIGQudnAgLyBkLnRwKSAqIDEwMH1cbiAgXSlcblxuICBjb25zdCBjaGFydCA9IFBsb3QucGxvdCh7XG4gICAgd2lkdGg6IE1hdGgubWF4KDc2MCwgTWF0aC5taW4od2lkdGgsIDExMDApKSxcbiAgICBoZWlnaHQ6IDM5MCxcbiAgICBtYXJnaW5Ub3A6IDM4LFxuICAgIG1hcmdpblJpZ2h0OiAxOCxcbiAgICBtYXJnaW5Cb3R0b206IDQ2LFxuICAgIG1hcmdpbkxlZnQ6IDY4LFxuICAgIHN0eWxlOiB7YmFja2dyb3VuZDogXCJ0cmFuc3BhcmVudFwiLCBjb2xvcjogXCJjdXJyZW50Q29sb3JcIiwgZm9udFNpemU6IFwiMTJweFwifSxcbiAgICB0aXRsZTogXCJQZXItcmFuayBwZWFrIG1lbW9yeVwiLFxuICAgIHg6IHtsYWJlbDogbnVsbCwgZG9tYWluOiBtb2RlRG9tYWluLCBheGlzOiBudWxsfSxcbiAgICBmeDoge1xuICAgICAgbGFiZWw6IFwiVm9jYWIgc2l6ZVwiLFxuICAgICAgZG9tYWluOiB2b2NhYkRvbWFpbixcbiAgICAgIGF4aXM6IFwiYm90dG9tXCIsXG4gICAgICB0aWNrUGFkZGluZzogNixcbiAgICAgIGxhYmVsT2Zmc2V0OiAyNyxcbiAgICAgIHBhZGRpbmc6IDAuMTJcbiAgICB9LFxuICAgIHk6IHtcbiAgICAgIGxhYmVsOiBcIlBlYWsgYWxsb2NhdGVkIG1lbW9yeSAoTWlCKVwiLFxuICAgICAgZG9tYWluOiBbMCwgODIwMF0sXG4gICAgICBncmlkOiB0cnVlLFxuICAgICAgdGlja0Zvcm1hdDogZCA9PiBkLnRvTG9jYWxlU3RyaW5nKFwiZW4tVVNcIilcbiAgICB9LFxuICAgIGNvbG9yOiB7XG4gICAgICBkb21haW46IG1vZGVEb21haW4sXG4gICAgICByYW5nZTogW1wiIzQ5NTA1N1wiLCBcIiMxOTcxYzJcIiwgXCIjNWYzZGM0XCJdLFxuICAgICAgbGVnZW5kOiB0cnVlXG4gICAgfSxcbiAgICBtYXJrczogW1xuICAgICAgUGxvdC5iYXJZKGRhdGEsIHtcbiAgICAgICAgZng6IFwidm9jYWJcIixcbiAgICAgICAgeDogXCJtb2RlXCIsXG4gICAgICAgIHk6IFwidmFsdWVcIixcbiAgICAgICAgZmlsbDogXCJtb2RlXCIsXG4gICAgICAgIGluc2V0TGVmdDogNSxcbiAgICAgICAgaW5zZXRSaWdodDogNVxuICAgICAgfSksXG4gICAgICBQbG90LnRleHQoZGF0YS5maWx0ZXIoZCA9PiBkLm1vZGUgIT09IFwiVFAgKyBWUFwiKSwge1xuICAgICAgICBmeDogXCJ2b2NhYlwiLFxuICAgICAgICB4OiBcIm1vZGVcIixcbiAgICAgICAgeTogXCJ2YWx1ZVwiLFxuICAgICAgICB0ZXh0OiBkID0+IE1hdGgucm91bmQoZC52YWx1ZSkudG9Mb2NhbGVTdHJpbmcoXCJlbi1VU1wiKSxcbiAgICAgICAgZHk6IC05LFxuICAgICAgICBmaWxsOiBkID0+IGQubW9kZSA9PT0gXCJERFBcIiA/IFwiIzM0M2E0MFwiIDogXCIjMTk3MWMyXCIsXG4gICAgICAgIGZvbnRXZWlnaHQ6IDYwMFxuICAgICAgfSksXG4gICAgICBQbG90LnRleHQoZGF0YS5maWx0ZXIoZCA9PiBkLm1vZGUgPT09IFwiVFAgKyBWUFwiKSwge1xuICAgICAgICBmeDogXCJ2b2NhYlwiLFxuICAgICAgICB4OiBcIm1vZGVcIixcbiAgICAgICAgeTogXCJ2YWx1ZVwiLFxuICAgICAgICB0ZXh0OiBkID0+IE1hdGgucm91bmQoZC52YWx1ZSkudG9Mb2NhbGVTdHJpbmcoXCJlbi1VU1wiKSxcbiAgICAgICAgZHk6IC0yNCxcbiAgICAgICAgZmlsbDogXCIjNWYzZGM0XCIsXG4gICAgICAgIGZvbnRXZWlnaHQ6IDYwMFxuICAgICAgfSksXG4gICAgICBQbG90LnRleHQoZGF0YS5maWx0ZXIoZCA9PiBkLm1vZGUgPT09IFwiVFAgKyBWUFwiKSwge1xuICAgICAgICBmeDogXCJ2b2NhYlwiLFxuICAgICAgICB4OiBcIm1vZGVcIixcbiAgICAgICAgeTogXCJ2YWx1ZVwiLFxuICAgICAgICB0ZXh0OiBkID0+IGAoLSR7ZC5jaGFuZ2UudG9GaXhlZCgxKX0lKWAsXG4gICAgICAgIGR5OiAtOSxcbiAgICAgICAgZmlsbDogXCIjNWYzZGM0XCIsXG4gICAgICAgIGZvbnRXZWlnaHQ6IDYwMFxuICAgICAgfSksXG4gICAgICBQbG90LnJ1bGVZKFswXSlcbiAgICBdXG4gIH0pXG4gIGNoYXJ0LnN0eWxlLm1hcmdpbiA9IFwiMFwiXG5cbiAgY29uc3QgY29udGFpbmVyID0gZG9jdW1lbnQuY3JlYXRlRWxlbWVudChcImRpdlwiKVxuICBjb250YWluZXIuY2xhc3NOYW1lID0gXCJiZW5jaG1hcmstY2hhcnRzXCJcbiAgY29udGFpbmVyLnN0eWxlLm92ZXJmbG93WCA9IFwiYXV0b1wiXG4gIGNvbnRhaW5lci5hcHBlbmRDaGlsZChjaGFydClcbiAgcmV0dXJuIGNvbnRhaW5lclxufVxuIn0seyJtZXRob2ROYW1lIjoiaW50ZXJwcmV0IiwiY2VsbE5hbWUiOiJvanMtY2VsbC0yIiwiaW5saW5lIjpmYWxzZSwic291cmNlIjoiXG57XG4gIGNvbnN0IHJvd3MgPSBbXG4gICAge3ZvY2FiOiBcIjYsNDAwXCIsIHRwOiAxMjkuNDYsIHZwOiAxMzIuOTR9LFxuICAgIHt2b2NhYjogXCIxMiw4MDBcIiwgdHA6IDEzMy41OSwgdnA6IDEzNi4yOH0sXG4gICAge3ZvY2FiOiBcIjI1LDYwMFwiLCB0cDogMTQ0LjEwLCB2cDogMTQyLjAzfSxcbiAgICB7dm9jYWI6IFwiNTEsMjAwXCIsIHRwOiAxNjUuMDQsIHZwOiAxNTUuOTZ9XG4gIF1cbiAgY29uc3Qgdm9jYWJEb21haW4gPSByb3dzLm1hcChkID0+IGQudm9jYWIpXG4gIGNvbnN0IG1vZGVEb21haW4gPSBbXCJUUFwiLCBcIlRQICsgVlBcIl1cbiAgY29uc3QgZGF0YSA9IHJvd3MuZmxhdE1hcChkID0+IFtcbiAgICB7dm9jYWI6IGQudm9jYWIsIG1vZGU6IFwiVFBcIiwgdmFsdWU6IGQudHAsIGNoYW5nZTogMH0sXG4gICAge3ZvY2FiOiBkLnZvY2FiLCBtb2RlOiBcIlRQICsgVlBcIiwgdmFsdWU6IGQudnAsIGNoYW5nZTogKGQudnAgLyBkLnRwIC0gMSkgKiAxMDB9XG4gIF0pXG5cbiAgY29uc3QgY2hhcnQgPSBQbG90LnBsb3Qoe1xuICAgIHdpZHRoOiBNYXRoLm1heCg3NjAsIE1hdGgubWluKHdpZHRoLCAxMTAwKSksXG4gICAgaGVpZ2h0OiAzOTAsXG4gICAgbWFyZ2luVG9wOiAzOCxcbiAgICBtYXJnaW5SaWdodDogMTgsXG4gICAgbWFyZ2luQm90dG9tOiA0NixcbiAgICBtYXJnaW5MZWZ0OiA2MixcbiAgICBzdHlsZToge2JhY2tncm91bmQ6IFwidHJhbnNwYXJlbnRcIiwgY29sb3I6IFwiY3VycmVudENvbG9yXCIsIGZvbnRTaXplOiBcIjEycHhcIn0sXG4gICAgdGl0bGU6IFwiU3RlcCB0aW1lXCIsXG4gICAgeDoge2xhYmVsOiBudWxsLCBkb21haW46IG1vZGVEb21haW4sIGF4aXM6IG51bGx9LFxuICAgIGZ4OiB7XG4gICAgICBsYWJlbDogXCJWb2NhYiBzaXplXCIsXG4gICAgICBkb21haW46IHZvY2FiRG9tYWluLFxuICAgICAgYXhpczogXCJib3R0b21cIixcbiAgICAgIHRpY2tQYWRkaW5nOiA2LFxuICAgICAgbGFiZWxPZmZzZXQ6IDI3LFxuICAgICAgcGFkZGluZzogMC4xMlxuICAgIH0sXG4gICAgeToge2xhYmVsOiBcIlN0ZXAgdGltZSAobXMpXCIsIGRvbWFpbjogWzAsIDE4NV0sIGdyaWQ6IHRydWV9LFxuICAgIGNvbG9yOiB7XG4gICAgICBkb21haW46IG1vZGVEb21haW4sXG4gICAgICByYW5nZTogW1wiIzE5NzFjMlwiLCBcIiM1ZjNkYzRcIl0sXG4gICAgICBsZWdlbmQ6IHRydWVcbiAgICB9LFxuICAgIG1hcmtzOiBbXG4gICAgICBQbG90LmJhclkoZGF0YSwge1xuICAgICAgICBmeDogXCJ2b2NhYlwiLFxuICAgICAgICB4OiBcIm1vZGVcIixcbiAgICAgICAgeTogXCJ2YWx1ZVwiLFxuICAgICAgICBmaWxsOiBcIm1vZGVcIixcbiAgICAgICAgaW5zZXRMZWZ0OiA1LFxuICAgICAgICBpbnNldFJpZ2h0OiA1XG4gICAgICB9KSxcbiAgICAgIFBsb3QudGV4dChkYXRhLmZpbHRlcihkID0+IGQubW9kZSA9PT0gXCJUUFwiKSwge1xuICAgICAgICBmeDogXCJ2b2NhYlwiLFxuICAgICAgICB4OiBcIm1vZGVcIixcbiAgICAgICAgeTogXCJ2YWx1ZVwiLFxuICAgICAgICB0ZXh0OiBkID0+IGQudmFsdWUudG9GaXhlZCgxKSxcbiAgICAgICAgZHk6IC05LFxuICAgICAgICBmaWxsOiBcIiMxOTcxYzJcIixcbiAgICAgICAgZm9udFdlaWdodDogNjAwXG4gICAgICB9KSxcbiAgICAgIFBsb3QudGV4dChkYXRhLmZpbHRlcihkID0+IGQubW9kZSA9PT0gXCJUUCArIFZQXCIpLCB7XG4gICAgICAgIGZ4OiBcInZvY2FiXCIsXG4gICAgICAgIHg6IFwibW9kZVwiLFxuICAgICAgICB5OiBcInZhbHVlXCIsXG4gICAgICAgIHRleHQ6IGQgPT4gZC52YWx1ZS50b0ZpeGVkKDEpLFxuICAgICAgICBkeTogLTI0LFxuICAgICAgICBmaWxsOiBcIiM1ZjNkYzRcIixcbiAgICAgICAgZm9udFdlaWdodDogNjAwXG4gICAgICB9KSxcbiAgICAgIFBsb3QudGV4dChkYXRhLmZpbHRlcihkID0+IGQubW9kZSA9PT0gXCJUUCArIFZQXCIpLCB7XG4gICAgICAgIGZ4OiBcInZvY2FiXCIsXG4gICAgICAgIHg6IFwibW9kZVwiLFxuICAgICAgICB5OiBcInZhbHVlXCIsXG4gICAgICAgIHRleHQ6IGQgPT4gYCgke2QuY2hhbmdlID4gMCA/IFwiK1wiIDogXCJcIn0ke2QuY2hhbmdlLnRvRml4ZWQoMSl9JSlgLFxuICAgICAgICBkeTogLTksXG4gICAgICAgIGZpbGw6IFwiIzVmM2RjNFwiLFxuICAgICAgICBmb250V2VpZ2h0OiA2MDBcbiAgICAgIH0pLFxuICAgICAgUGxvdC5ydWxlWShbMF0pXG4gICAgXVxuICB9KVxuICBjaGFydC5zdHlsZS5tYXJnaW4gPSBcIjBcIlxuXG4gIGNvbnN0IGNvbnRhaW5lciA9IGRvY3VtZW50LmNyZWF0ZUVsZW1lbnQoXCJkaXZcIilcbiAgY29udGFpbmVyLmNsYXNzTmFtZSA9IFwiYmVuY2htYXJrLWNoYXJ0c1wiXG4gIGNvbnRhaW5lci5zdHlsZS5vdmVyZmxvd1ggPSBcImF1dG9cIlxuICBjb250YWluZXIuYXBwZW5kQ2hpbGQoY2hhcnQpXG4gIHJldHVybiBjb250YWluZXJcbn1cbiJ9XX0=
+</script>
+<script type="module">
+if (window.location.protocol === "file:") { alert("The OJS runtime does not work with file:// URLs. Please use a web server to view this document."); }
+window._ojs.paths.runtimeToDoc = "../../src";
+window._ojs.paths.runtimeToRoot = "../..";
+window._ojs.paths.docToRoot = "..";
+window._ojs.selfContained = false;
+window._ojs.runtime.interpretFromScriptTags();
+</script>
 <script id="quarto-html-after-body" type="application/javascript">
   window.document.addEventListener("DOMContentLoaded", function (event) {
     const icon = "";

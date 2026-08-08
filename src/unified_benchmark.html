@@ -314,6 +314,10 @@ window.Quarto = {
 <section id="增加-transformer-层数" class="level4" data-number="6.1.1.1">
 <h4 data-number="6.1.1.1" class="anchored" data-anchor-id="增加-transformer-层数"><span class="header-section-number">6.1.1.1</span> 增加 Transformer 层数</h4>
 <p>先固定 <code>seq_len=2048</code>，将层数从 2 增加到 32：</p>
+<details>
+<summary>
+层数 Scaling 的 显存 Benchmark 命令
+</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="va">CUDA_DEVICE_MAX_CONNECTIONS</span><span class="op">=</span>1 <span class="ex">python</span> <span class="at">-m</span> evaluation.parallel benchmark <span class="dt">\</span></span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--kind</span> memory <span class="dt">\</span></span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--tp_size</span> 2 <span class="dt">\</span></span>
@@ -332,6 +336,7 @@ window.Quarto = {
 <span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dtype</span> bfloat16 <span class="dt">\</span></span>
 <span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">--warmup_iters</span> 10 <span class="dt">\</span></span>
 <span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">--benchmark_iters</span> 5</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <p>每个 rank 的峰值 allocated memory 如下，单位为 MiB。括号内以同一层数的 DDP 为 <span class="math inline">\(100\%\)</span>，表示该配置的显存占比：</p>
 <table class="caption-top table">
 <colgroup>
@@ -406,9 +411,30 @@ window.Quarto = {
 </section>
 <section id="增加序列长度" class="level4" data-number="6.1.1.2">
 <h4 data-number="6.1.1.2" class="anchored" data-anchor-id="增加序列长度"><span class="header-section-number">6.1.1.2</span> 增加序列长度</h4>
-<p>接下来固定 8 层，将上面命令中的层数和序列长度替换为：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">--num_hidden_layers</span> 8 <span class="dt">\</span></span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>--seq_len 1024 2048 4096 8192</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>接下来固定 8 层，将 sequence length 从 1024 增加到 8192：</p>
+<details>
+<summary>
+序列 Scaling 的 显存 Benchmark 命令
+</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="va">CUDA_DEVICE_MAX_CONNECTIONS</span><span class="op">=</span>1 <span class="ex">python</span> <span class="at">-m</span> evaluation.parallel benchmark <span class="dt">\</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--kind</span> memory <span class="dt">\</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--tp_size</span> 2 <span class="dt">\</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--pp_size</span> 1 <span class="dt">\</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--</span> <span class="dt">\</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--modes</span> ddp tp tp_sp tp_sp_async tp_vp tp_sp_async_vp <span class="dt">\</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--batch_policy</span> fixed_per_rank <span class="dt">\</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_hidden_layers</span> 8 <span class="dt">\</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">--seq_len</span> 1024 2048 4096 8192 <span class="dt">\</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">--hidden_size</span> 768 <span class="dt">\</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_attention_heads</span> 8 <span class="dt">\</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_key_value_heads</span> 4 <span class="dt">\</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">--vocab_size</span> 6400 <span class="dt">\</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">--micro_batch_size</span> 4 <span class="dt">\</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_microbatches</span> 1 <span class="dt">\</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dtype</span> bfloat16 <span class="dt">\</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">--warmup_iters</span> 10 <span class="dt">\</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">--benchmark_iters</span> 5</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <p>峰值 allocated memory 如下，单位为 MiB，括号内以同一 sequence length 的 DDP 为 <span class="math inline">\(100\%\)</span>：</p>
 <table class="caption-top table">
 <colgroup>
@@ -479,6 +505,10 @@ window.Quarto = {
 <p><a href="#sec-tp-memory" class="quarto-xref"><span>小节 6.1.1</span></a> 为了比较单卡容量，固定的是每个模型副本处理的 batch，因此 DDP 与 TP 的 global batch 不同。吞吐实验改用 <code>fixed_global</code>：两个 DDP rank 各自处理一半样本，而两个 TP rank 合作处理同一批完整样本。现在每种配置完成的总 token 数一致，可以直接比较 DDP 与各个模型并行方案。</p>
 <section id="增加-transformer-层数-1" class="level4" data-number="6.1.2.1">
 <h4 data-number="6.1.2.1" class="anchored" data-anchor-id="增加-transformer-层数-1"><span class="header-section-number">6.1.2.1</span> 增加 Transformer 层数</h4>
+<details>
+<summary>
+层数 Scaling 的吞吐 Benchmark 命令
+</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="va">CUDA_DEVICE_MAX_CONNECTIONS</span><span class="op">=</span>1 <span class="ex">python</span> <span class="at">-m</span> evaluation.parallel benchmark <span class="dt">\</span></span>
 <span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--kind</span> throughput <span class="dt">\</span></span>
 <span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--tp_size</span> 2 <span class="dt">\</span></span>
@@ -495,9 +525,8 @@ window.Quarto = {
 <span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_microbatches</span> 1 <span class="dt">\</span></span>
 <span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dtype</span> bfloat16 <span class="dt">\</span></span>
 <span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">--warmup_iters</span> 10 <span class="dt">\</span></span>
-<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">--benchmark_iters</span> 5 <span class="dt">\</span></span>
-<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">--output_csv</span> results/tp/tp_throughput.csv <span class="dt">\</span></span>
-<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">--output_plot</span> results/tp/tp_throughput.png</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">--benchmark_iters</span> 5 <span class="dt">\</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <p>结果如下，吞吐单位为 K tokens/s，括号内以相同层数的 DDP 为 <span class="math inline">\(100\%\)</span>：</p>
 <table class="caption-top table">
 <colgroup>
@@ -575,6 +604,10 @@ window.Quarto = {
 <section id="增加序列长度-1" class="level4" data-number="6.1.2.2">
 <h4 data-number="6.1.2.2" class="anchored" data-anchor-id="增加序列长度-1"><span class="header-section-number">6.1.2.2</span> 增加序列长度</h4>
 <p>接下来固定 8 层，将 sequence length 从 1024 增加到 16000：</p>
+<details>
+<summary>
+序列 Scaling 的吞吐 Benchmark 命令
+</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="va">CUDA_DEVICE_MAX_CONNECTIONS</span><span class="op">=</span>1 <span class="ex">python</span> <span class="at">-m</span> evaluation.parallel benchmark <span class="dt">\</span></span>
 <span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--kind</span> throughput <span class="dt">\</span></span>
 <span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--tp_size</span> 2 <span class="dt">\</span></span>
@@ -591,9 +624,8 @@ window.Quarto = {
 <span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_microbatches</span> 1 <span class="dt">\</span></span>
 <span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dtype</span> bfloat16 <span class="dt">\</span></span>
 <span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">--warmup_iters</span> 10 <span class="dt">\</span></span>
-<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">--benchmark_iters</span> 5 <span class="dt">\</span></span>
-<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">--output_csv</span> results/tp/tp_throughput_sequence.csv <span class="dt">\</span></span>
-<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">--output_plot</span> results/tp/tp_throughput_sequence.png</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">--benchmark_iters</span> 5 <span class="dt">\</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <p>结果如下：</p>
 <table class="caption-top table">
 <colgroup>
@@ -681,7 +713,7 @@ window.Quarto = {
 <ul>
 <li>TP Attention 暂不支持 KV Cache。</li>
 <li>TP 模型暂不支持 MoE。</li>
-<li>当前参数 gradient hook 是正确性实现，还没有用一个统一的函数进行管理。</li>
+<li>当前需要梯度同步的参数用 hook 是正确的实现，但还没有用一个统一的函数管理这些需要同步的梯度。</li>
 </ul>
 <p>关键实现索引：</p>
 <table class="caption-top table">

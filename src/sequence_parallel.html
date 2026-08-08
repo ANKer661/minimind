@@ -289,11 +289,10 @@ window.Quarto = {
 </header>
 
 
-<p>上一章的 TP 切开了 Attention heads 和 MLP intermediate dimension 的权重，但两个并行区域之间仍保留完整的 hidden states。Sequence Parallelism（SP）在 TP 的基础上，把这部分逐 token 操作的激活值也切开。</p>
 <section id="为什么需要-sequence-parallelism" class="level2" data-number="3.1">
 <h2 data-number="3.1" class="anchored" data-anchor-id="为什么需要-sequence-parallelism"><span class="header-section-number">3.1</span> 为什么需要 Sequence Parallelism</h2>
-<p>TP 已经切分了 Attention heads 和 MLP intermediate dimension，但这并不意味着整个 Transformer block 的激活都随 TP size 缩小。沿着一个 hidden states tensor 走出 TP 区域，可以看到它在进入下一个 TP 区域前又恢复成了完整的 <code>[S,B,H]</code>：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>每个 TP rank: [S, B, H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>TP 已经切分了 Attention heads 和 MLP intermediate dimension，但这并不意味着整个 Transformer block 的显存占用可以变为 <span class="math inline">\(1/T\)</span>。Sequence Parallelism （SP）就是为了进一步降低显存占用而提出的。</p>
+<p>先分析一下 Transformer block 中 两个 TP 区域之间的计算：</p>
 <div class="cell" data-layout-align="default">
 <div class="cell-output-display">
 <div>
@@ -334,14 +333,16 @@ window.Quarto = {
 </div>
 </div>
 </div>
-<p>图中的 <span class="math inline">\(H_0\)</span> 和 <span class="math inline">\(H_1\)</span> 是数值相同的两份完整 tensor。它们来自 Row Parallel Linear 的输出：每个 rank 先产生一份完整 shape 的部分结果，</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>P_t: [S, B, H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>普通 TP 在离开并行区域时执行 all-reduce：</p>
+<p>图中的 <span class="math inline">\(H_0\)</span> 和 <span class="math inline">\(H_1\)</span> 是数值相同的两份完整 tensor。它们来自 All-reduce 后的 Row Parallel Linear 的输出：每个 rank 先产生一份完整 shape 的部分结果，</p>
+<p><span class="math display">\[
+P_t: [S, B, H]
+\]</span></p>
+<p>接着在离开并行区域时执行 all-reduce：</p>
 <p><span class="math display">\[
 Y=\sum_{t=0}^{T-1}P_t,
 \]</span></p>
 <p>于是每个 rank 都得到完整的 <span class="math inline">\(Y\)</span>。但紧接着的 RMSNorm、Dropout 和 residual add 都是逐 token 操作，让所有 rank 保存并处理全部 <span class="math inline">\(S\)</span> 个 token 没有必要。是否可以让每个 rank 只负责一段互不重复的 sequence？</p>
-<p>先不考虑具体使用哪种 collective，把离开 TP 区域和重新进入 TP 区域时的两次布局转换分别记为 <span class="math inline">\(f\)</span> 和 <span class="math inline">\(g\)</span>。我们希望得到下面的数据流：</p>
+<p>先不考虑具体使用哪种 collective 可以做到我们想要的结果，把离开 TP 区域和重新进入 TP 区域时的两次布局转换分别记为 <span class="math inline">\(f\)</span> 和 <span class="math inline">\(g\)</span>。我们希望得到下面的数据流：</p>
 <div class="cell" data-layout-align="default">
 <div class="cell-output-display">
 <div>
@@ -392,11 +393,11 @@ Y=\sum_{t=0}^{T-1}P_t,
 <section id="sp-如何拆分完整的-hidden-states" class="level2" data-number="3.2">
 <h2 data-number="3.2" class="anchored" data-anchor-id="sp-如何拆分完整的-hidden-states"><span class="header-section-number">3.2</span> SP 如何拆分完整的 hidden states</h2>
 <p>要让每个 rank 只保留一段 sequence，最直接的做法是在 all-reduce 之后，再各自沿 sequence 维切分完整的 <span class="math inline">\(Y\)</span>。但每个 rank 明明只需要 <span class="math inline">\(1/T\)</span> 的结果，却仍要先通信得到完整 tensor，再把其余部分丢掉。</p>
-<p>于是要问：能不能跳过”先合并、再手动切开”这条弯路，直接一步到位地让每个 rank 拿到自己该有的那一段？</p>
+<p>那么能不能跳过”先合并、再手动切开”这条弯路，直接一步到位地让每个 rank 拿到自己该有的那一段？</p>
 <section id="all-reduce-可以拆成两个阶段" class="level3" data-number="3.2.1">
 <h3 data-number="3.2.1" class="anchored" data-anchor-id="all-reduce-可以拆成两个阶段"><span class="header-section-number">3.2.1</span> All-Reduce 可以拆成两个阶段</h3>
 <p>答案是可以。all-reduce 本身可以拆成两个阶段：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="bu">all</span><span class="op">-</span><span class="bu">reduce</span> <span class="op">=</span> <span class="bu">reduce</span><span class="op">-</span>scatter <span class="op">+</span> <span class="bu">all</span><span class="op">-</span>gather</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="bu">all</span><span class="op">-</span><span class="bu">reduce</span> <span class="op">=</span> <span class="bu">reduce</span><span class="op">-</span>scatter <span class="op">+</span> <span class="bu">all</span><span class="op">-</span>gather</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>如果对这两个 collective 还不熟悉，可以先回看开头的 <a href="../src/tensor_parallel.html#collective-reduce-scatter">Reduce-Scatter</a> 和 <a href="../src/tensor_parallel.html#collective-all-gather">All-Gather</a>。</p>
 <p>这个等式成立的关键是：all-reduce 的求和是逐元素进行的，只要所有 rank 按相同方式切分 <span class="math inline">\(P_t\)</span>，就可以先分别求出最终结果的各个 block，再把这些已经求和的 block 拼接起来。先以两个 rank 为例，沿 sequence 维把 <span class="math inline">\(P_0\)</span>、<span class="math inline">\(P_1\)</span> 分成上下两块：</p>
 <p><span class="math display">\[
@@ -711,11 +712,11 @@ Y^{(j)}=\sum_{t=0}^{T-1}P_t^{(j)}.
 <section id="sec-sp-layout" class="level3" data-number="3.2.4">
 <h3 data-number="3.2.4" class="anchored" data-anchor-id="sec-sp-layout"><span class="header-section-number">3.2.4</span> 落到实现中的 Tensor Layout</h3>
 <p>设 TP size 为 <span class="math inline">\(T\)</span>。Reduce-scatter 沿 sequence 维分发结果后，rank <span class="math inline">\(t\)</span> 持有：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>[S<span class="op">/</span>T, B, H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>[S<span class="op">/</span>T, B, H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>SP 复用原来的 TP group。同一组 rank 在 Attention 和 MLP 内按 hidden dimension 协作，在两个 TP 区域之间则按 sequence dimension 分工。当前实现采用连续等分，因此要求：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>S <span class="op">%</span> T <span class="op">==</span> <span class="dv">0</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>S <span class="op">%</span> T <span class="op">==</span> <span class="dv">0</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p><code>TPContext</code> 使用下面的字段控制是否在 TP 区域之间保留 sequence-sharded layout：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>sequence_parallel: <span class="bu">bool</span> <span class="op">=</span> <span class="va">False</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>sequence_parallel: <span class="bu">bool</span> <span class="op">=</span> <span class="va">False</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>一个 Transformer block 中的 tensor layout 因此变为：</p>
 <table class="caption-top table">
 <colgroup>
@@ -753,8 +754,8 @@ Y^{(j)}=\sum_{t=0}^{T-1}P_t^{(j)}.
 <section id="sp-如何在两种-tensor-layout-之间切换" class="level2" data-number="3.3">
 <h2 data-number="3.3" class="anchored" data-anchor-id="sp-如何在两种-tensor-layout-之间切换"><span class="header-section-number">3.3</span> SP 如何在两种 Tensor Layout 之间切换</h2>
 <p>到这里，SP forward 需要的两种布局已经出现：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>TP 区域内:                     [S, B, H]</span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>TP 区域之间（也就是 SP 区域）:   [S<span class="op">/</span>T, B, H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>TP 区域内:                     [S, B, H]</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>TP 区域之间（也就是 SP 区域）:   [S<span class="op">/</span>T, B, H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>训练时还必须为每个布局变换定义对应的 backward，否则 forward 的 shape 即使正确，梯度也无法回到原来的数据分布。</p>
 <p>这里有三类性质不同的切换，值得先分清楚：</p>
 <pre class="text"><code>一次性入口：模型最开始的 Split
@@ -800,24 +801,24 @@ Y^{(j)}=\sum_{t=0}^{T-1}P_t^{(j)}.
 </table>
 <p>同一个 All-Gather 在表里出现了两次、backward 却不一样，<a href="#sec-sp-enter-tp" class="quarto-xref"><span>小节 3.3.2</span></a> 和 <a href="#sec-sp-lm-head" class="quarto-xref"><span>小节 3.3.5</span></a> 会分别解释这两种 backward 各自成立的原因。</p>
 <p>这些算子位于：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>model<span class="op">/</span>tensor_parallel_mappings.py</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>model<span class="op">/</span>tensor_parallel_mappings.py</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <section id="sec-sp-entry" class="level3" data-number="3.3.1">
 <h3 data-number="3.3.1" class="anchored" data-anchor-id="sec-sp-entry"><span class="header-section-number">3.3.1</span> 一次性的入口：本地切分</h3>
 <p>Embedding 输出最初是完整的 <code>[S,B,H]</code>，而且每个 TP rank 都已经拥有相同的数据。为了让后续 block 从一开始就工作在 SP 布局上，每个 rank 只需根据自己的 <code>tp_rank</code>，在本地留下对应的 sequence shard：</p>
 <pre class="text"><code>rank 0: [a,b,c,d] -&gt; [a,b]
 rank 1: [a,b,c,d] -&gt; [c,d]</code></pre>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>forward:</span>
-<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>  [S,B,H] <span class="op">-&gt;</span> split <span class="op">-&gt;</span> [S<span class="op">/</span>T,B,H]</span>
-<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>backward:</span>
-<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>  [S<span class="op">/</span>T,B,H] <span class="op">-&gt;</span> <span class="bu">all</span><span class="op">-</span>gather <span class="op">-&gt;</span> [S,B,H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>forward:</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>  [S,B,H] <span class="op">-&gt;</span> split <span class="op">-&gt;</span> [S<span class="op">/</span>T,B,H]</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>backward:</span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>  [S<span class="op">/</span>T,B,H] <span class="op">-&gt;</span> <span class="bu">all</span><span class="op">-</span>gather <span class="op">-&gt;</span> [S,B,H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>这里没有 rank 之间的数据传输。源码中的 autograd 类虽然名为 <code>ScatterToSequenceParallelRegion</code>，但它的 forward 只是索引和 <code>contiguous</code>；真正的跨 rank 通信发生在 backward 的 All-Gather。</p>
 <p>求梯度时，embedding 权重的梯度需要看到完整 sequence 上的激活梯度，而每个 rank 的梯度只来自一个 sequence shard， 所以 backward 必须先把各 rank 手上的 sequence shard 梯度 <code>all-gather</code> 回完整形状，再往回传。</p>
 </section>
 <section id="sec-sp-enter-tp" class="level3" data-number="3.3.2">
 <h3 data-number="3.3.2" class="anchored" data-anchor-id="sec-sp-enter-tp"><span class="header-section-number">3.3.2</span> 反复出现的循环（一）：All-Gather 进入 TP 区域</h3>
 <p>进入 Column Parallel Linear 时，因为计算需要完整的输入，所以第一步必须把按 Sequence 切片的数据拼完整：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>[S<span class="op">/</span>T, B, H] <span class="op">-&gt;</span> All<span class="op">-</span>Gather <span class="op">-&gt;</span> [S, B, H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>[S<span class="op">/</span>T, B, H] <span class="op">-&gt;</span> All<span class="op">-</span>Gather <span class="op">-&gt;</span> [S, B, H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <section id="为什么-backward-一定是-reduce-scatter" class="level4" data-number="3.3.2.1">
 <h4 data-number="3.3.2.1" class="anchored" data-anchor-id="为什么-backward-一定是-reduce-scatter"><span class="header-section-number">3.3.2.1</span> 为什么 Backward 一定是 Reduce-Scatter？</h4>
 <p>我们用 TP size = 2 的例子直观地推一下（以 Rank 0 原来持有的 sequence shard <span class="math inline">\(X^{(0)}\)</span> 为例）：</p>
@@ -884,19 +885,19 @@ rank 1: [a,b,c,d] -&gt; [c,d]</code></pre>
 </div>
 </div>
 <p><strong>注意</strong>：同一个 All-Gather 在模型最后进入 LM head 时还会再出现一次，但那次下游不是分片计算，backward 也就不能再用 Reduce-Scatter——具体原因见 <a href="#sec-sp-lm-head" class="quarto-xref"><span>小节 3.3.5</span></a>。 代码里是用这个显式的开关来区分语义的：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>tensor_parallel_output_grad: <span class="bu">bool</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>tensor_parallel_output_grad: <span class="bu">bool</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </section>
 </section>
 <section id="sec-sp-leave-tp" class="level3" data-number="3.3.3">
 <h3 data-number="3.3.3" class="anchored" data-anchor-id="sec-sp-leave-tp"><span class="header-section-number">3.3.3</span> 反复出现的循环（二）：Reduce-Scatter 离开 TP 区域</h3>
 <p>Row Parallel Linear 恰好是个镜像对称的过程：每个 rank 算出的都是完整 sequence 上的部分结果（partial result）：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>P_t: [S, B, H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>P_t: [S, B, H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>这里通过一次 Reduce-Scatter，刚好把<strong>跨卡求和</strong>和<strong>按 sequence 切分</strong>两件事一次性做完，完美退出 TP 区域：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>forward:</span>
-<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>  partial [S,B,H] <span class="op">-&gt;</span> <span class="bu">reduce</span><span class="op">-</span>scatter <span class="op">-&gt;</span> [S<span class="op">/</span>T,B,H]</span>
-<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a>backward:</span>
-<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a>  [S<span class="op">/</span>T,B,H]       <span class="op">-&gt;</span> <span class="bu">all</span><span class="op">-</span>gather     <span class="op">-&gt;</span> [S,B,H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>forward:</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>  partial [S,B,H] <span class="op">-&gt;</span> <span class="bu">reduce</span><span class="op">-</span>scatter <span class="op">-&gt;</span> [S<span class="op">/</span>T,B,H]</span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>backward:</span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>  [S<span class="op">/</span>T,B,H]       <span class="op">-&gt;</span> <span class="bu">all</span><span class="op">-</span>gather     <span class="op">-&gt;</span> [S,B,H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <section id="再看-tp-size-2-的反向逻辑" class="level4" data-number="3.3.3.1">
 <h4 data-number="3.3.3.1" class="anchored" data-anchor-id="再看-tp-size-2-的反向逻辑"><span class="header-section-number">3.3.3.1</span> 再看 TP size = 2 的反向逻辑</h4>
 <ol type="1">
@@ -1006,10 +1007,10 @@ rank 1: [a,b,c,d] -&gt; [c,d]</code></pre>
 <h3 data-number="3.3.5" class="anchored" data-anchor-id="sec-sp-lm-head"><span class="header-section-number">3.3.5</span> 一次性的出口：All-Gather 进入 LM Head</h3>
 <p>和 <a href="#sec-sp-entry" class="quarto-xref"><span>小节 3.3.1</span></a> 的入口本地切分相对，模型最后也有一次只发生一次的布局切换。</p>
 <p>当最后一层 Transformer Block 算完，需要把 hidden 交给 lm head 去预测下一个词。 最后一个 Row Parallel 输出的 hidden states 先 all-gather 恢复成完整的 <code>[S,B,H]</code>， 紧接着喂给的是<strong>没有切分、在所有 TP rank 间完全复制</strong>的 lm_head 权重：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>forward:</span>
-<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>  [S<span class="op">/</span>T,B,H] <span class="op">-&gt;</span> <span class="bu">all</span><span class="op">-</span>gather <span class="op">-&gt;</span> [S,B,H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>forward:</span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>  [S<span class="op">/</span>T,B,H] <span class="op">-&gt;</span> <span class="bu">all</span><span class="op">-</span>gather <span class="op">-&gt;</span> [S,B,H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>这一步的 all-gather 和 <a href="#sec-sp-enter-tp" class="quarto-xref"><span>小节 3.3.2</span></a> 中的 all-gather 长得一模一样，但下游完全不同：<a href="#sec-sp-enter-tp" class="quarto-xref"><span>小节 3.3.2</span></a> 的下游是”每个 rank 只算一部分”的 TP 分片计算，这里的下游是”每个 rank 算一模一样的一整份”——lm_head 权重是复制的，输入（刚 all-gather 出来的完整 hidden states）、labels、loss scale 在所有 rank 上也都相同。于是每个 rank 独立算出来的完整 logits、loss，乃至这一步的梯度 <code>dX</code>，也必然完全相同：每个 rank 手里已经是完整的梯度。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb17"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>backward: split</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>backward: split</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>既然 <span class="math inline">\(T\)</span> 个 rank 算出的 <code>dX</code> 其实是同一份完整梯度的 <span class="math inline">\(T\)</span> 份重复，就不需要”汇总”，只需要每个 rank 从这份大家都有的完整梯度里，切出（split）自己那一段 sequence shard 就行。 如果误用 reduce-scatter，会把这份本来就正确、完整的梯度先加 <span class="math inline">\(T\)</span> 次再切，等于错误地放大了 <span class="math inline">\(T\)</span> 倍。 这正是 <a href="#sec-sp-enter-tp" class="quarto-xref"><span>小节 3.3.2</span></a> 提到的 <code>tensor_parallel_output_grad</code> 开关要区分的另一半语义。</p>
 <p>把 <a href="#sec-sp-entry" class="quarto-xref"><span>小节 3.3.1</span></a> 和 <a href="#sec-sp-lm-head" class="quarto-xref"><span>小节 3.3.5</span></a> 放在一起看，SP 只在模型内部生效：外部仍然是 <code>input_ids [B,S]</code> 输入、logits <code>[B,S,V]</code> 输出，调用方不需要感知内部 sequence sharding 的存在。</p>
 </section>
@@ -1078,71 +1079,62 @@ rank 1: [a,b,c,d] -&gt; [c,d]</code></pre>
 <li><strong>Embedding（隐式抵消）</strong>： 前向传播时，每个 rank 都根据完整的 <code>input_ids</code> 计算出全量隐藏状态，随后在本地保留 <code>[S/T, B, H]</code> 的对应 shard，进入 TP 区域。 在反向传播时，<strong>这个本地切分算子的 backward（即 All-Gather）会在梯度到达 Embedding 之前，将序列维度重新拼完整</strong>。因此，Embedding 在反向传播时被动接收到了全量 Sequence 的激活梯度，算出的参数梯度天然就是全量且一致的。</li>
 </ul>
 <p>当前实现通过在目标参数上注册 Hook 来完成梯度归约：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>parameter.register_hook(</span>
-<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">lambda</span> grad: _reduce(grad, tp_group)</span>
-<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>parameter.register_hook(</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">lambda</span> grad: _reduce(grad, tp_group)</span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </section>
 </section>
 </section>
 <section id="sec-sp-block-lifecycle" class="level2" data-number="3.5">
 <h2 data-number="3.5" class="anchored" data-anchor-id="sec-sp-block-lifecycle"><span class="header-section-number">3.5</span> 一个 SP Transformer Block 的 Tensor 生命周期</h2>
 <p><a href="#sec-sp-layout" class="quarto-xref"><span>小节 3.2.4</span></a> 已经概括了三类区域中的 tensor layout。现在把这些布局变化放回一个完整的 MiniMind Transformer block，观察 hidden states 如何依次经过 Attention、MLP 和两条 residual 路径。</p>
-<p>仍以 <span class="math inline">\(T=2\)</span> 为例。Block 的输入和输出都保持：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb19"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>[S<span class="op">/</span><span class="dv">2</span>,B,H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>仍以 <span class="math inline">\(T=2\)</span> 为例。TP 区域的输入和输出都保持：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb17"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>[S<span class="op">/</span><span class="dv">2</span>,B,H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>Attention 路径：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb20"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>sequence shard [S<span class="op">/</span><span class="dv">2</span>,B,H]</span>
-<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local <span class="bu">input</span> RMSNorm</span>
-<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> <span class="bu">all</span><span class="op">-</span>gather full sequence</span>
-<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local Q<span class="op">/</span>K<span class="op">/</span>V heads</span>
-<span id="cb20-5"><a href="#cb20-5" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local Attention</span>
-<span id="cb20-6"><a href="#cb20-6" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> Row Parallel o_proj partial output</span>
-<span id="cb20-7"><a href="#cb20-7" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> <span class="bu">reduce</span><span class="op">-</span>scatter [S<span class="op">/</span><span class="dv">2</span>,B,H]</span>
-<span id="cb20-8"><a href="#cb20-8" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local residual add</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>sequence shard [S<span class="op">/</span><span class="dv">2</span>,B,H]</span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local <span class="bu">input</span> RMSNorm</span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> <span class="bu">all</span><span class="op">-</span>gather full sequence</span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local Q<span class="op">/</span>K<span class="op">/</span>V heads</span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local Attention</span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> Row Parallel o_proj partial output</span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> <span class="bu">reduce</span><span class="op">-</span>scatter [S<span class="op">/</span><span class="dv">2</span>,B,H]</span>
+<span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local residual add</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>MLP 路径：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb21"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a>sequence shard [S<span class="op">/</span><span class="dv">2</span>,B,H]</span>
-<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local post<span class="op">-</span>attention RMSNorm</span>
-<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> <span class="bu">all</span><span class="op">-</span>gather full sequence</span>
-<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> Column Parallel first Linear</span>
-<span id="cb21-5"><a href="#cb21-5" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local activation</span>
-<span id="cb21-6"><a href="#cb21-6" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> Row Parallel second Linear partial output</span>
-<span id="cb21-7"><a href="#cb21-7" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> <span class="bu">reduce</span><span class="op">-</span>scatter [S<span class="op">/</span><span class="dv">2</span>,B,H]</span>
-<span id="cb21-8"><a href="#cb21-8" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local residual add</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<div class="cell" data-layout-align="default">
-<div class="cell-output-display">
-<div>
-<p></p><figure class="figure"><p></p>
-<div>
-<pre class="mermaid mermaid-js">flowchart LR
-    classDef comm fill:#e8590c,stroke:#8a2e00,color:#ffffff,stroke-width:2px;
-    classDef data fill:#1971c2,stroke:#0b4a85,color:#ffffff,stroke-width:1px;
-
-    IN["Block input&lt;br/&gt;[S/2,B,H]"]:::data
-    N1["Local input RMSNorm"]:::data
-    G1["all-gather&lt;br/&gt;[S,B,H]"]:::comm
-    ATT["TP Attention&lt;br/&gt;local heads"]:::data
-    O["Row Parallel o_proj"]:::data
-    RS1["reduce-scatter&lt;br/&gt;[S/2,B,H]"]:::comm
-    ADD1["Local residual add"]:::data
-    N2["Local post-attention RMSNorm"]:::data
-    G2["all-gather&lt;br/&gt;[S,B,H]"]:::comm
-    MLP["Column Linear + activation&lt;br/&gt;local intermediate shard"]:::data
-    D["Row Parallel second Linear"]:::data
-    RS2["reduce-scatter&lt;br/&gt;[S/2,B,H]"]:::comm
-    ADD2["Local residual add"]:::data
-    OUT["Block output&lt;br/&gt;[S/2,B,H]"]:::data
-
-    IN --&gt; N1 --&gt; G1 --&gt; ATT --&gt; O --&gt; RS1 --&gt; ADD1
-    IN -. residual .-&gt; ADD1
-    ADD1 --&gt; N2 --&gt; G2 --&gt; MLP --&gt; D --&gt; RS2 --&gt; ADD2
-    ADD1 -. residual .-&gt; ADD2
-    ADD2 --&gt; OUT
-</pre>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb19"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>sequence shard [S<span class="op">/</span><span class="dv">2</span>,B,H]</span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local post<span class="op">-</span>attention RMSNorm</span>
+<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> <span class="bu">all</span><span class="op">-</span>gather full sequence</span>
+<span id="cb19-4"><a href="#cb19-4" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> Column Parallel first Linear</span>
+<span id="cb19-5"><a href="#cb19-5" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local activation</span>
+<span id="cb19-6"><a href="#cb19-6" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> Row Parallel second Linear partial output</span>
+<span id="cb19-7"><a href="#cb19-7" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> <span class="bu">reduce</span><span class="op">-</span>scatter [S<span class="op">/</span><span class="dv">2</span>,B,H]</span>
+<span id="cb19-8"><a href="#cb19-8" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> local residual add</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-layout-panel" data-layout-ncol="2">
+<div class="quarto-layout-row">
+<div class="quarto-layout-cell" style="flex-basis: 50.0%;justify-content: center;">
+<p><img src="figs/tp_flow.png" class="img-fluid"></p>
 </div>
-<p></p></figure><p></p>
+<div class="quarto-layout-cell" style="flex-basis: 50.0%;justify-content: center;">
+<p><img src="figs/sp_flow.png" class="img-fluid"></p>
 </div>
 </div>
 </div>
-<p>上图只追踪 hidden states 的布局变化，因此在 Attention 和 MLP 的入口各画了一次从 <code>[S/T,B,H]</code> 到 <code>[S,B,H]</code> 的 all-gather。实际实现中，每个 Column Parallel Linear 都会独立发起这次 all-gather：Attention 的 Q、K、V projection 各有一次，而本章抽象的两层 MLP 只有第一层是 Column Parallel：</p>
+<p>上图对比了 TP 和 SP 在同一个 Transformer Block 中的 tensor 布局变化：</p>
+<ul>
+<li><strong>TP</strong>：tensor 离开 TP 区域后，仍然是完整的 <code>[S, B, H]</code>，TP 区域之间计算完整序列。</li>
+<li><strong>TP + SP</strong>：tensor 离开 TP 区域后，变成了 <code>[S/T, B, H]</code>，SP 区域之间计算不同的序列 shard，再次进入 TP 区域时通过 all-gather 拼回完整序列。</li>
+</ul>
+<div class="callout callout-style-default callout-note callout-titled" title="关于通信次数的说明">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>关于通信次数的说明
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>上图在 Attention 和 MLP 入口处各绘制了一次 [S/T, B, H] → [S, B, H] 的 All-Gather，这是为了展现 Hidden States 在逻辑上的布局切换。</p>
+<p>在具体的代码实现中，All-Gather 并不是在进入子层前统一执行一次，而是在每一个 Column Parallel Linear 内部独立触发的。Attention 的 Q、K、V projection 各有一次，而普通的两层 MLP 只有第一层是 Column Parallel：</p>
 <table class="caption-top table">
 <thead>
 <tr class="header">
@@ -1170,6 +1162,8 @@ rank 1: [a,b,c,d] -&gt; [c,d]</code></pre>
 </tbody>
 </table>
 <p>MiniMind 源码中的 SwigLU MLP 有两个 projection （gate_proj 和 up_proj），因此实际上会比这里的普通 MLP 再多一次 all-gather。</p>
+</div>
+</div>
 
 
 </section>

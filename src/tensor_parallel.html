@@ -111,6 +111,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     "search-label": "搜索"
   }
 }</script>
+<script type="module" src="../site_libs/quarto-ojs/quarto-ojs-runtime.js"></script>
+<link href="../site_libs/quarto-ojs/quarto-ojs.css" rel="stylesheet">
 <script src="../site_libs/quarto-diagram/mermaid.min.js"></script>
 <script src="../site_libs/quarto-diagram/mermaid-init.js"></script>
 <link href="../site_libs/quarto-diagram/mermaid.css" rel="stylesheet">
@@ -276,14 +278,15 @@ window.Quarto = {
   <li><a href="#sec-qk-norm-grad" id="toc-sec-qk-norm-grad" class="nav-link" data-scroll-target="#sec-qk-norm-grad"><span class="header-section-number">2.11.3</span> Q/K Norm 为什么需要梯度同步</a></li>
   </ul></li>
   <li><a href="#tpcontext把通信范围和分片编号传给每一层" id="toc-tpcontext把通信范围和分片编号传给每一层" class="nav-link" data-scroll-target="#tpcontext把通信范围和分片编号传给每一层"><span class="header-section-number">2.12</span> TPContext：把通信范围和分片编号传给每一层</a></li>
-  <li><a href="#sec-tp-checkpoint-shard" id="toc-sec-tp-checkpoint-shard" class="nav-link" data-scroll-target="#sec-tp-checkpoint-shard"><span class="header-section-number">2.13</span> Dense Checkpoint 如何变成 TP Shard</a></li>
-  <li><a href="#sec-tp-validation" id="toc-sec-tp-validation" class="nav-link" data-scroll-target="#sec-tp-validation"><span class="header-section-number">2.14</span> 如何验证 TP 没有改变数值语义</a>
+  <li><a href="#sec-tp-assemble" id="toc-sec-tp-assemble" class="nav-link" data-scroll-target="#sec-tp-assemble"><span class="header-section-number">2.13</span> 把并行算子装回 MiniMind</a></li>
+  <li><a href="#sec-tp-checkpoint-shard" id="toc-sec-tp-checkpoint-shard" class="nav-link" data-scroll-target="#sec-tp-checkpoint-shard"><span class="header-section-number">2.14</span> Dense Checkpoint 如何变成 TP Shard</a></li>
+  <li><a href="#sec-tp-validation" id="toc-sec-tp-validation" class="nav-link" data-scroll-target="#sec-tp-validation"><span class="header-section-number">2.15</span> 如何验证 TP 没有改变数值语义</a>
   <ul class="collapse">
-  <li><a href="#forward" id="toc-forward" class="nav-link" data-scroll-target="#forward"><span class="header-section-number">2.14.1</span> Forward</a></li>
-  <li><a href="#backward" id="toc-backward" class="nav-link" data-scroll-target="#backward"><span class="header-section-number">2.14.2</span> Backward</a></li>
-  <li><a href="#多步-adamw" id="toc-多步-adamw" class="nav-link" data-scroll-target="#多步-adamw"><span class="header-section-number">2.14.3</span> 多步 AdamW</a></li>
+  <li><a href="#forward" id="toc-forward" class="nav-link" data-scroll-target="#forward"><span class="header-section-number">2.15.1</span> Forward</a></li>
+  <li><a href="#backward" id="toc-backward" class="nav-link" data-scroll-target="#backward"><span class="header-section-number">2.15.2</span> Backward</a></li>
+  <li><a href="#多步-adamw" id="toc-多步-adamw" class="nav-link" data-scroll-target="#多步-adamw"><span class="header-section-number">2.15.3</span> 多步 AdamW</a></li>
   </ul></li>
-  <li><a href="#sec-tp-benchmark" id="toc-sec-tp-benchmark" class="nav-link" data-scroll-target="#sec-tp-benchmark"><span class="header-section-number">2.15</span> TP Benchmark</a></li>
+  <li><a href="#sec-tp-benchmark" id="toc-sec-tp-benchmark" class="nav-link" data-scroll-target="#sec-tp-benchmark"><span class="header-section-number">2.16</span> TP Memory Benchmark</a></li>
   </ul>
 <div class="toc-actions"><ul><li><a href="https://github.com/ANKer661/minimind-tron/edit/main/book/src/tensor_parallel.qmd" class="toc-action"><i class="bi bi-github"></i>编辑该页面</a></li><li><a href="https://github.com/ANKer661/minimind-tron/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></nav>
     </div>
@@ -547,7 +550,7 @@ window.Quarto = {
 </div>
 </div>
 </div>
-<p>从数学结果看，它等价于先执行 All-Reduce，再由每个 rank 在本地保留规约结果中属于自己的 shard。Reduce-Scatter 把求和与结果分发合并成一次 collective，避免先让所有 rank 得到完整结果、再丢掉其中大部分。</p>
+<p>从结果看，它等价于先执行 All-Reduce，再由每个 rank 在本地保留规约结果中属于自己的 shard。Reduce-Scatter 把求和与结果分发合并成一次 collective，避免先让所有 rank 得到完整结果、再丢掉其中大部分。</p>
 </section>
 <section id="三种原语一览" class="level3" data-number="2.3.4">
 <h3 data-number="2.3.4" class="anchored" data-anchor-id="三种原语一览"><span class="header-section-number">2.3.4</span> 三种原语一览</h3>
@@ -589,11 +592,11 @@ window.Quarto = {
 </table>
 <p>后面每次在图里看到橙色方框，都可以回到这张表核对：输入是 shard 还是部分贡献，输出是完整 tensor 还是规约结果的 shard。</p>
 <hr>
-<p>Tensor Parallelism（TP）的出发点是把同一层的权重切到多张 GPU 上，让每个 rank 只完成一部分矩阵乘，再通过通信还原与 Dense 层相同的结果。这部分先从最简单的两层 MLP 找到 TP 的切分规律，再逐步推广到 Attention，最后落到 MiniMind 的实现、数值验证与 benchmark。</p>
 </section>
 </section>
 <section id="从两层-mlp-开始" class="level2" data-number="2.4">
 <h2 data-number="2.4" class="anchored" data-anchor-id="从两层-mlp-开始"><span class="header-section-number">2.4</span> 从两层 MLP 开始</h2>
+<p>Tensor Parallelism（TP）的出发点是把同一层的权重切到多张 GPU 上，让每个 rank 只完成一部分矩阵乘，再通过通信还原与 Dense 层相同的结果。这部分先从最简单的两层 MLP 找到 TP 的切分规律，再逐步推广到 Attention，最后落到 MiniMind 的实现、数值验证与 benchmark。</p>
 <p>本章的原理推导统一采用数学记号：</p>
 <p><span class="math display">\[
 Y=XW.
@@ -903,18 +906,30 @@ W_{1,1}^{\mathsf T}
 <span id="cb9-14"><a href="#cb9-14" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> grad_output, grad_output, <span class="va">None</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>在这里，<code>CopyToModelParallelRegion</code> 只需要保存 TP process group。Forward 原样返回输入；Backward 将各 rank 产生的 input gradient 相加：</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> CopyToModelParallelRegion(torch.autograd.Function):</span>
-<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>    <span class="at">@staticmethod</span></span>
-<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> forward(ctx, x, group):</span>
-<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>        ctx.group <span class="op">=</span> group</span>
-<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> x</span>
-<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">@staticmethod</span></span>
-<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> backward(ctx, grad_output):</span>
-<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>        grad_input <span class="op">=</span> all_reduce(grad_output, group<span class="op">=</span>ctx.group)</span>
-<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> grad_input, <span class="va">None</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>这里不需要 <code>save_for_backward</code>，因为 backward 不依赖 forward 的 tensor 值；<code>ctx</code> 只需保存非 tensor 的 <code>group</code>。Backward 返回两个位置，是因为 forward 接收了 <code>x</code> 和 <code>group</code> 两个参数，而 process group 不需要梯度。</p>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""Pass the input to the model parallel region."""</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">@staticmethod</span></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> forward(ctx: Any, input_: torch.Tensor, group) <span class="op">-&gt;</span> torch.Tensor:</span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>        ctx.group <span class="op">=</span> group</span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> input_</span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>    <span class="at">@staticmethod</span></span>
+<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> backward(ctx: Any, grad_output: torch.Tensor) <span class="op">-&gt;</span> <span class="bu">tuple</span>[torch.Tensor, <span class="va">None</span>]:</span>
+<span id="cb10-11"><a href="#cb10-11" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> _reduce(grad_output, ctx.group), <span class="va">None</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>其中 <code>_reduce</code> 是对 <code>torch.distributed.allreduce</code> 的简单封装。这里不需要 <code>save_for_backward</code>，因为 backward 不依赖 forward 的 tensor 值；<code>ctx</code> 只需保存非 tensor 的 <code>group</code>。Backward 返回两个位置，是因为 forward 接收了 <code>x</code> 和 <code>group</code> 两个参数，而 process group 不需要梯度。</p>
 <p><code>ReduceFromModelParallelRegion</code> 与它对偶：forward 对 partial output 执行 all-reduce，backward 原样返回 <code>grad_output</code>。两者都必须使用所属的 TP group；误用其他的 group 会让无关 rank 参与求和。</p>
-<p>当前实现位于 <code>model/tensor_parallel_mappings.py</code> 中的 <code>CopyToModelParallelRegion</code> 和 <code>ReduceFromModelParallelRegion</code>。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> ReduceFromModelParallelRegion(torch.autograd.Function):</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""All-reduce the input from the model parallel region."""</span></span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">@staticmethod</span></span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> forward(ctx: Any, input_: torch.Tensor, group: dist.ProcessGroup) <span class="op">-&gt;</span> torch.Tensor:</span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>        ctx.group <span class="op">=</span> group</span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> _reduce(input_, ctx.group)</span>
+<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a>    <span class="at">@staticmethod</span></span>
+<span id="cb11-10"><a href="#cb11-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> backward(ctx: Any, grad_output: torch.Tensor) <span class="op">-&gt;</span> <span class="bu">tuple</span>[torch.Tensor, <span class="va">None</span>]:</span>
+<span id="cb11-11"><a href="#cb11-11" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> grad_output, <span class="va">None</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>这些实现位于 <code>model/tensor_parallel_mappings.py</code>。</p>
 </section>
 </section>
 <section id="attentiontransformer-block-的另一核心组件" class="level2" data-number="2.10">
@@ -954,21 +969,21 @@ W_{1,1}^{\mathsf T}
 </div>
 <p>MLP 的切分之所以成立，是因为第一层产生的 intermediate shards 可以独立经过非线性，直到第二层再合并。要把同一思路用于 Attention，也需要在 Q/K/V projection 与 output projection 之间找到可以独立计算的单位。</p>
 <p>Multi-Head Attention 已经把 hidden dimension 组织成多个 head。一个 head 内部的 Q、K、V 相互作用，但不同 head 在 output projection 之前彼此独立。因此可以先考虑下面这条候选路径：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>切分 Q<span class="op">/</span>K<span class="op">/</span>V projection 的输出</span>
-<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> 每个 rank 计算一部分 heads</span>
-<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> 保持 attention output 分片</span>
-<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> 通过 output projection 合并</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>切分 Q<span class="op">/</span>K<span class="op">/</span>V projection 的输出</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> 每个 rank 计算一部分 heads</span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> 保持 attention output 分片</span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a><span class="op">-&gt;</span> 通过 output projection 合并</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>这条路径能否成立，取决于 Q/K/V projection 的 output shard 是否恰好对应若干完整的 head。下面先从 tensor shape 检查这一点。</p>
 <section id="qkv-按-head-切分" class="level3" data-number="2.10.1">
 <h3 data-number="2.10.1" class="anchored" data-anchor-id="qkv-按-head-切分"><span class="header-section-number">2.10.1</span> Q/K/V 按 head 切分</h3>
 <p>设 Query head 数为 <span class="math inline">\(N_q\)</span>，KV head 数为 <span class="math inline">\(N_{kv}\)</span>，每个 head 的维度为 <span class="math inline">\(D\)</span>，TP size 为 <span class="math inline">\(T\)</span>。Dense Q/K/V projection 的输出形状分别是：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>Q: [S,B,N_q D]</span>
-<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>K: [S,B,N_kv D]</span>
-<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>V: [S,B,N_kv D]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>Q: [S,B,N_q D]</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>K: [S,B,N_kv D]</span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>V: [S,B,N_kv D]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>Q/K/V projection 使用 Column Parallel Linear 后，每个 rank 只得到最后一维的一个 shard。以 Q 为例：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>Dense Q:     [S, B, N_q D]</span>
-<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>rank t Q:    [S, B, N_q D <span class="op">/</span> T]</span>
-<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>reshape 后:  [S, B, N_q <span class="op">/</span> T, D]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>Dense Q:     [S, B, N_q D]</span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>rank t Q:    [S, B, N_q D <span class="op">/</span> T]</span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>reshape 后:  [S, B, N_q <span class="op">/</span> T, D]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>只要 <span class="math inline">\(N_q\)</span> 能被 <span class="math inline">\(T\)</span> 整除，这个 output shard 就可以直接 reshape 成 <span class="math inline">\(N_q/T\)</span> 个完整的 head，而不是每个 head 的一部分。K 和 V 的推导相同，只需将 <span class="math inline">\(N_q\)</span> 换成 <span class="math inline">\(N_{kv}\)</span>。</p>
 <div class="cell" data-layout-align="default">
 <div class="cell-output-display">
@@ -1014,9 +1029,9 @@ C_0 &amp; C_1 &amp; \cdots &amp; C_{N_q-1}
 \end{bmatrix},
 \]</span></p>
 <p>因此：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>C:   [S, B, N_q D] <span class="op">=</span> [S, B, H]</span>
-<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>W_O: [H, H]</span>
-<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>Y:   [S, B, H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>C:   [S, B, N_q D] <span class="op">=</span> [S, B, H]</span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>W_O: [H, H]</span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>Y:   [S, B, H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>Dense output projection 为</p>
 <p><span class="math display">\[
 Y=CW_O.
@@ -1050,17 +1065,17 @@ W_O^{(N_q-1)}
 \]</span></p>
 <p>也就是说，output projection 可以等价地理解为：每个 head 先通过自己的 <code>[D, H]</code> 权重块投影到完整 hidden dimension，再将所有 head 的贡献相加。</p>
 <p>TP 只是把这些 head 的贡献分给不同 rank 计算。假设一共有 4 个 Query heads，TP size = 2，并记 head dimension 为 <span class="math inline">\(D\)</span>，那么 <span class="math inline">\(H=4D\)</span>：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>rank <span class="dv">0</span>:</span>
-<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>  负责 head <span class="dv">0</span>、head <span class="dv">1</span></span>
-<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>  local heads:          [S, B, <span class="dv">2</span><span class="er">D</span>]</span>
-<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a>  W_O 中对应的两块:      [<span class="dv">2</span><span class="er">D</span>, H]</span>
-<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a>  partial output P_0:   [S, B, H]</span>
-<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a>rank <span class="dv">1</span>:</span>
-<span id="cb15-8"><a href="#cb15-8" aria-hidden="true" tabindex="-1"></a>  负责 head <span class="dv">2</span>、head <span class="dv">3</span></span>
-<span id="cb15-9"><a href="#cb15-9" aria-hidden="true" tabindex="-1"></a>  local heads:          [S, B, <span class="dv">2</span><span class="er">D</span>]</span>
-<span id="cb15-10"><a href="#cb15-10" aria-hidden="true" tabindex="-1"></a>  W_O 中对应的两块:      [<span class="dv">2</span><span class="er">D</span>, H]</span>
-<span id="cb15-11"><a href="#cb15-11" aria-hidden="true" tabindex="-1"></a>  partial output P_1:   [S, B, H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>rank <span class="dv">0</span>:</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>  负责 head <span class="dv">0</span>、head <span class="dv">1</span></span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>  local heads:          [S, B, <span class="dv">2</span><span class="er">D</span>]</span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a>  W_O 中对应的两块:      [<span class="dv">2</span><span class="er">D</span>, H]</span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>  partial output P_0:   [S, B, H]</span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a>rank <span class="dv">1</span>:</span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a>  负责 head <span class="dv">2</span>、head <span class="dv">3</span></span>
+<span id="cb16-9"><a href="#cb16-9" aria-hidden="true" tabindex="-1"></a>  local heads:          [S, B, <span class="dv">2</span><span class="er">D</span>]</span>
+<span id="cb16-10"><a href="#cb16-10" aria-hidden="true" tabindex="-1"></a>  W_O 中对应的两块:      [<span class="dv">2</span><span class="er">D</span>, H]</span>
+<span id="cb16-11"><a href="#cb16-11" aria-hidden="true" tabindex="-1"></a>  partial output P_1:   [S, B, H]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>两个 rank 的本地计算分别是：</p>
 <p><span class="math display">\[
 \begin{aligned}
@@ -1120,12 +1135,12 @@ Y=P_0+P_1.
 <section id="gqa-不改变-tp-主体设计" class="level3" data-number="2.11.1">
 <h3 data-number="2.11.1" class="anchored" data-anchor-id="gqa-不改变-tp-主体设计"><span class="header-section-number">2.11.1</span> GQA 不改变 TP 主体设计</h3>
 <p>MiniMind 默认：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>num_attention_heads <span class="op">=</span> <span class="dv">8</span></span>
-<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>num_key_value_heads <span class="op">=</span> <span class="dv">4</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb17"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>num_attention_heads <span class="op">=</span> <span class="dv">8</span></span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>num_key_value_heads <span class="op">=</span> <span class="dv">4</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>这是 Grouped Query Attention。</p>
 <p>只要满足：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb17"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>num_attention_heads <span class="op">%</span> tp_size <span class="op">==</span> <span class="dv">0</span></span>
-<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>num_key_value_heads <span class="op">%</span> tp_size <span class="op">==</span> <span class="dv">0</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>num_attention_heads <span class="op">%</span> tp_size <span class="op">==</span> <span class="dv">0</span></span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>num_key_value_heads <span class="op">%</span> tp_size <span class="op">==</span> <span class="dv">0</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>每个 rank 就能同时持有一部分 Q heads 和 KV heads，并在本地完成 <code>repeat_kv</code>。</p>
 </section>
 <section id="rope-不需要跨-rank-通信" class="level3" data-number="2.11.2">
@@ -1136,81 +1151,216 @@ Y=P_0+P_1.
 <h3 data-number="2.11.3" class="anchored" data-anchor-id="sec-qk-norm-grad"><span class="header-section-number">2.11.3</span> Q/K Norm 为什么需要梯度同步</h3>
 <p>Q/K Norm 权重只包含 <code>head_dim</code> 个参数，并在 TP ranks 间复制。</p>
 <p>但每个 rank 处理不同 heads，因此各 rank 得到的参数梯度只是部分贡献。需要：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>q_norm.weight.grad: <span class="bu">all</span><span class="op">-</span><span class="bu">reduce</span> <span class="bu">sum</span></span>
-<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>k_norm.weight.grad: <span class="bu">all</span><span class="op">-</span><span class="bu">reduce</span> <span class="bu">sum</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb19"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>q_norm.weight.grad: <span class="bu">all</span><span class="op">-</span><span class="bu">reduce</span> <span class="bu">sum</span></span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a>k_norm.weight.grad: <span class="bu">all</span><span class="op">-</span><span class="bu">reduce</span> <span class="bu">sum</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>当前实现通过参数 hook 完成：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb19"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>param.register_hook(<span class="kw">lambda</span> grad: _reduce(grad, group))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb20"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>param.register_hook(<span class="kw">lambda</span> grad: _reduce(grad, group))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>这些 hook 会在 backward 求出梯度后自动触发，保证这些参数的梯度的正确性。</p>
 </section>
 </section>
 <section id="tpcontext把通信范围和分片编号传给每一层" class="level2" data-number="2.12">
 <h2 data-number="2.12" class="anchored" data-anchor-id="tpcontext把通信范围和分片编号传给每一层"><span class="header-section-number">2.12</span> TPContext：把通信范围和分片编号传给每一层</h2>
-<p>前面的推导一直使用 rank 0 和 rank 1，默认它们共同组成一个 TP group。落到实现中，Column Parallel 和 Row Parallel 的每一层都需要知道两件事：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb20"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>这次 collective 应该和哪些 rank 通信？</span>
-<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>当前进程持有第几个权重 shard？</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>这里的 rank 和 group 不一定是全局的。一次训练可以同时运行多个模型副本，每个副本内部又各自组成 TP group。如果直接使用 global rank 和 WORLD group，不同副本的 tensor 就可能被错误地放进同一次 collective。</p>
-<p><code>TPContext</code> 将这两个问题需要的信息一起传给并行层。它的基础字段是：</p>
+<p>前面推导 TP 时，我们假设整个机器只跑一个 model，那么 此时 rank 就是全局 rank。但实际训练中，TP 可以与其他并行方法如 DDP 混合使用：8 张卡同时跑 4 个 model，每个 model 内部用 2 张卡做 TP，分别处理不同的数据 batch。这时，之前介绍的通信应该只在每个 model 内部发生。</p>
+<p>为了让每一层知道自己属于哪个 model 、该和谁通信，TPContext 提供三个信息： - <code>group</code>: 当前 model 内所有卡组成的通信组，collective 操作只在这个组内执行 - <code>world_size</code>: 组的规模，决定权重切分份数 - <code>rank</code>: 当前卡在组内的编号，决定持有第几个 shard</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb21"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="at">@dataclass</span></span>
 <span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> TPContext:</span>
 <span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a>    group: dist.ProcessGroup</span>
 <span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a>    world_size: <span class="bu">int</span></span>
 <span id="cb21-5"><a href="#cb21-5" aria-hidden="true" tabindex="-1"></a>    rank: <span class="bu">int</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>其中，<code>group</code> 划定 collective 的通信边界，<code>world_size</code> 决定权重被切成多少份，<code>rank</code> 则决定当前进程持有其中哪一份。</p>
-<p>在当前独立 demo 中：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb22"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a>TP group <span class="op">=</span> WORLD group</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>即使此时 TP group 恰好等于 WORLD group，并行层仍显式使用 <code>TPContext.group</code>。这样扩展到多个 TP group 时，层内通信不需要改变。</p>
-<p>当前实现位于 <code>model/tensor_parallel_layers.py</code> 中的 <code>TPContext</code>。</p>
 </section>
-<section id="sec-tp-checkpoint-shard" class="level2" data-number="2.13">
-<h2 data-number="2.13" class="anchored" data-anchor-id="sec-tp-checkpoint-shard"><span class="header-section-number">2.13</span> Dense Checkpoint 如何变成 TP Shard</h2>
-<p>并行模型知道怎样保存 shard，但已有 checkpoint 通常仍由 Dense 模型产生。要让加载后的第 <span class="math inline">\(t\)</span> 个 rank 恰好持有推导中的第 <span class="math inline">\(t\)</span> 个权重块，需要把数学上的左右/上下切分映射到 PyTorch 的参数布局。</p>
+<section id="sec-tp-assemble" class="level2" data-number="2.13">
+<h2 data-number="2.13" class="anchored" data-anchor-id="sec-tp-assemble"><span class="header-section-number">2.13</span> 把并行算子装回 MiniMind</h2>
+<p>前面分别讨论了 MLP、Attention 和复制参数的梯度同步。现在我们可以把这些零件装回完整模型。当前实现为原始的 Minimind 建立了一组结构对应的 TP 模块：</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Dense 模块</th>
+<th>TP 模块</th>
+<th>主要变化</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>FeedForward</code></td>
+<td><code>TPFeedForward</code></td>
+<td>前两次 projection 使用 Column Parallel，输出 projection 使用 Row Parallel</td>
+</tr>
+<tr class="even">
+<td><code>Attention</code></td>
+<td><code>TPAttention</code></td>
+<td>Q/K/V 按 heads 切分，output projection 汇总各 rank 的贡献</td>
+</tr>
+<tr class="odd">
+<td><code>MiniMindBlock</code></td>
+<td><code>TPMiniMindBlock</code></td>
+<td>换入 TP Attention 和 TP MLP</td>
+</tr>
+<tr class="even">
+<td><code>MiniMindModel</code></td>
+<td><code>TPMiniMindModel</code></td>
+<td>用 <code>TPMiniMindBlock</code> 构造全部 layers</td>
+</tr>
+<tr class="odd">
+<td><code>MiniMindForCausalLM</code></td>
+<td><code>TPMiniMindForCausalLM</code></td>
+<td>接收并向各层传递 <code>TPContext</code></td>
+</tr>
+</tbody>
+</table>
+<p>先看 MLP。projection 的类型发生变化，但 forward 中两层 MLP 的组合方式保持不变：</p>
+<details>
+<summary>
+查看关键差异：FeedForward → TPFeedForward
+</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb22"><pre class="sourceCode diff code-with-copy"><code class="sourceCode diff"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="st">-class FeedForward(nn.Module):</span></span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a><span class="st">-    def __init__(self, config, intermediate_size=None):</span></span>
+<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a><span class="va">+class TPFeedForward(nn.Module):</span></span>
+<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a><span class="va">+    def __init__(self, config, tp_context, intermediate_size=None):</span></span>
+<span id="cb22-5"><a href="#cb22-5" aria-hidden="true" tabindex="-1"></a>         ...</span>
+<span id="cb22-6"><a href="#cb22-6" aria-hidden="true" tabindex="-1"></a><span class="st">-        self.gate_proj = nn.Linear(hidden_size, intermediate_size, bias=False)</span></span>
+<span id="cb22-7"><a href="#cb22-7" aria-hidden="true" tabindex="-1"></a><span class="st">-        self.up_proj = nn.Linear(hidden_size, intermediate_size, bias=False)</span></span>
+<span id="cb22-8"><a href="#cb22-8" aria-hidden="true" tabindex="-1"></a><span class="st">-        self.down_proj = nn.Linear(intermediate_size, hidden_size, bias=False)</span></span>
+<span id="cb22-9"><a href="#cb22-9" aria-hidden="true" tabindex="-1"></a><span class="va">+        self.gate_proj = ColumnParallelLinear(</span></span>
+<span id="cb22-10"><a href="#cb22-10" aria-hidden="true" tabindex="-1"></a><span class="va">+            hidden_size, intermediate_size, tp_context, bias=False</span></span>
+<span id="cb22-11"><a href="#cb22-11" aria-hidden="true" tabindex="-1"></a><span class="va">+        )</span></span>
+<span id="cb22-12"><a href="#cb22-12" aria-hidden="true" tabindex="-1"></a><span class="va">+        self.up_proj = ColumnParallelLinear(</span></span>
+<span id="cb22-13"><a href="#cb22-13" aria-hidden="true" tabindex="-1"></a><span class="va">+            hidden_size, intermediate_size, tp_context, bias=False</span></span>
+<span id="cb22-14"><a href="#cb22-14" aria-hidden="true" tabindex="-1"></a><span class="va">+        )</span></span>
+<span id="cb22-15"><a href="#cb22-15" aria-hidden="true" tabindex="-1"></a><span class="va">+        self.down_proj = RowParallelLinear(</span></span>
+<span id="cb22-16"><a href="#cb22-16" aria-hidden="true" tabindex="-1"></a><span class="va">+            intermediate_size, hidden_size, tp_context, bias=False</span></span>
+<span id="cb22-17"><a href="#cb22-17" aria-hidden="true" tabindex="-1"></a><span class="va">+        )</span></span>
+<span id="cb22-18"><a href="#cb22-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-19"><a href="#cb22-19" aria-hidden="true" tabindex="-1"></a>     def forward(self, x):</span>
+<span id="cb22-20"><a href="#cb22-20" aria-hidden="true" tabindex="-1"></a>         return self.down_proj(</span>
+<span id="cb22-21"><a href="#cb22-21" aria-hidden="true" tabindex="-1"></a>             self.act_fn(self.gate_proj(x)) * self.up_proj(x)</span>
+<span id="cb22-22"><a href="#cb22-22" aria-hidden="true" tabindex="-1"></a>         )</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<p>Attention 除了替换四个 projection，还要把全局 head 数换成当前 rank 的 local head 数。Q/K Norm 仍然只有 <code>head_dim</code> 个参数，因此保持复制，并为它们的梯度注册 all-reduce hook：</p>
+<details>
+<summary>
+查看关键差异：Attention → TPAttention
+</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb23"><pre class="sourceCode diff code-with-copy"><code class="sourceCode diff"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="st">-class Attention(nn.Module):</span></span>
+<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a><span class="st">-    def __init__(self, config):</span></span>
+<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a><span class="va">+class TPAttention(nn.Module):</span></span>
+<span id="cb23-4"><a href="#cb23-4" aria-hidden="true" tabindex="-1"></a><span class="va">+    def __init__(self, config, tp_context):</span></span>
+<span id="cb23-5"><a href="#cb23-5" aria-hidden="true" tabindex="-1"></a>         ...</span>
+<span id="cb23-6"><a href="#cb23-6" aria-hidden="true" tabindex="-1"></a><span class="st">-        self.n_local_heads = config.num_attention_heads</span></span>
+<span id="cb23-7"><a href="#cb23-7" aria-hidden="true" tabindex="-1"></a><span class="st">-        self.n_local_kv_heads = self.num_key_value_heads</span></span>
+<span id="cb23-8"><a href="#cb23-8" aria-hidden="true" tabindex="-1"></a><span class="va">+        assert config.num_attention_heads % tp_context.world_size == 0</span></span>
+<span id="cb23-9"><a href="#cb23-9" aria-hidden="true" tabindex="-1"></a><span class="va">+        assert self.num_key_value_heads % tp_context.world_size == 0</span></span>
+<span id="cb23-10"><a href="#cb23-10" aria-hidden="true" tabindex="-1"></a><span class="va">+        self.n_local_heads = (</span></span>
+<span id="cb23-11"><a href="#cb23-11" aria-hidden="true" tabindex="-1"></a><span class="va">+            config.num_attention_heads // tp_context.world_size</span></span>
+<span id="cb23-12"><a href="#cb23-12" aria-hidden="true" tabindex="-1"></a><span class="va">+        )</span></span>
+<span id="cb23-13"><a href="#cb23-13" aria-hidden="true" tabindex="-1"></a><span class="va">+        self.n_local_kv_heads = (</span></span>
+<span id="cb23-14"><a href="#cb23-14" aria-hidden="true" tabindex="-1"></a><span class="va">+            self.num_key_value_heads // tp_context.world_size</span></span>
+<span id="cb23-15"><a href="#cb23-15" aria-hidden="true" tabindex="-1"></a><span class="va">+        )</span></span>
+<span id="cb23-16"><a href="#cb23-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb23-17"><a href="#cb23-17" aria-hidden="true" tabindex="-1"></a><span class="st">-        self.q_proj = nn.Linear(...)</span></span>
+<span id="cb23-18"><a href="#cb23-18" aria-hidden="true" tabindex="-1"></a><span class="st">-        self.k_proj = nn.Linear(...)</span></span>
+<span id="cb23-19"><a href="#cb23-19" aria-hidden="true" tabindex="-1"></a><span class="st">-        self.v_proj = nn.Linear(...)</span></span>
+<span id="cb23-20"><a href="#cb23-20" aria-hidden="true" tabindex="-1"></a><span class="st">-        self.o_proj = nn.Linear(...)</span></span>
+<span id="cb23-21"><a href="#cb23-21" aria-hidden="true" tabindex="-1"></a><span class="va">+        self.q_proj = ColumnParallelLinear(..., tp_context, bias=False)</span></span>
+<span id="cb23-22"><a href="#cb23-22" aria-hidden="true" tabindex="-1"></a><span class="va">+        self.k_proj = ColumnParallelLinear(..., tp_context, bias=False)</span></span>
+<span id="cb23-23"><a href="#cb23-23" aria-hidden="true" tabindex="-1"></a><span class="va">+        self.v_proj = ColumnParallelLinear(..., tp_context, bias=False)</span></span>
+<span id="cb23-24"><a href="#cb23-24" aria-hidden="true" tabindex="-1"></a><span class="va">+        self.o_proj = RowParallelLinear(..., tp_context, bias=False)</span></span>
+<span id="cb23-25"><a href="#cb23-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb23-26"><a href="#cb23-26" aria-hidden="true" tabindex="-1"></a>         self.q_norm = RMSNorm(self.head_dim, ...)</span>
+<span id="cb23-27"><a href="#cb23-27" aria-hidden="true" tabindex="-1"></a>         self.k_norm = RMSNorm(self.head_dim, ...)</span>
+<span id="cb23-28"><a href="#cb23-28" aria-hidden="true" tabindex="-1"></a><span class="va">+        group = tp_context.group</span></span>
+<span id="cb23-29"><a href="#cb23-29" aria-hidden="true" tabindex="-1"></a><span class="va">+        self.q_norm.weight.register_hook(lambda grad: _reduce(grad, group))</span></span>
+<span id="cb23-30"><a href="#cb23-30" aria-hidden="true" tabindex="-1"></a><span class="va">+        self.k_norm.weight.register_hook(lambda grad: _reduce(grad, group))</span></span>
+<span id="cb23-31"><a href="#cb23-31" aria-hidden="true" tabindex="-1"></a>         ...</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<p>最后在 Block 和 Model 两层把 Dense 组件换成对应的 TP 组件。Residual、RMSNorm、RoPE、mask 和 Attention softmax 的计算顺序都不需要改变：</p>
+<details>
+<summary>
+查看关键差异：组装 Transformer Block 和 Model
+</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb24"><pre class="sourceCode diff code-with-copy"><code class="sourceCode diff"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="st">-class MiniMindBlock(nn.Module):</span></span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a><span class="va">+class TPMiniMindBlock(nn.Module):</span></span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a>     def __init__(self, layer_id, config, tp_context, ...):</span>
+<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a>         ...</span>
+<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a><span class="st">-        self.self_attn = Attention(config)</span></span>
+<span id="cb24-6"><a href="#cb24-6" aria-hidden="true" tabindex="-1"></a><span class="st">-        self.mlp = FeedForward(config)</span></span>
+<span id="cb24-7"><a href="#cb24-7" aria-hidden="true" tabindex="-1"></a><span class="va">+        self.self_attn = TPAttention(config, tp_context)</span></span>
+<span id="cb24-8"><a href="#cb24-8" aria-hidden="true" tabindex="-1"></a><span class="va">+        self.mlp = TPFeedForward(config, tp_context)</span></span>
+<span id="cb24-9"><a href="#cb24-9" aria-hidden="true" tabindex="-1"></a>         self.input_layernorm = RMSNorm(config.hidden_size, ...)</span>
+<span id="cb24-10"><a href="#cb24-10" aria-hidden="true" tabindex="-1"></a>         self.post_attention_layernorm = RMSNorm(config.hidden_size, ...)</span>
+<span id="cb24-11"><a href="#cb24-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb24-12"><a href="#cb24-12" aria-hidden="true" tabindex="-1"></a><span class="st">-class MiniMindModel(nn.Module):</span></span>
+<span id="cb24-13"><a href="#cb24-13" aria-hidden="true" tabindex="-1"></a><span class="va">+class TPMiniMindModel(nn.Module):</span></span>
+<span id="cb24-14"><a href="#cb24-14" aria-hidden="true" tabindex="-1"></a>     def __init__(self, config, tp_context, ...):</span>
+<span id="cb24-15"><a href="#cb24-15" aria-hidden="true" tabindex="-1"></a>         ...</span>
+<span id="cb24-16"><a href="#cb24-16" aria-hidden="true" tabindex="-1"></a>         self.layers = nn.ModuleList([</span>
+<span id="cb24-17"><a href="#cb24-17" aria-hidden="true" tabindex="-1"></a><span class="st">-            MiniMindBlock(layer, config)</span></span>
+<span id="cb24-18"><a href="#cb24-18" aria-hidden="true" tabindex="-1"></a><span class="va">+            TPMiniMindBlock(layer, config, tp_context, ...)</span></span>
+<span id="cb24-19"><a href="#cb24-19" aria-hidden="true" tabindex="-1"></a>             for layer in range(config.num_hidden_layers)</span>
+<span id="cb24-20"><a href="#cb24-20" aria-hidden="true" tabindex="-1"></a>         ])</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<p>完整的 Dense 与 TP 模型分别位于 <code>model/model_minimind.py</code> 和 <code>model/model_tp.py</code>。</p>
+<p>目前，我们只处理了 Transformer Block 中与 Linear 有关的切分，Embedding、final RMSNorm 和 LM Head 仍在各 rank 上完整复制。 至此，TP 模型的结构已经搭建完成，但这些 shard 还没有对应到 Dense checkpoint 中的完整权重。下一步需要把 Dense 权重准确切到每个 rank。</p>
+</section>
+<section id="sec-tp-checkpoint-shard" class="level2" data-number="2.14">
+<h2 data-number="2.14" class="anchored" data-anchor-id="sec-tp-checkpoint-shard"><span class="header-section-number">2.14</span> Dense Checkpoint 如何变成 TP Shard</h2>
+<p>启用 TP 后，每个 rank 上只持有一部分权重了，但是，我们训练完成后，还是希望保存一个完整的 checkpoint。同理，load checkpoint 时，也需要把 Dense checkpoint 切开，正确地分发到各 rank。 要让加载后的第 <span class="math inline">\(t\)</span> 个 rank 正确地持有推导中的第 <span class="math inline">\(t\)</span> 个权重块，需要把数学上的左右/上下切分映射到 PyTorch 的参数布局。</p>
 <p>加载时根据参数名称切片：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb23"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a>q<span class="op">/</span>k<span class="op">/</span>v<span class="op">/</span>gate<span class="op">/</span>up weight: dim<span class="op">=</span><span class="dv">0</span></span>
-<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a>o<span class="op">/</span>down weight:        dim<span class="op">=</span><span class="dv">1</span></span>
-<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a>其他参数:             完整复制</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb25"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a>q<span class="op">/</span>k<span class="op">/</span>v<span class="op">/</span>gate<span class="op">/</span>up weight: dim<span class="op">=</span><span class="dv">0</span></span>
+<span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a>o<span class="op">/</span>down weight:        dim<span class="op">=</span><span class="dv">1</span></span>
+<span id="cb25-3"><a href="#cb25-3" aria-hidden="true" tabindex="-1"></a>其他参数:             完整复制</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>原因来自 PyTorch 的权重布局：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb24"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a>Linear.weight <span class="op">=</span> [out_features, in_features]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb26"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a>Linear.weight <span class="op">=</span> [out_features, in_features]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>因此：</p>
 <ul>
 <li>Column Parallel 切 <code>dim=0</code></li>
 <li>Row Parallel 切 <code>dim=1</code></li>
 </ul>
-<p>这个其实提过很多次了，具体来说，加载权重的实现类似如下：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb25"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="co"># 指定需要 Column / Row Parallel 的层</span></span>
-<span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a>_COLUMN_PARALLEL_SUFFIXES <span class="op">=</span> (</span>
-<span id="cb25-3"><a href="#cb25-3" aria-hidden="true" tabindex="-1"></a>    <span class="st">"q_proj.weight"</span>,</span>
-<span id="cb25-4"><a href="#cb25-4" aria-hidden="true" tabindex="-1"></a>    <span class="st">"k_proj.weight"</span>,</span>
-<span id="cb25-5"><a href="#cb25-5" aria-hidden="true" tabindex="-1"></a>    <span class="st">"v_proj.weight"</span>,</span>
-<span id="cb25-6"><a href="#cb25-6" aria-hidden="true" tabindex="-1"></a>    <span class="st">"gate_proj.weight"</span>,</span>
-<span id="cb25-7"><a href="#cb25-7" aria-hidden="true" tabindex="-1"></a>    <span class="st">"up_proj.weight"</span>,</span>
-<span id="cb25-8"><a href="#cb25-8" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb25-9"><a href="#cb25-9" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb25-10"><a href="#cb25-10" aria-hidden="true" tabindex="-1"></a>_ROW_PARALLEL_SUFFIXES <span class="op">=</span> (</span>
-<span id="cb25-11"><a href="#cb25-11" aria-hidden="true" tabindex="-1"></a>    <span class="st">"o_proj.weight"</span>,</span>
-<span id="cb25-12"><a href="#cb25-12" aria-hidden="true" tabindex="-1"></a>    <span class="st">"down_proj.weight"</span>,</span>
-<span id="cb25-13"><a href="#cb25-13" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb25-14"><a href="#cb25-14" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb25-15"><a href="#cb25-15" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb25-16"><a href="#cb25-16" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> shard_state_dict_for_tp(</span>
-<span id="cb25-17"><a href="#cb25-17" aria-hidden="true" tabindex="-1"></a>    state_dict: Mapping[<span class="bu">str</span>, torch.Tensor],</span>
-<span id="cb25-18"><a href="#cb25-18" aria-hidden="true" tabindex="-1"></a>    tp_context: TPContext,</span>
-<span id="cb25-19"><a href="#cb25-19" aria-hidden="true" tabindex="-1"></a>) <span class="op">-&gt;</span> <span class="bu">dict</span>[<span class="bu">str</span>, torch.Tensor]:</span>
-<span id="cb25-20"><a href="#cb25-20" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""Shard a full MiniMind state dict for the current TP rank."""</span></span>
-<span id="cb25-21"><a href="#cb25-21" aria-hidden="true" tabindex="-1"></a>    tp_state_dict <span class="op">=</span> {}</span>
-<span id="cb25-22"><a href="#cb25-22" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb25-23"><a href="#cb25-23" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> key, value <span class="kw">in</span> state_dict.items():</span>
-<span id="cb25-24"><a href="#cb25-24" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> key.endswith(_COLUMN_PARALLEL_SUFFIXES):</span>
-<span id="cb25-25"><a href="#cb25-25" aria-hidden="true" tabindex="-1"></a>            value <span class="op">=</span> value.chunk(tp_context.world_size, dim<span class="op">=</span><span class="dv">0</span>)[tp_context.rank]</span>
-<span id="cb25-26"><a href="#cb25-26" aria-hidden="true" tabindex="-1"></a>        <span class="cf">elif</span> key.endswith(_ROW_PARALLEL_SUFFIXES):</span>
-<span id="cb25-27"><a href="#cb25-27" aria-hidden="true" tabindex="-1"></a>            value <span class="op">=</span> value.chunk(tp_context.world_size, dim<span class="op">=</span><span class="dv">1</span>)[tp_context.rank]</span>
-<span id="cb25-28"><a href="#cb25-28" aria-hidden="true" tabindex="-1"></a>        <span class="co"># for simplicity, other param are now replicated across all TP ranks</span></span>
-<span id="cb25-29"><a href="#cb25-29" aria-hidden="true" tabindex="-1"></a>        tp_state_dict[key] <span class="op">=</span> value.contiguous()</span>
-<span id="cb25-30"><a href="#cb25-30" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb25-31"><a href="#cb25-31" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> tp_state_dict</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<details>
+<summary>
+查看关键实现：Checkpoint 切分
+</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb27"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a><span class="co"># 指定需要 Column / Row Parallel 的层</span></span>
+<span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a>_COLUMN_PARALLEL_SUFFIXES <span class="op">=</span> (</span>
+<span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a>    <span class="st">"q_proj.weight"</span>,</span>
+<span id="cb27-4"><a href="#cb27-4" aria-hidden="true" tabindex="-1"></a>    <span class="st">"k_proj.weight"</span>,</span>
+<span id="cb27-5"><a href="#cb27-5" aria-hidden="true" tabindex="-1"></a>    <span class="st">"v_proj.weight"</span>,</span>
+<span id="cb27-6"><a href="#cb27-6" aria-hidden="true" tabindex="-1"></a>    <span class="st">"gate_proj.weight"</span>,</span>
+<span id="cb27-7"><a href="#cb27-7" aria-hidden="true" tabindex="-1"></a>    <span class="st">"up_proj.weight"</span>,</span>
+<span id="cb27-8"><a href="#cb27-8" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb27-9"><a href="#cb27-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb27-10"><a href="#cb27-10" aria-hidden="true" tabindex="-1"></a>_ROW_PARALLEL_SUFFIXES <span class="op">=</span> (</span>
+<span id="cb27-11"><a href="#cb27-11" aria-hidden="true" tabindex="-1"></a>    <span class="st">"o_proj.weight"</span>,</span>
+<span id="cb27-12"><a href="#cb27-12" aria-hidden="true" tabindex="-1"></a>    <span class="st">"down_proj.weight"</span>,</span>
+<span id="cb27-13"><a href="#cb27-13" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb27-14"><a href="#cb27-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb27-15"><a href="#cb27-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb27-16"><a href="#cb27-16" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> shard_state_dict_for_tp(</span>
+<span id="cb27-17"><a href="#cb27-17" aria-hidden="true" tabindex="-1"></a>    state_dict: Mapping[<span class="bu">str</span>, torch.Tensor],</span>
+<span id="cb27-18"><a href="#cb27-18" aria-hidden="true" tabindex="-1"></a>    tp_context: TPContext,</span>
+<span id="cb27-19"><a href="#cb27-19" aria-hidden="true" tabindex="-1"></a>) <span class="op">-&gt;</span> <span class="bu">dict</span>[<span class="bu">str</span>, torch.Tensor]:</span>
+<span id="cb27-20"><a href="#cb27-20" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""Shard a full MiniMind state dict for the current TP rank."""</span></span>
+<span id="cb27-21"><a href="#cb27-21" aria-hidden="true" tabindex="-1"></a>    tp_state_dict <span class="op">=</span> {}</span>
+<span id="cb27-22"><a href="#cb27-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb27-23"><a href="#cb27-23" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> key, value <span class="kw">in</span> state_dict.items():</span>
+<span id="cb27-24"><a href="#cb27-24" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> key.endswith(_COLUMN_PARALLEL_SUFFIXES):</span>
+<span id="cb27-25"><a href="#cb27-25" aria-hidden="true" tabindex="-1"></a>            value <span class="op">=</span> value.chunk(tp_context.world_size, dim<span class="op">=</span><span class="dv">0</span>)[tp_context.rank]</span>
+<span id="cb27-26"><a href="#cb27-26" aria-hidden="true" tabindex="-1"></a>        <span class="cf">elif</span> key.endswith(_ROW_PARALLEL_SUFFIXES):</span>
+<span id="cb27-27"><a href="#cb27-27" aria-hidden="true" tabindex="-1"></a>            value <span class="op">=</span> value.chunk(tp_context.world_size, dim<span class="op">=</span><span class="dv">1</span>)[tp_context.rank]</span>
+<span id="cb27-28"><a href="#cb27-28" aria-hidden="true" tabindex="-1"></a>        <span class="co"># for simplicity, other param are now replicated across all TP ranks</span></span>
+<span id="cb27-29"><a href="#cb27-29" aria-hidden="true" tabindex="-1"></a>        tp_state_dict[key] <span class="op">=</span> value.contiguous()</span>
+<span id="cb27-30"><a href="#cb27-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb27-31"><a href="#cb27-31" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> tp_state_dict</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>每个 shard 在加载前调用 <code>.contiguous()</code>，避免 chunk 得到的 view 不满足后续 kernel 或 collective 的连续内存要求。</p>
+</details>
 </section>
-<section id="sec-tp-validation" class="level2" data-number="2.14">
-<h2 data-number="2.14" class="anchored" data-anchor-id="sec-tp-validation"><span class="header-section-number">2.14</span> 如何验证 TP 没有改变数值语义</h2>
-<p>分布式程序能够运行、tensor shape 正确，并不代表它与 Dense 模型等价。Shard 顺序、bias 位置或 backward 中漏掉一次求和，都可能让程序在不报错的情况下产生错误结果。因此，性能测试之前必须先把 TP 与 Dense 放在相同条件下逐层对齐。</p>
+<section id="sec-tp-validation" class="level2" data-number="2.15">
+<h2 data-number="2.15" class="anchored" data-anchor-id="sec-tp-validation"><span class="header-section-number">2.15</span> 如何验证 TP 没有改变数值语义</h2>
+<p>现在 TP 能够运行、tensor shape 正确，但还需要在数值上去验证与 Dense 模型是否等价。Shard 顺序、bias 位置或 backward 中漏掉一次求和，都可能让程序在不报错的情况下产生错误的结果。因此，在性能测试之前必须先把 TP 与 Dense 放在相同条件下逐层对齐。</p>
 <p>验证分成三个层次：</p>
 <pre class="text"><code>Forward：
   参数切分、head 切分和 forward collective 是否还原出相同输出
@@ -1220,26 +1370,30 @@ Backward：
 
 多步 AdamW：
   微小浮点误差经过 optimizer state 累积后是否出现系统性发散</code></pre>
-<p>脚本同时构造 Dense MiniMind 和 TP MiniMind。Dense 模型的完整参数通过 <a href="#sec-tp-checkpoint-shard" class="quarto-xref"><span>小节 2.13</span></a> 中的规则切成各 rank 所需的 shard，并保证两者使用相同输入、labels 和初始权重。为了减少 fused kernel 的额外数值差异并排除 dropout 的随机性，验证固定使用：</p>
+<p>脚本同时构造 Dense MiniMind 和 TP MiniMind。Dense 模型的完整参数通过 <a href="#sec-tp-checkpoint-shard" class="quarto-xref"><span>小节 2.14</span></a> 中的规则切成各 rank 所需的 shard，并保证两者使用相同输入、labels 和初始权重。为了减少 fused kernel 的额外数值差异并排除 dropout 的随机性，验证固定使用：</p>
 <pre class="text"><code>dropout = 0
 flash_attn = False
 dtype = float32</code></pre>
-<p>完整命令如下：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb28"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> evaluation.parallel validate <span class="dt">\</span></span>
-<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--tp_size</span> 2 <span class="dt">\</span></span>
-<span id="cb28-3"><a href="#cb28-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--pp_size</span> 1 <span class="dt">\</span></span>
-<span id="cb28-4"><a href="#cb28-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--</span> <span class="dt">\</span></span>
-<span id="cb28-5"><a href="#cb28-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--hidden_size</span> 128 <span class="dt">\</span></span>
-<span id="cb28-6"><a href="#cb28-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_hidden_layers</span> 6 <span class="dt">\</span></span>
-<span id="cb28-7"><a href="#cb28-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_attention_heads</span> 8 <span class="dt">\</span></span>
-<span id="cb28-8"><a href="#cb28-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_key_value_heads</span> 4 <span class="dt">\</span></span>
-<span id="cb28-9"><a href="#cb28-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">--vocab_size</span> 6400 <span class="dt">\</span></span>
-<span id="cb28-10"><a href="#cb28-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">--seq_len</span> 256 <span class="dt">\</span></span>
-<span id="cb28-11"><a href="#cb28-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dtype</span> float32 <span class="dt">\</span></span>
-<span id="cb28-12"><a href="#cb28-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">--optimizer_steps</span> 200 <span class="dt">\</span></span>
-<span id="cb28-13"><a href="#cb28-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">--log_interval</span> 20</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<section id="forward" class="level3" data-number="2.14.1">
-<h3 data-number="2.14.1" class="anchored" data-anchor-id="forward"><span class="header-section-number">2.14.1</span> Forward</h3>
+<details>
+<summary>
+验证脚本完整命令
+</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb30"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> evaluation.parallel validate <span class="dt">\</span></span>
+<span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--tp_size</span> 2 <span class="dt">\</span></span>
+<span id="cb30-3"><a href="#cb30-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--pp_size</span> 1 <span class="dt">\</span></span>
+<span id="cb30-4"><a href="#cb30-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--</span> <span class="dt">\</span></span>
+<span id="cb30-5"><a href="#cb30-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--hidden_size</span> 128 <span class="dt">\</span></span>
+<span id="cb30-6"><a href="#cb30-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_hidden_layers</span> 6 <span class="dt">\</span></span>
+<span id="cb30-7"><a href="#cb30-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_attention_heads</span> 8 <span class="dt">\</span></span>
+<span id="cb30-8"><a href="#cb30-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_key_value_heads</span> 4 <span class="dt">\</span></span>
+<span id="cb30-9"><a href="#cb30-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">--vocab_size</span> 6400 <span class="dt">\</span></span>
+<span id="cb30-10"><a href="#cb30-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">--seq_len</span> 256 <span class="dt">\</span></span>
+<span id="cb30-11"><a href="#cb30-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dtype</span> float32 <span class="dt">\</span></span>
+<span id="cb30-12"><a href="#cb30-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">--optimizer_steps</span> 200 <span class="dt">\</span></span>
+<span id="cb30-13"><a href="#cb30-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">--log_interval</span> 20</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<section id="forward" class="level3" data-number="2.15.1">
+<h3 data-number="2.15.1" class="anchored" data-anchor-id="forward"><span class="header-section-number">2.15.1</span> Forward</h3>
 <p>Forward 首先比较最终 logits 和 loss：</p>
 <pre class="text"><code>logits：
   检查每个 token、每个 vocab 位置的最大绝对误差
@@ -1250,8 +1404,8 @@ loss：
 forward loss diff:       0.000000e+00</code></pre>
 <p>logits 的最大误差约为 <span class="math inline">\(6.6\times10^{-7}\)</span>，loss 差异在当前打印精度下为零。这里不要求 bitwise identical：TP 改变了部分矩阵乘和 collective 中的浮点运算顺序，最后几位出现差异是正常的。这个结果说明 <a href="#sec-tp-linear" class="quarto-xref"><span>小节 2.7</span></a> 中的权重切分以及 Attention 中的 head 切分在 forward 结束时重新组成了与 Dense 一致的输出。</p>
 </section>
-<section id="backward" class="level3" data-number="2.14.2">
-<h3 data-number="2.14.2" class="anchored" data-anchor-id="backward"><span class="header-section-number">2.14.2</span> Backward</h3>
+<section id="backward" class="level3" data-number="2.15.2">
+<h3 data-number="2.15.2" class="anchored" data-anchor-id="backward"><span class="header-section-number">2.15.2</span> Backward</h3>
 <p>Forward 对齐还不够。Collective 的 backward 是否正确、Column 与 Row Parallel 的梯度该在哪一维比较，以及复制参数是否同步，需要能通过 backward 暴露出来。</p>
 <p>不同参数使用不同的参考：</p>
 <pre class="text"><code>Column Parallel 参数：
@@ -1343,8 +1497,8 @@ Row Parallel 参数：
 <pre class="text"><code>backward max grad diff: 2.817251e-08</code></pre>
 <p>Column shard、Row shard 和复制参数三类梯度都与对应的 Dense 参考对齐，relative L2 error 约为 <span class="math inline">\(10^{-6}\)</span>。特别是 Q/K Norm：参数本身虽然复制在各 rank 上，但每个 rank 只处理 local heads；它的梯度能够对齐，说明 <a href="#sec-qk-norm-grad" class="quarto-xref"><span>小节 2.11.3</span></a> 中额外的梯度求和没有遗漏。</p>
 </section>
-<section id="多步-adamw" class="level3" data-number="2.14.3">
-<h3 data-number="2.14.3" class="anchored" data-anchor-id="多步-adamw"><span class="header-section-number">2.14.3</span> 多步 AdamW</h3>
+<section id="多步-adamw" class="level3" data-number="2.15.3">
+<h3 data-number="2.15.3" class="anchored" data-anchor-id="多步-adamw"><span class="header-section-number">2.15.3</span> 多步 AdamW</h3>
 <p>单次 backward 正确后，最后再让 Dense 和 TP 使用相同的 AdamW 配置，在同一批输入上连续更新 200 步，让微小浮点差异反复进入 AdamW 的一阶、二阶状态，观察它们是否演化成结构性的偏差。</p>
 <p>每隔 20 步比较更新后的 logits：</p>
 <pre class="text"><code>mean absolute error
@@ -1427,97 +1581,149 @@ relative L2 error</code></pre>
 <p>这里的误差没有持续放大，同时三类梯度已经逐项对齐，因此可以进入下一步 benchmark。若某次 collective 或复制参数同步缺失，应该会在首次 backward 的单步梯度中先出现远大于浮点舍入量级的系统性偏差。</p>
 </section>
 </section>
-<section id="sec-tp-benchmark" class="level2" data-number="2.15">
-<h2 data-number="2.15" class="anchored" data-anchor-id="sec-tp-benchmark"><span class="header-section-number">2.15</span> TP Benchmark</h2>
-<p>前面已经说明，TP 将 Attention 和 MLP 的大矩阵切到多个 rank 上。那么这些切分实际节省了多少单卡显存，又为此付出了多少通信时间？</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb35"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> evaluation.parallel benchmark <span class="dt">\</span></span>
-<span id="cb35-2"><a href="#cb35-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--kind</span> memory <span class="dt">\</span></span>
-<span id="cb35-3"><a href="#cb35-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--tp_size</span> 2 <span class="dt">\</span></span>
-<span id="cb35-4"><a href="#cb35-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--pp_size</span> 1 <span class="dt">\</span></span>
-<span id="cb35-5"><a href="#cb35-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--</span> <span class="dt">\</span></span>
-<span id="cb35-6"><a href="#cb35-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--modes</span> ddp tp <span class="dt">\</span></span>
-<span id="cb35-7"><a href="#cb35-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--batch_policy</span> fixed_per_rank <span class="dt">\</span></span>
-<span id="cb35-8"><a href="#cb35-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_hidden_layers</span> 8 16 32 64 <span class="dt">\</span></span>
-<span id="cb35-9"><a href="#cb35-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">--seq_len</span> 2048 <span class="dt">\</span></span>
-<span id="cb35-10"><a href="#cb35-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">--hidden_size</span> 768 <span class="dt">\</span></span>
-<span id="cb35-11"><a href="#cb35-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_attention_heads</span> 8 <span class="dt">\</span></span>
-<span id="cb35-12"><a href="#cb35-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_key_value_heads</span> 4 <span class="dt">\</span></span>
-<span id="cb35-13"><a href="#cb35-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">--vocab_size</span> 6400 <span class="dt">\</span></span>
-<span id="cb35-14"><a href="#cb35-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">--micro_batch_size</span> 2 <span class="dt">\</span></span>
-<span id="cb35-15"><a href="#cb35-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_microbatches</span> 1 <span class="dt">\</span></span>
-<span id="cb35-16"><a href="#cb35-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dtype</span> bfloat16 <span class="dt">\</span></span>
-<span id="cb35-17"><a href="#cb35-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">--warmup_iters</span> 2 <span class="dt">\</span></span>
-<span id="cb35-18"><a href="#cb35-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">--benchmark_iters</span> 5 <span class="dt">\</span></span>
-<span id="cb35-19"><a href="#cb35-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">--output_csv</span> results/tp/tp2_layers.csv <span class="dt">\</span></span>
-<span id="cb35-20"><a href="#cb35-20" aria-hidden="true" tabindex="-1"></a>  <span class="at">--output_plot</span> results/tp/tp2_layers.png</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<p>这里使用 <code>batch_policy=fixed_per_rank</code>，即让 DDP 的每个 rank 的 <code>batchsize = 2</code>，而双卡 TP 的总 <code>batchsize = 2</code>。这样更适合观察参数、梯度和 optimizer states 被切分后的单卡显存变化；由于 DDP 的两个 rank 各自持有一个模型副本，而两个 TP rank 共同组成一个模型副本，两者的总 global batch 并不相同，因此下面的 step time 只用于展示同等单副本工作量下的通信代价，不是等效 global batch 下的吞吐比较。</p>
-<div class="quarto-figure quarto-figure-center">
-<figure class="figure">
-<p><img src="figs/tp2_layers.png" class="img-fluid figure-img" alt="四种模型深度下，TP 相对 DDP 的峰值显存约为百分之六十，step time 约为百分之一百五十到一百六十"></p>
-<figcaption>TP size = 2 时，相对 DDP 的单卡峰值显存与 step time</figcaption>
-</figure>
+<section id="sec-tp-benchmark" class="level2" data-number="2.16">
+<h2 data-number="2.16" class="anchored" data-anchor-id="sec-tp-benchmark"><span class="header-section-number">2.16</span> TP Memory Benchmark</h2>
+<p>前面已经说明，TP 将 Attention 和 MLP 的大矩阵切到多个 rank 上。那么这些切分实际节省了多少单卡显存？</p>
+<details>
+<summary>
+完整 benchmark 命令
+</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb37"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> evaluation.parallel benchmark <span class="dt">\</span></span>
+<span id="cb37-2"><a href="#cb37-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--kind</span> memory <span class="dt">\</span></span>
+<span id="cb37-3"><a href="#cb37-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--tp_size</span> 2 <span class="dt">\</span></span>
+<span id="cb37-4"><a href="#cb37-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--pp_size</span> 1 <span class="dt">\</span></span>
+<span id="cb37-5"><a href="#cb37-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--</span> <span class="dt">\</span></span>
+<span id="cb37-6"><a href="#cb37-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--modes</span> ddp tp <span class="dt">\</span></span>
+<span id="cb37-7"><a href="#cb37-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--batch_policy</span> fixed_per_rank <span class="dt">\</span></span>
+<span id="cb37-8"><a href="#cb37-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_hidden_layers</span> 8 16 32 64 <span class="dt">\</span></span>
+<span id="cb37-9"><a href="#cb37-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">--seq_len</span> 2048 <span class="dt">\</span></span>
+<span id="cb37-10"><a href="#cb37-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">--hidden_size</span> 768 <span class="dt">\</span></span>
+<span id="cb37-11"><a href="#cb37-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_attention_heads</span> 8 <span class="dt">\</span></span>
+<span id="cb37-12"><a href="#cb37-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_key_value_heads</span> 4 <span class="dt">\</span></span>
+<span id="cb37-13"><a href="#cb37-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">--vocab_size</span> 6400 <span class="dt">\</span></span>
+<span id="cb37-14"><a href="#cb37-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">--micro_batch_size</span> 2 <span class="dt">\</span></span>
+<span id="cb37-15"><a href="#cb37-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">--num_microbatches</span> 1 <span class="dt">\</span></span>
+<span id="cb37-16"><a href="#cb37-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dtype</span> bfloat16 <span class="dt">\</span></span>
+<span id="cb37-17"><a href="#cb37-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">--warmup_iters</span> 2 <span class="dt">\</span></span>
+<span id="cb37-18"><a href="#cb37-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">--benchmark_iters</span> 5 <span class="dt">\</span></span>
+<span id="cb37-19"><a href="#cb37-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">--output_csv</span> results/tp/tp2_layers.csv <span class="dt">\</span></span>
+<span id="cb37-20"><a href="#cb37-20" aria-hidden="true" tabindex="-1"></a>  <span class="at">--output_plot</span> results/tp/tp2_layers.png</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<p>这里使用 <code>batch_policy=fixed_per_rank</code>，即让 DDP 的每个 rank 的 <code>batchsize = 2</code>，而双卡 TP 的总 <code>batchsize = 2</code>。这样更适合观察参数、梯度和 optimizer states 被切分后的单卡显存变化。由于 DDP 的两个 rank 各自持有一个模型副本，而两个 TP rank 共同组成一个模型副本，两者的 global batch 并不相同，因此本节只比较单卡峰值显存；时间和吞吐需要在固定 global batch 的实验中另行比较。</p>
+<div class="cell no-code-copy">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code hidden" id="cb38" data-startfrom="1192" data-source-offset="0"><pre class="sourceCode js code-with-copy"><code class="sourceCode javascript" style="counter-reset: source-line 1191;"><span id="cb38-1192"><a href="#cb38-1192" aria-hidden="true" tabindex="-1"></a>{</span>
+<span id="cb38-1193"><a href="#cb38-1193" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> rows <span class="op">=</span> [</span>
+<span id="cb38-1194"><a href="#cb38-1194" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">layers</span><span class="op">:</span> <span class="st">"8"</span><span class="op">,</span> <span class="dt">mode</span><span class="op">:</span> <span class="st">"DDP"</span><span class="op">,</span> <span class="dt">memory</span><span class="op">:</span> <span class="fl">2377.65</span>}<span class="op">,</span></span>
+<span id="cb38-1195"><a href="#cb38-1195" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">layers</span><span class="op">:</span> <span class="st">"8"</span><span class="op">,</span> <span class="dt">mode</span><span class="op">:</span> <span class="st">"TP"</span><span class="op">,</span> <span class="dt">memory</span><span class="op">:</span> <span class="fl">1509.53</span>}<span class="op">,</span></span>
+<span id="cb38-1196"><a href="#cb38-1196" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">layers</span><span class="op">:</span> <span class="st">"16"</span><span class="op">,</span> <span class="dt">mode</span><span class="op">:</span> <span class="st">"DDP"</span><span class="op">,</span> <span class="dt">memory</span><span class="op">:</span> <span class="fl">4433.28</span>}<span class="op">,</span></span>
+<span id="cb38-1197"><a href="#cb38-1197" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">layers</span><span class="op">:</span> <span class="st">"16"</span><span class="op">,</span> <span class="dt">mode</span><span class="op">:</span> <span class="st">"TP"</span><span class="op">,</span> <span class="dt">memory</span><span class="op">:</span> <span class="fl">2717.69</span>}<span class="op">,</span></span>
+<span id="cb38-1198"><a href="#cb38-1198" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">layers</span><span class="op">:</span> <span class="st">"32"</span><span class="op">,</span> <span class="dt">mode</span><span class="op">:</span> <span class="st">"DDP"</span><span class="op">,</span> <span class="dt">memory</span><span class="op">:</span> <span class="fl">8549.79</span>}<span class="op">,</span></span>
+<span id="cb38-1199"><a href="#cb38-1199" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">layers</span><span class="op">:</span> <span class="st">"32"</span><span class="op">,</span> <span class="dt">mode</span><span class="op">:</span> <span class="st">"TP"</span><span class="op">,</span> <span class="dt">memory</span><span class="op">:</span> <span class="fl">5129.40</span>}<span class="op">,</span></span>
+<span id="cb38-1200"><a href="#cb38-1200" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">layers</span><span class="op">:</span> <span class="st">"64"</span><span class="op">,</span> <span class="dt">mode</span><span class="op">:</span> <span class="st">"DDP"</span><span class="op">,</span> <span class="dt">memory</span><span class="op">:</span> <span class="fl">16766.42</span>}<span class="op">,</span></span>
+<span id="cb38-1201"><a href="#cb38-1201" aria-hidden="true" tabindex="-1"></a>    {<span class="dt">layers</span><span class="op">:</span> <span class="st">"64"</span><span class="op">,</span> <span class="dt">mode</span><span class="op">:</span> <span class="st">"TP"</span><span class="op">,</span> <span class="dt">memory</span><span class="op">:</span> <span class="fl">9956.83</span>}</span>
+<span id="cb38-1202"><a href="#cb38-1202" aria-hidden="true" tabindex="-1"></a>  ]</span>
+<span id="cb38-1203"><a href="#cb38-1203" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> ddpByLayers <span class="op">=</span> <span class="kw">new</span> <span class="bu">Map</span>(</span>
+<span id="cb38-1204"><a href="#cb38-1204" aria-hidden="true" tabindex="-1"></a>    rows<span class="op">.</span><span class="fu">filter</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">===</span> <span class="st">"DDP"</span>)<span class="op">.</span><span class="fu">map</span>(d <span class="kw">=&gt;</span> [d<span class="op">.</span><span class="at">layers</span><span class="op">,</span> d<span class="op">.</span><span class="at">memory</span>])</span>
+<span id="cb38-1205"><a href="#cb38-1205" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb38-1206"><a href="#cb38-1206" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> data <span class="op">=</span> rows<span class="op">.</span><span class="fu">map</span>(d <span class="kw">=&gt;</span> ({</span>
+<span id="cb38-1207"><a href="#cb38-1207" aria-hidden="true" tabindex="-1"></a>    <span class="op">...</span>d<span class="op">,</span></span>
+<span id="cb38-1208"><a href="#cb38-1208" aria-hidden="true" tabindex="-1"></a>    <span class="dt">saving</span><span class="op">:</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">===</span> <span class="st">"TP"</span></span>
+<span id="cb38-1209"><a href="#cb38-1209" aria-hidden="true" tabindex="-1"></a>      <span class="op">?</span> (<span class="dv">1</span> <span class="op">-</span> d<span class="op">.</span><span class="at">memory</span> <span class="op">/</span> ddpByLayers<span class="op">.</span><span class="fu">get</span>(d<span class="op">.</span><span class="at">layers</span>)) <span class="op">*</span> <span class="dv">100</span></span>
+<span id="cb38-1210"><a href="#cb38-1210" aria-hidden="true" tabindex="-1"></a>      <span class="op">:</span> <span class="dv">0</span></span>
+<span id="cb38-1211"><a href="#cb38-1211" aria-hidden="true" tabindex="-1"></a>  }))</span>
+<span id="cb38-1212"><a href="#cb38-1212" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb38-1213"><a href="#cb38-1213" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> chart <span class="op">=</span> Plot<span class="op">.</span><span class="fu">plot</span>({</span>
+<span id="cb38-1214"><a href="#cb38-1214" aria-hidden="true" tabindex="-1"></a>    <span class="dt">width</span><span class="op">:</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="dv">760</span><span class="op">,</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(width<span class="op">,</span> <span class="dv">1100</span>))<span class="op">,</span></span>
+<span id="cb38-1215"><a href="#cb38-1215" aria-hidden="true" tabindex="-1"></a>    <span class="dt">height</span><span class="op">:</span> <span class="dv">540</span><span class="op">,</span></span>
+<span id="cb38-1216"><a href="#cb38-1216" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginTop</span><span class="op">:</span> <span class="dv">38</span><span class="op">,</span></span>
+<span id="cb38-1217"><a href="#cb38-1217" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginRight</span><span class="op">:</span> <span class="dv">24</span><span class="op">,</span></span>
+<span id="cb38-1218"><a href="#cb38-1218" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginBottom</span><span class="op">:</span> <span class="dv">46</span><span class="op">,</span></span>
+<span id="cb38-1219"><a href="#cb38-1219" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marginLeft</span><span class="op">:</span> <span class="dv">82</span><span class="op">,</span></span>
+<span id="cb38-1220"><a href="#cb38-1220" aria-hidden="true" tabindex="-1"></a>    <span class="dt">style</span><span class="op">:</span> {</span>
+<span id="cb38-1221"><a href="#cb38-1221" aria-hidden="true" tabindex="-1"></a>      <span class="dt">background</span><span class="op">:</span> <span class="st">"transparent"</span><span class="op">,</span></span>
+<span id="cb38-1222"><a href="#cb38-1222" aria-hidden="true" tabindex="-1"></a>      <span class="dt">color</span><span class="op">:</span> <span class="st">"currentColor"</span><span class="op">,</span></span>
+<span id="cb38-1223"><a href="#cb38-1223" aria-hidden="true" tabindex="-1"></a>      <span class="dt">fontSize</span><span class="op">:</span> <span class="st">"12px"</span></span>
+<span id="cb38-1224"><a href="#cb38-1224" aria-hidden="true" tabindex="-1"></a>    }<span class="op">,</span></span>
+<span id="cb38-1225"><a href="#cb38-1225" aria-hidden="true" tabindex="-1"></a>    <span class="dt">title</span><span class="op">:</span> <span class="st">"Per-rank peak memory (TP size = 2)"</span><span class="op">,</span></span>
+<span id="cb38-1226"><a href="#cb38-1226" aria-hidden="true" tabindex="-1"></a>    <span class="dt">x</span><span class="op">:</span> {<span class="dt">label</span><span class="op">:</span> <span class="kw">null</span><span class="op">,</span> <span class="dt">domain</span><span class="op">:</span> [<span class="st">"DDP"</span><span class="op">,</span> <span class="st">"TP"</span>]<span class="op">,</span> <span class="dt">axis</span><span class="op">:</span> <span class="kw">null</span>}<span class="op">,</span></span>
+<span id="cb38-1227"><a href="#cb38-1227" aria-hidden="true" tabindex="-1"></a>    <span class="dt">fx</span><span class="op">:</span> {</span>
+<span id="cb38-1228"><a href="#cb38-1228" aria-hidden="true" tabindex="-1"></a>      <span class="dt">label</span><span class="op">:</span> <span class="st">"Transformer layers"</span><span class="op">,</span></span>
+<span id="cb38-1229"><a href="#cb38-1229" aria-hidden="true" tabindex="-1"></a>      <span class="dt">domain</span><span class="op">:</span> [<span class="st">"8"</span><span class="op">,</span> <span class="st">"16"</span><span class="op">,</span> <span class="st">"32"</span><span class="op">,</span> <span class="st">"64"</span>]<span class="op">,</span></span>
+<span id="cb38-1230"><a href="#cb38-1230" aria-hidden="true" tabindex="-1"></a>      <span class="dt">axis</span><span class="op">:</span> <span class="st">"bottom"</span><span class="op">,</span></span>
+<span id="cb38-1231"><a href="#cb38-1231" aria-hidden="true" tabindex="-1"></a>      <span class="dt">tickPadding</span><span class="op">:</span> <span class="dv">6</span><span class="op">,</span></span>
+<span id="cb38-1232"><a href="#cb38-1232" aria-hidden="true" tabindex="-1"></a>      <span class="dt">labelOffset</span><span class="op">:</span> <span class="dv">27</span><span class="op">,</span></span>
+<span id="cb38-1233"><a href="#cb38-1233" aria-hidden="true" tabindex="-1"></a>      <span class="dt">padding</span><span class="op">:</span> <span class="fl">0.12</span></span>
+<span id="cb38-1234"><a href="#cb38-1234" aria-hidden="true" tabindex="-1"></a>    }<span class="op">,</span></span>
+<span id="cb38-1235"><a href="#cb38-1235" aria-hidden="true" tabindex="-1"></a>    <span class="dt">y</span><span class="op">:</span> {</span>
+<span id="cb38-1236"><a href="#cb38-1236" aria-hidden="true" tabindex="-1"></a>      <span class="dt">label</span><span class="op">:</span> <span class="st">"Peak allocated memory (MiB)"</span><span class="op">,</span></span>
+<span id="cb38-1237"><a href="#cb38-1237" aria-hidden="true" tabindex="-1"></a>      <span class="dt">domain</span><span class="op">:</span> [<span class="dv">0</span><span class="op">,</span> <span class="dv">19000</span>]<span class="op">,</span></span>
+<span id="cb38-1238"><a href="#cb38-1238" aria-hidden="true" tabindex="-1"></a>      <span class="dt">grid</span><span class="op">:</span> <span class="kw">true</span><span class="op">,</span></span>
+<span id="cb38-1239"><a href="#cb38-1239" aria-hidden="true" tabindex="-1"></a>      <span class="dt">tickFormat</span><span class="op">:</span> d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="fu">toLocaleString</span>(<span class="st">"en-US"</span>)</span>
+<span id="cb38-1240"><a href="#cb38-1240" aria-hidden="true" tabindex="-1"></a>    }<span class="op">,</span></span>
+<span id="cb38-1241"><a href="#cb38-1241" aria-hidden="true" tabindex="-1"></a>    <span class="dt">color</span><span class="op">:</span> {</span>
+<span id="cb38-1242"><a href="#cb38-1242" aria-hidden="true" tabindex="-1"></a>      <span class="dt">domain</span><span class="op">:</span> [<span class="st">"DDP"</span><span class="op">,</span> <span class="st">"TP"</span>]<span class="op">,</span></span>
+<span id="cb38-1243"><a href="#cb38-1243" aria-hidden="true" tabindex="-1"></a>      <span class="dt">range</span><span class="op">:</span> [<span class="st">"#495057"</span><span class="op">,</span> <span class="st">"#5f3dc4"</span>]<span class="op">,</span></span>
+<span id="cb38-1244"><a href="#cb38-1244" aria-hidden="true" tabindex="-1"></a>      <span class="dt">legend</span><span class="op">:</span> <span class="kw">true</span></span>
+<span id="cb38-1245"><a href="#cb38-1245" aria-hidden="true" tabindex="-1"></a>    }<span class="op">,</span></span>
+<span id="cb38-1246"><a href="#cb38-1246" aria-hidden="true" tabindex="-1"></a>    <span class="dt">marks</span><span class="op">:</span> [</span>
+<span id="cb38-1247"><a href="#cb38-1247" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">barY</span>(data<span class="op">,</span> {</span>
+<span id="cb38-1248"><a href="#cb38-1248" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"layers"</span><span class="op">,</span></span>
+<span id="cb38-1249"><a href="#cb38-1249" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb38-1250"><a href="#cb38-1250" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"memory"</span><span class="op">,</span></span>
+<span id="cb38-1251"><a href="#cb38-1251" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb38-1252"><a href="#cb38-1252" aria-hidden="true" tabindex="-1"></a>        <span class="dt">insetLeft</span><span class="op">:</span> <span class="dv">10</span><span class="op">,</span></span>
+<span id="cb38-1253"><a href="#cb38-1253" aria-hidden="true" tabindex="-1"></a>        <span class="dt">insetRight</span><span class="op">:</span> <span class="dv">10</span></span>
+<span id="cb38-1254"><a href="#cb38-1254" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb38-1255"><a href="#cb38-1255" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">text</span>(data<span class="op">.</span><span class="fu">filter</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">===</span> <span class="st">"DDP"</span>)<span class="op">,</span> {</span>
+<span id="cb38-1256"><a href="#cb38-1256" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"layers"</span><span class="op">,</span></span>
+<span id="cb38-1257"><a href="#cb38-1257" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb38-1258"><a href="#cb38-1258" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"memory"</span><span class="op">,</span></span>
+<span id="cb38-1259"><a href="#cb38-1259" aria-hidden="true" tabindex="-1"></a>        <span class="dt">text</span><span class="op">:</span> d <span class="kw">=&gt;</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">round</span>(d<span class="op">.</span><span class="at">memory</span>)<span class="op">.</span><span class="fu">toLocaleString</span>(<span class="st">"en-US"</span>)<span class="op">,</span></span>
+<span id="cb38-1260"><a href="#cb38-1260" aria-hidden="true" tabindex="-1"></a>        <span class="dt">dy</span><span class="op">:</span> <span class="op">-</span><span class="dv">10</span><span class="op">,</span></span>
+<span id="cb38-1261"><a href="#cb38-1261" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"#343a40"</span></span>
+<span id="cb38-1262"><a href="#cb38-1262" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb38-1263"><a href="#cb38-1263" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">text</span>(data<span class="op">.</span><span class="fu">filter</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">===</span> <span class="st">"TP"</span>)<span class="op">,</span> {</span>
+<span id="cb38-1264"><a href="#cb38-1264" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"layers"</span><span class="op">,</span></span>
+<span id="cb38-1265"><a href="#cb38-1265" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb38-1266"><a href="#cb38-1266" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"memory"</span><span class="op">,</span></span>
+<span id="cb38-1267"><a href="#cb38-1267" aria-hidden="true" tabindex="-1"></a>        <span class="dt">text</span><span class="op">:</span> d <span class="kw">=&gt;</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">round</span>(d<span class="op">.</span><span class="at">memory</span>)<span class="op">.</span><span class="fu">toLocaleString</span>(<span class="st">"en-US"</span>)<span class="op">,</span></span>
+<span id="cb38-1268"><a href="#cb38-1268" aria-hidden="true" tabindex="-1"></a>        <span class="dt">dy</span><span class="op">:</span> <span class="op">-</span><span class="dv">25</span><span class="op">,</span></span>
+<span id="cb38-1269"><a href="#cb38-1269" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"#5f3dc4"</span><span class="op">,</span></span>
+<span id="cb38-1270"><a href="#cb38-1270" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fontWeight</span><span class="op">:</span> <span class="dv">600</span></span>
+<span id="cb38-1271"><a href="#cb38-1271" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb38-1272"><a href="#cb38-1272" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">text</span>(data<span class="op">.</span><span class="fu">filter</span>(d <span class="kw">=&gt;</span> d<span class="op">.</span><span class="at">mode</span> <span class="op">===</span> <span class="st">"TP"</span>)<span class="op">,</span> {</span>
+<span id="cb38-1273"><a href="#cb38-1273" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fx</span><span class="op">:</span> <span class="st">"layers"</span><span class="op">,</span></span>
+<span id="cb38-1274"><a href="#cb38-1274" aria-hidden="true" tabindex="-1"></a>        <span class="dt">x</span><span class="op">:</span> <span class="st">"mode"</span><span class="op">,</span></span>
+<span id="cb38-1275"><a href="#cb38-1275" aria-hidden="true" tabindex="-1"></a>        <span class="dt">y</span><span class="op">:</span> <span class="st">"memory"</span><span class="op">,</span></span>
+<span id="cb38-1276"><a href="#cb38-1276" aria-hidden="true" tabindex="-1"></a>        <span class="dt">text</span><span class="op">:</span> d <span class="kw">=&gt;</span> <span class="vs">`(-</span><span class="sc">${</span>d<span class="op">.</span><span class="at">saving</span><span class="op">.</span><span class="fu">toFixed</span>(<span class="dv">1</span>)<span class="sc">}</span><span class="vs">%)`</span><span class="op">,</span></span>
+<span id="cb38-1277"><a href="#cb38-1277" aria-hidden="true" tabindex="-1"></a>        <span class="dt">dy</span><span class="op">:</span> <span class="op">-</span><span class="dv">10</span><span class="op">,</span></span>
+<span id="cb38-1278"><a href="#cb38-1278" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fill</span><span class="op">:</span> <span class="st">"#5f3dc4"</span><span class="op">,</span></span>
+<span id="cb38-1279"><a href="#cb38-1279" aria-hidden="true" tabindex="-1"></a>        <span class="dt">fontWeight</span><span class="op">:</span> <span class="dv">600</span></span>
+<span id="cb38-1280"><a href="#cb38-1280" aria-hidden="true" tabindex="-1"></a>      })<span class="op">,</span></span>
+<span id="cb38-1281"><a href="#cb38-1281" aria-hidden="true" tabindex="-1"></a>      Plot<span class="op">.</span><span class="fu">ruleY</span>([<span class="dv">0</span>])</span>
+<span id="cb38-1282"><a href="#cb38-1282" aria-hidden="true" tabindex="-1"></a>    ]</span>
+<span id="cb38-1283"><a href="#cb38-1283" aria-hidden="true" tabindex="-1"></a>  })</span>
+<span id="cb38-1284"><a href="#cb38-1284" aria-hidden="true" tabindex="-1"></a>  chart<span class="op">.</span><span class="at">style</span><span class="op">.</span><span class="at">margin</span> <span class="op">=</span> <span class="st">"0"</span></span>
+<span id="cb38-1285"><a href="#cb38-1285" aria-hidden="true" tabindex="-1"></a>  chart<span class="op">.</span><span class="fu">setAttribute</span>(<span class="st">"role"</span><span class="op">,</span> <span class="st">"img"</span>)</span>
+<span id="cb38-1286"><a href="#cb38-1286" aria-hidden="true" tabindex="-1"></a>  chart<span class="op">.</span><span class="fu">setAttribute</span>(</span>
+<span id="cb38-1287"><a href="#cb38-1287" aria-hidden="true" tabindex="-1"></a>    <span class="st">"aria-label"</span><span class="op">,</span></span>
+<span id="cb38-1288"><a href="#cb38-1288" aria-hidden="true" tabindex="-1"></a>    <span class="st">"不同 Transformer 层数下 DDP 与 TP 的单卡峰值显存柱状图"</span></span>
+<span id="cb38-1289"><a href="#cb38-1289" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb38-1290"><a href="#cb38-1290" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb38-1291"><a href="#cb38-1291" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> container <span class="op">=</span> <span class="bu">document</span><span class="op">.</span><span class="fu">createElement</span>(<span class="st">"div"</span>)</span>
+<span id="cb38-1292"><a href="#cb38-1292" aria-hidden="true" tabindex="-1"></a>  container<span class="op">.</span><span class="at">className</span> <span class="op">=</span> <span class="st">"benchmark-charts"</span></span>
+<span id="cb38-1293"><a href="#cb38-1293" aria-hidden="true" tabindex="-1"></a>  container<span class="op">.</span><span class="at">style</span><span class="op">.</span><span class="at">overflowX</span> <span class="op">=</span> <span class="st">"auto"</span></span>
+<span id="cb38-1294"><a href="#cb38-1294" aria-hidden="true" tabindex="-1"></a>  container<span class="op">.</span><span class="fu">appendChild</span>(chart)</span>
+<span id="cb38-1295"><a href="#cb38-1295" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> container</span>
+<span id="cb38-1296"><a href="#cb38-1296" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-display">
+<div id="ojs-cell-1" data-nodetype="expression">
+
 </div>
-<table class="caption-top table">
-<colgroup>
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-<col style="width: 14%">
-</colgroup>
-<thead>
-<tr class="header">
-<th style="text-align: right;">Layers</th>
-<th style="text-align: right;">DDP 显存</th>
-<th style="text-align: right;">TP 显存</th>
-<th style="text-align: right;">单卡显存下降</th>
-<th style="text-align: right;">DDP step</th>
-<th style="text-align: right;">TP step</th>
-<th style="text-align: right;">时间增加</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td style="text-align: right;">8</td>
-<td style="text-align: right;">2377.65 MiB</td>
-<td style="text-align: right;">1509.53 MiB</td>
-<td style="text-align: right;">36.5%</td>
-<td style="text-align: right;">44.38 ms</td>
-<td style="text-align: right;">66.47 ms</td>
-<td style="text-align: right;">49.8%</td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">16</td>
-<td style="text-align: right;">4433.28 MiB</td>
-<td style="text-align: right;">2717.69 MiB</td>
-<td style="text-align: right;">38.7%</td>
-<td style="text-align: right;">81.85 ms</td>
-<td style="text-align: right;">129.90 ms</td>
-<td style="text-align: right;">58.7%</td>
-</tr>
-<tr class="odd">
-<td style="text-align: right;">32</td>
-<td style="text-align: right;">8549.79 MiB</td>
-<td style="text-align: right;">5129.40 MiB</td>
-<td style="text-align: right;">40.0%</td>
-<td style="text-align: right;">160.37 ms</td>
-<td style="text-align: right;">255.60 ms</td>
-<td style="text-align: right;">59.4%</td>
-</tr>
-<tr class="even">
-<td style="text-align: right;">64</td>
-<td style="text-align: right;">16766.42 MiB</td>
-<td style="text-align: right;">9956.83 MiB</td>
-<td style="text-align: right;">40.6%</td>
-<td style="text-align: right;">311.60 ms</td>
-<td style="text-align: right;">502.83 ms</td>
-<td style="text-align: right;">61.4%</td>
-</tr>
-</tbody>
-</table>
-<p>为什么层数增加后，TP 的显存比例还在下降？把每层新增的显存分成两部分：<span class="math inline">\(a\)</span> 表示会随 TP size 切分的参数、梯度、optimizer states 和 activation，<span class="math inline">\(r\)</span> 表示仍在每个 rank 上保留的部分；再用 <span class="math inline">\(F_D\)</span> 和 <span class="math inline">\(F_T\)</span> 表示不随层数增长的模型边界状态和其他固定开销。对于 TP size <span class="math inline">\(T\)</span>，</p>
+</div>
+</div>
+<p>图中 TP 柱上同时标出了相对同一层数 DDP 的显存下降比例。</p>
+<p>我们可以观察到，随着层数的增加，TP 的节省的显存比例还在增加，但没有接近 <span class="math inline">\(1 / T\)</span>。如果把每层新增的显存分成两部分：<span class="math inline">\(a\)</span> 表示会随 TP size 切分的参数、梯度、optimizer states 和 activation，<span class="math inline">\(r\)</span> 表示仍在每个 rank 上保留的部分；再用 <span class="math inline">\(F_D\)</span> 和 <span class="math inline">\(F_T\)</span> 表示不随层数增长的模型边界状态和其他固定开销。那么对于 TP size <span class="math inline">\(T\)</span>，</p>
 <p><span class="math display">\[
 M_{\mathrm{DDP}}(L)=F_D+L(a+r),
 \qquad
@@ -1527,14 +1733,23 @@ M_{\mathrm{TP}}(L)=F_T+L\left(\frac{a}{T}+r\right).
 <p><span class="math display">\[
 \frac{a/T+r}{a+r}.
 \]</span></p>
-<p>其中 <span class="math inline">\(r\)</span> 包含未切分的 activation 和复制参数，因此即使固定项可以忽略，最终比例通常也不会达到理想的 <span class="math inline">\(1/T\)</span>。换句话说，固定项解释了为什么较浅模型的 TP 收益更小，而每层仍然复制的部分决定了显存比例最终能下降到哪里。</p>
-<p>需要这个比例与具体实验配置有关，<span class="math inline">\(a\)</span>、<span class="math inline">\(r\)</span>、<span class="math inline">\(F_D\)</span> 和 <span class="math inline">\(F_T\)</span> 都会随 batch size、sequence length、hidden size、vocab size、dtype、optimizer 和具体 kernel 实现变化。例如增大 batch size 或 sequence length 会提高 activation 的占比，而普通 TP 并不会切分所有 activation；增大 hidden size 时，大矩阵参数通常比 hidden states 增长得更快；增大 vocab size 又会放大 embedding、LM head 和 logits 等模型边界状态。配置变化后，TP 能切分与仍然复制的显存比例也会随之改变。</p>
-<p>显存下降的代价是更长的 step time。本实验中 TP 比 DDP 慢约 50%～61%，这部分差距主要来自 Column Parallel 与 Row Parallel 在 forward/backward 中引入的 collective。后面的 <a href="sequence_parallel_optimization.html#sec-tp-async" class="quarto-xref"><span>小节 4.3.1</span></a> 会尝试隐藏其中一部分通信；在此之前，<a href="../src/sequence_parallel.html">Sequence Parallelism</a> 先处理另一个更直接的问题：TP 区域之间仍然重复保存的完整 hidden states。</p>
+<p>其中 <span class="math inline">\(r\)</span> 包含未切分的 activation 和复制参数，因此即使固定项可以忽略，最终比例通常也不会达到理想的 <span class="math inline">\(1/T\)</span>。那么有没有办法进一步切分这些目前还没有切分的东西呢，<a href="../src/sequence_parallel.html">Sequence Parallelism</a> 正是用来解决这部分问题的。</p>
 
 
 </section>
 
 </main> <!-- /main -->
+<script type="ojs-module-contents">
+eyJjb250ZW50cyI6W3sibWV0aG9kTmFtZSI6ImludGVycHJldCIsImNlbGxOYW1lIjoib2pzLWNlbGwtMSIsImlubGluZSI6ZmFsc2UsInNvdXJjZSI6Ilxue1xuICBjb25zdCByb3dzID0gW1xuICAgIHtsYXllcnM6IFwiOFwiLCBtb2RlOiBcIkREUFwiLCBtZW1vcnk6IDIzNzcuNjV9LFxuICAgIHtsYXllcnM6IFwiOFwiLCBtb2RlOiBcIlRQXCIsIG1lbW9yeTogMTUwOS41M30sXG4gICAge2xheWVyczogXCIxNlwiLCBtb2RlOiBcIkREUFwiLCBtZW1vcnk6IDQ0MzMuMjh9LFxuICAgIHtsYXllcnM6IFwiMTZcIiwgbW9kZTogXCJUUFwiLCBtZW1vcnk6IDI3MTcuNjl9LFxuICAgIHtsYXllcnM6IFwiMzJcIiwgbW9kZTogXCJERFBcIiwgbWVtb3J5OiA4NTQ5Ljc5fSxcbiAgICB7bGF5ZXJzOiBcIjMyXCIsIG1vZGU6IFwiVFBcIiwgbWVtb3J5OiA1MTI5LjQwfSxcbiAgICB7bGF5ZXJzOiBcIjY0XCIsIG1vZGU6IFwiRERQXCIsIG1lbW9yeTogMTY3NjYuNDJ9LFxuICAgIHtsYXllcnM6IFwiNjRcIiwgbW9kZTogXCJUUFwiLCBtZW1vcnk6IDk5NTYuODN9XG4gIF1cbiAgY29uc3QgZGRwQnlMYXllcnMgPSBuZXcgTWFwKFxuICAgIHJvd3MuZmlsdGVyKGQgPT4gZC5tb2RlID09PSBcIkREUFwiKS5tYXAoZCA9PiBbZC5sYXllcnMsIGQubWVtb3J5XSlcbiAgKVxuICBjb25zdCBkYXRhID0gcm93cy5tYXAoZCA9PiAoe1xuICAgIC4uLmQsXG4gICAgc2F2aW5nOiBkLm1vZGUgPT09IFwiVFBcIlxuICAgICAgPyAoMSAtIGQubWVtb3J5IC8gZGRwQnlMYXllcnMuZ2V0KGQubGF5ZXJzKSkgKiAxMDBcbiAgICAgIDogMFxuICB9KSlcblxuICBjb25zdCBjaGFydCA9IFBsb3QucGxvdCh7XG4gICAgd2lkdGg6IE1hdGgubWF4KDc2MCwgTWF0aC5taW4od2lkdGgsIDExMDApKSxcbiAgICBoZWlnaHQ6IDU0MCxcbiAgICBtYXJnaW5Ub3A6IDM4LFxuICAgIG1hcmdpblJpZ2h0OiAyNCxcbiAgICBtYXJnaW5Cb3R0b206IDQ2LFxuICAgIG1hcmdpbkxlZnQ6IDgyLFxuICAgIHN0eWxlOiB7XG4gICAgICBiYWNrZ3JvdW5kOiBcInRyYW5zcGFyZW50XCIsXG4gICAgICBjb2xvcjogXCJjdXJyZW50Q29sb3JcIixcbiAgICAgIGZvbnRTaXplOiBcIjEycHhcIlxuICAgIH0sXG4gICAgdGl0bGU6IFwiUGVyLXJhbmsgcGVhayBtZW1vcnkgKFRQIHNpemUgPSAyKVwiLFxuICAgIHg6IHtsYWJlbDogbnVsbCwgZG9tYWluOiBbXCJERFBcIiwgXCJUUFwiXSwgYXhpczogbnVsbH0sXG4gICAgZng6IHtcbiAgICAgIGxhYmVsOiBcIlRyYW5zZm9ybWVyIGxheWVyc1wiLFxuICAgICAgZG9tYWluOiBbXCI4XCIsIFwiMTZcIiwgXCIzMlwiLCBcIjY0XCJdLFxuICAgICAgYXhpczogXCJib3R0b21cIixcbiAgICAgIHRpY2tQYWRkaW5nOiA2LFxuICAgICAgbGFiZWxPZmZzZXQ6IDI3LFxuICAgICAgcGFkZGluZzogMC4xMlxuICAgIH0sXG4gICAgeToge1xuICAgICAgbGFiZWw6IFwiUGVhayBhbGxvY2F0ZWQgbWVtb3J5IChNaUIpXCIsXG4gICAgICBkb21haW46IFswLCAxOTAwMF0sXG4gICAgICBncmlkOiB0cnVlLFxuICAgICAgdGlja0Zvcm1hdDogZCA9PiBkLnRvTG9jYWxlU3RyaW5nKFwiZW4tVVNcIilcbiAgICB9LFxuICAgIGNvbG9yOiB7XG4gICAgICBkb21haW46IFtcIkREUFwiLCBcIlRQXCJdLFxuICAgICAgcmFuZ2U6IFtcIiM0OTUwNTdcIiwgXCIjNWYzZGM0XCJdLFxuICAgICAgbGVnZW5kOiB0cnVlXG4gICAgfSxcbiAgICBtYXJrczogW1xuICAgICAgUGxvdC5iYXJZKGRhdGEsIHtcbiAgICAgICAgZng6IFwibGF5ZXJzXCIsXG4gICAgICAgIHg6IFwibW9kZVwiLFxuICAgICAgICB5OiBcIm1lbW9yeVwiLFxuICAgICAgICBmaWxsOiBcIm1vZGVcIixcbiAgICAgICAgaW5zZXRMZWZ0OiAxMCxcbiAgICAgICAgaW5zZXRSaWdodDogMTBcbiAgICAgIH0pLFxuICAgICAgUGxvdC50ZXh0KGRhdGEuZmlsdGVyKGQgPT4gZC5tb2RlID09PSBcIkREUFwiKSwge1xuICAgICAgICBmeDogXCJsYXllcnNcIixcbiAgICAgICAgeDogXCJtb2RlXCIsXG4gICAgICAgIHk6IFwibWVtb3J5XCIsXG4gICAgICAgIHRleHQ6IGQgPT4gTWF0aC5yb3VuZChkLm1lbW9yeSkudG9Mb2NhbGVTdHJpbmcoXCJlbi1VU1wiKSxcbiAgICAgICAgZHk6IC0xMCxcbiAgICAgICAgZmlsbDogXCIjMzQzYTQwXCJcbiAgICAgIH0pLFxuICAgICAgUGxvdC50ZXh0KGRhdGEuZmlsdGVyKGQgPT4gZC5tb2RlID09PSBcIlRQXCIpLCB7XG4gICAgICAgIGZ4OiBcImxheWVyc1wiLFxuICAgICAgICB4OiBcIm1vZGVcIixcbiAgICAgICAgeTogXCJtZW1vcnlcIixcbiAgICAgICAgdGV4dDogZCA9PiBNYXRoLnJvdW5kKGQubWVtb3J5KS50b0xvY2FsZVN0cmluZyhcImVuLVVTXCIpLFxuICAgICAgICBkeTogLTI1LFxuICAgICAgICBmaWxsOiBcIiM1ZjNkYzRcIixcbiAgICAgICAgZm9udFdlaWdodDogNjAwXG4gICAgICB9KSxcbiAgICAgIFBsb3QudGV4dChkYXRhLmZpbHRlcihkID0+IGQubW9kZSA9PT0gXCJUUFwiKSwge1xuICAgICAgICBmeDogXCJsYXllcnNcIixcbiAgICAgICAgeDogXCJtb2RlXCIsXG4gICAgICAgIHk6IFwibWVtb3J5XCIsXG4gICAgICAgIHRleHQ6IGQgPT4gYCgtJHtkLnNhdmluZy50b0ZpeGVkKDEpfSUpYCxcbiAgICAgICAgZHk6IC0xMCxcbiAgICAgICAgZmlsbDogXCIjNWYzZGM0XCIsXG4gICAgICAgIGZvbnRXZWlnaHQ6IDYwMFxuICAgICAgfSksXG4gICAgICBQbG90LnJ1bGVZKFswXSlcbiAgICBdXG4gIH0pXG4gIGNoYXJ0LnN0eWxlLm1hcmdpbiA9IFwiMFwiXG4gIGNoYXJ0LnNldEF0dHJpYnV0ZShcInJvbGVcIiwgXCJpbWdcIilcbiAgY2hhcnQuc2V0QXR0cmlidXRlKFxuICAgIFwiYXJpYS1sYWJlbFwiLFxuICAgIFwi5LiN5ZCMIFRyYW5zZm9ybWVyIOWxguaVsOS4iyBERFAg5LiOIFRQIOeahOWNleWNoeWzsOWAvOaYvuWtmOafseeKtuWbvlwiXG4gIClcblxuICBjb25zdCBjb250YWluZXIgPSBkb2N1bWVudC5jcmVhdGVFbGVtZW50KFwiZGl2XCIpXG4gIGNvbnRhaW5lci5jbGFzc05hbWUgPSBcImJlbmNobWFyay1jaGFydHNcIlxuICBjb250YWluZXIuc3R5bGUub3ZlcmZsb3dYID0gXCJhdXRvXCJcbiAgY29udGFpbmVyLmFwcGVuZENoaWxkKGNoYXJ0KVxuICByZXR1cm4gY29udGFpbmVyXG59XG4ifV19
+</script>
+<script type="module">
+if (window.location.protocol === "file:") { alert("The OJS runtime does not work with file:// URLs. Please use a web server to view this document."); }
+window._ojs.paths.runtimeToDoc = "../../src";
+window._ojs.paths.runtimeToRoot = "../..";
+window._ojs.paths.docToRoot = "..";
+window._ojs.selfContained = false;
+window._ojs.runtime.interpretFromScriptTags();
+</script>
 <script id="quarto-html-after-body" type="application/javascript">
   window.document.addEventListener("DOMContentLoaded", function (event) {
     const icon = "";
