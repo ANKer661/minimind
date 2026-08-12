@@ -15,11 +15,26 @@ book:
         - src/sequence_parallel_optimization.qmd
         - src/vocab_parallel.qmd
         - src/unified_benchmark.qmd
+    - part: "Pipeline Parallelism：沿深度方向切分模型"
+      chapters:
+        - src/pipeline_parallel.qmd
   repo-url: https://github.com/ANKer661/minimind-tron
   repo-branch: main
   repo-subdir: book
   repo-actions: [edit, issue]
   search: true
+  comments:
+    giscus:
+      repo: ANKer661/minimind-tron
+      repo-id: R_kgDOSsJaIA
+      category: Announcements
+      category-id: DIC_kwDOSsJaIM4DC1Es
+      mapping: pathname
+      reactions-enabled: true
+      input-position: top
+      theme: light
+      language: zh-CN
+      loading: lazy
 
 lang: zh
 number-sections: true
@@ -27,6 +42,7 @@ number-sections: true
 format:
   html:
     theme: cosmo
+    syntax-highlighting: atom-one
     css: styles.css
     toc: true
     code-copy: true
