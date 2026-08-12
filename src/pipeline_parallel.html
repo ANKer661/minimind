@@ -1,0 +1,1866 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="zh-Hans" xml:lang="zh-Hans"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.10.18">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="description" content="从 MiniMind 出发，理解并实现大模型并行训练策略。">
+
+<title>7&nbsp; Pipeline Parallelism – MiniMind Parallelism Book</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: 1.5em;}
+div.column{flex: auto;}
+@media screen {
+div.columns{gap: min(4vw, 1.5em);}
+div.column{overflow-x: auto;}
+}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<link href="../src/unified_benchmark.html" rel="prev">
+<script src="../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-eec68b17241c1efd3eae2de50d816e3e.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-42475cc871a164018e18d65480d471d9.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "sidebar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "start",
+  "type": "textbox",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "没有结果",
+    "search-matching-documents-text": "匹配的文档",
+    "search-copy-link-title": "复制搜索链接",
+    "search-hide-matches-text": "隐藏其它匹配结果",
+    "search-more-match-text": "更多匹配结果",
+    "search-more-matches-text": "更多匹配结果",
+    "search-clear-button-title": "清除",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "取消",
+    "search-submit-button-title": "提交",
+    "search-label": "搜索"
+  }
+}</script>
+<script type="module" src="../site_libs/quarto-ojs/quarto-ojs-runtime.js"></script>
+<link href="../site_libs/quarto-ojs/quarto-ojs.css" rel="stylesheet">
+
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script defer="" src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-chtml.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
+
+<link rel="stylesheet" href="../styles.css">
+</head>
+
+<body class="nav-sidebar floating quarto-light">
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+  <nav class="quarto-secondary-nav">
+    <div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="展开或折叠侧边栏导航" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../src/pipeline_parallel.html">Pipeline Parallelism：沿深度方向切分模型</a></li><li class="breadcrumb-item"><a href="../src/pipeline_parallel.html"><span class="chapter-number">7</span>&nbsp; <span class="chapter-title">Pipeline Parallelism</span></a></li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="展开或折叠侧边栏导航" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        </a>
+      <button type="button" class="btn quarto-search-button" aria-label="搜索" onclick="window.quartoOpenSearch();">
+        <i class="bi bi-search"></i>
+      </button>
+    </div>
+  </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto">
+    <div class="pt-lg-2 mt-2 text-left sidebar-header">
+    <div class="sidebar-title mb-0 py-0">
+      <a href="../">MiniMind Parallelism Book</a> 
+        <div class="sidebar-tools-main">
+    <a href="https://github.com/ANKer661/minimind-tron/tree/main/book/" title="源代码" class="quarto-navigation-tool px-1" aria-label="源代码"><i class="bi bi-github"></i></a>
+</div>
+    </div>
+      </div>
+        <div class="mt-2 flex-shrink-0 align-items-center">
+        <div class="sidebar-search">
+        <div id="quarto-search" class="" title="搜索"></div>
+        </div>
+        </div>
+    <div class="sidebar-menu-container"> 
+    <ul class="list-unstyled mt-1">
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../index.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">前言</span></span></a>
+  </div>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true">
+ <span class="menu-text">从 MiniMind 到 Tensor、Sequence 与 Vocab Parallelism</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/tensor_parallel.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Tensor Parallelism</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/sequence_parallel.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Sequence Parallelism：布局与梯度</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/sequence_parallel_optimization.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Sequence Parallelism：显存边界、异步通信与重计算</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/vocab_parallel.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">5</span>&nbsp; <span class="chapter-title">Vocab Parallelism</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/unified_benchmark.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">6</span>&nbsp; <span class="chapter-title">统一 Benchmark、限制与源码索引</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="true">
+ <span class="menu-text">Pipeline Parallelism：沿深度方向切分模型</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="true" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-2" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../src/pipeline_parallel.html" class="sidebar-item-text sidebar-link active">
+ <span class="menu-text"><span class="chapter-number">7</span>&nbsp; <span class="chapter-title">Pipeline Parallelism</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+    </ul>
+    </div>
+</nav>
+<div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">目录</h2>
+   
+  <ul>
+  <li><a href="#pipeline-parallelism-的动机" id="toc-pipeline-parallelism-的动机" class="nav-link active" data-scroll-target="#pipeline-parallelism-的动机"><span class="header-section-number">7.1</span> Pipeline Parallelism 的动机</a></li>
+  <li><a href="#sec-pp-stage" id="toc-sec-pp-stage" class="nav-link" data-scroll-target="#sec-pp-stage"><span class="header-section-number">7.2</span> 模型：从 Dense Transformer 到 Pipeline Stages</a>
+  <ul class="collapse">
+  <li><a href="#模型实现" id="toc-模型实现" class="nav-link" data-scroll-target="#模型实现"><span class="header-section-number">7.2.1</span> 模型实现</a></li>
+  <li><a href="#模型切分层数怎么分配到每个-stage" id="toc-模型切分层数怎么分配到每个-stage" class="nav-link" data-scroll-target="#模型切分层数怎么分配到每个-stage"><span class="header-section-number">7.2.2</span> 模型切分：层数怎么分配到每个 stage</a></li>
+  </ul></li>
+  <li><a href="#sec-pp-stage-contract" id="toc-sec-pp-stage-contract" class="nav-link" data-scroll-target="#sec-pp-stage-contract"><span class="header-section-number">7.3</span> Stage 的边界契约</a>
+  <ul class="collapse">
+  <li><a href="#外部数据与-loss-边界" id="toc-外部数据与-loss-边界" class="nav-link" data-scroll-target="#外部数据与-loss-边界"><span class="header-section-number">7.3.1</span> 外部数据与 loss 边界</a></li>
+  <li><a href="#stage-间的-pp-通信边界" id="toc-stage-间的-pp-通信边界" class="nav-link" data-scroll-target="#stage-间的-pp-通信边界"><span class="header-section-number">7.3.2</span> Stage 间的 PP 通信边界</a></li>
+  <li><a href="#firstmiddle-与-last-stage-如何适配契约" id="toc-firstmiddle-与-last-stage-如何适配契约" class="nav-link" data-scroll-target="#firstmiddle-与-last-stage-如何适配契约"><span class="header-section-number">7.3.3</span> First、Middle 与 Last Stage 如何适配契约</a></li>
+  </ul></li>
+  <li><a href="#sec-pp-p2p" id="toc-sec-pp-p2p" class="nav-link" data-scroll-target="#sec-pp-p2p"><span class="header-section-number">7.4</span> Stage 间的 P2P 通信</a>
+  <ul class="collapse">
+  <li><a href="#训练时需要的四个操作" id="toc-训练时需要的四个操作" class="nav-link" data-scroll-target="#训练时需要的四个操作"><span class="header-section-number">7.4.1</span> 训练时需要的四个操作</a></li>
+  <li><a href="#p2pcommunicator-实现细节" id="toc-p2pcommunicator-实现细节" class="nav-link" data-scroll-target="#p2pcommunicator-实现细节"><span class="header-section-number">7.4.2</span> <code>P2PCommunicator</code> 实现细节</a></li>
+  </ul></li>
+  <li><a href="#sec-pp-autograd" id="toc-sec-pp-autograd" class="nav-link" data-scroll-target="#sec-pp-autograd"><span class="header-section-number">7.5</span> 跨进程 Autograd：手动连接两段计算图</a></li>
+  <li><a href="#sec-pp-one-batch" id="toc-sec-pp-one-batch" class="nav-link" data-scroll-target="#sec-pp-one-batch"><span class="header-section-number">7.6</span> 总结：单 Batch 的生命周期</a></li>
+  </ul>
+<div class="toc-actions"><ul><li><a href="https://github.com/ANKer661/minimind-tron/edit/main/book/src/pipeline_parallel.qmd" class="toc-action"><i class="bi bi-github"></i>编辑该页面</a></li><li><a href="https://github.com/ANKer661/minimind-tron/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../src/pipeline_parallel.html">Pipeline Parallelism：沿深度方向切分模型</a></li><li class="breadcrumb-item"><a href="../src/pipeline_parallel.html"><span class="chapter-number">7</span>&nbsp; <span class="chapter-title">Pipeline Parallelism</span></a></li></ol></nav>
+<div class="quarto-title">
+<h1 class="title"><span class="chapter-number">7</span>&nbsp; <span class="chapter-title">Pipeline Parallelism</span></h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<section id="pipeline-parallelism-的动机" class="level2" data-number="7.1">
+<h2 data-number="7.1" class="anchored" data-anchor-id="pipeline-parallelism-的动机"><span class="header-section-number">7.1</span> Pipeline Parallelism 的动机</h2>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="./figs/tpvspp.png" class="img-fluid figure-img"></p>
+<figcaption>TP 与 PP 对比</figcaption>
+</figure>
+</div>
+<p>与 TP（Tensor Parallelism）一样，Pipeline Parallelism（PP，流水线并行）也是为了解决当模型过大、单 GPU 显存无法容纳的问题。TP 的思路是将每一层的参数和计算切分到不同的 GPU 上；而 PP 则更加直观，直接把模型不同的层（Layers）依次分配到不同的 GPU 上。</p>
+<p>我们把每个 GPU 上持有的部分模型称为一个 stage。</p>
+<p>从概念和正确性上来说，PP 只需要解决两个基础问题：</p>
+<ol type="1">
+<li><p>stage 内部实现：负责单个 GPU 上模型的结构定义与前反向计算；</p></li>
+<li><p>stage 间通信：负责 Hidden States 和梯度在不同 GPU 之间的传输。</p></li>
+</ol>
+<p>但要构建一个实际高效的系统，还需要解决第三个问题：</p>
+<ol start="3" type="1">
+<li>流水线调度：负责编排 Batch 的执行顺序，以减少 GPU 的空闲（Bubble），最大化 GPU 利用率。</li>
+</ol>
+<p>本章我们将主要关注概念与正确性层面，即 stage 内部的模型实现与 stage 间的通信，下一章再探讨如何通过流水线调度来实现高效的 PP。</p>
+</section>
+<section id="sec-pp-stage" class="level2" data-number="7.2">
+<h2 data-number="7.2" class="anchored" data-anchor-id="sec-pp-stage"><span class="header-section-number">7.2</span> 模型：从 Dense Transformer 到 Pipeline Stages</h2>
+<section id="模型实现" class="level3" data-number="7.2.1">
+<h3 data-number="7.2.1" class="anchored" data-anchor-id="模型实现"><span class="header-section-number">7.2.1</span> 模型实现</h3>
+<p>在 <code>model_pp.py</code> 中，stage 由 <code>PipelineStageModel</code> 和 <code>PipelineStage</code> 两个模块实现。它们直接复用上一章已经封装好的 TP block。由于 TP block 对外仍保持普通 block 的输入输出契约，PP 只需要决定每个 stage 持有哪些 layers，不需要介入一层内部如何切分。这样，沿层切分的 PP 与层内切分的 TP 从模型设计开始就是两条相互独立的维度，之后可以自然组合成 TP × PP。</p>
+<details>
+<summary>
+PipelineStageModel / PipelineStage 与 TP 模块的对比
+</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode diff code-with-copy"><code class="sourceCode diff"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="st">-class TPMiniMindModel(nn.Module):</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="va">+class PipelineStageModel(nn.Module):</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="va">+    self.layer_start = num_hidden_layers * pp_rank // pp_size</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="va">+    self.layer_end = num_hidden_layers * (pp_rank + 1) // pp_size</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="st">-    self.embed_tokens = ...</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="st">-    self.dropout = ...</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="va">+    if pp_context.is_first:</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="va">+        self.embed_tokens = ...</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="va">+        self.dropout = ...</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="st">-    self.layers = nn.ModuleList(</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="st">-        block(layer) for layer in range(num_hidden_layers)</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a><span class="va">+    self.layers = nn.ModuleDict(</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a><span class="va">+        {str(layer): block(layer)</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a><span class="va">+         for layer in range(self.layer_start, self.layer_end)}</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>     )</span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a><span class="st">-    self.norm = RMSNorm(...)</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a><span class="va">+    if pp_context.is_last:</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a><span class="va">+        self.norm = RMSNorm(...)</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a><span class="st">-class TPMiniMindForCausalLM(PreTrainedModel):</span></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a><span class="va">+class PipelineStage(nn.Module):</span></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a><span class="st">-    self.lm_head = ...</span></span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a><span class="va">+    if pp_context.is_last:</span></span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a><span class="va">+        self.lm_head = ...</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p><code>PipelineStageModel</code> 对应普通模型中的 base model：first stage 额外持有 embedding，本地 stage 只持有分配给自己的 Transformer layers，last stage 额外持有 final norm。这里复用的是 <code>TPMiniMindBlock</code>，因此 PP 只改变 layers 在哪些进程上存在，不改变 block 内部已有的 TP 计算。</p>
+<p><code>PipelineStage</code> 对应 <code>ForCausalLM</code> 外层封装，负责调用 base model，并只在 last stage 执行 lm_head。Loss 仍由外部 schedule 在 last stage 上计算，与通信和 backward 一起编排。</p>
+<p>切分 layers 时，一个更直接的做法是让每个 stage 都从局部编号 0 开始。例如，假设 Stage 1 持有全局第 3～5 层，局部编号会变成 <code>layers.0</code>、<code>layers.1</code>、<code>layers.2</code>。模型当然可以正常计算，但 <code>layers.0</code> 在 Dense checkpoint 中指向全局第 0 层，在 Stage 1 中却变成了全局第 3 层。加载参数时就必须额外维护一份 <code>global_to_local</code> 映射，并重写所有 layer key。</p>
+<p>当前实现选择使用 <code>ModuleDict</code> 保留全局层号：</p>
+<pre class="text"><code>model.layers.&lt;global_layer_id&gt;.*</code></pre>
+<p>于是 Stage 1 中的第一层仍叫 <code>layers.3</code>，stage 参数名与 Dense/TP 模型天然对齐。加载 checkpoint 时，先按 TP 规则切分每个参数，再用当前 stage 的 key 过滤即可，不再需要改写参数名：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>dense_state_dict <span class="op">=</span> shard_state_dict_for_tp(dense_model.state_dict(), tp_context)</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>stage_state_dict <span class="op">=</span> {</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    name: dense_state_dict[name]</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> name <span class="kw">in</span> stage_model.state_dict()</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>stage_model.load_state_dict(stage_state_dict, strict<span class="op">=</span><span class="va">True</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>embedding 只会出现在 first stage 的参数中，final norm 和 lm_head 只会出现在 last stage 的参数中，也会随 <code>state_dict()</code> 的 key 自然完成筛选。</p>
+</details>
+</section>
+<section id="模型切分层数怎么分配到每个-stage" class="level3" data-number="7.2.2">
+<h3 data-number="7.2.2" class="anchored" data-anchor-id="模型切分层数怎么分配到每个-stage"><span class="header-section-number">7.2.2</span> 模型切分：层数怎么分配到每个 stage</h3>
+<p>有了 stage 的模型结构之后，接下来的问题是：<span class="math inline">\(N\)</span> 层 Transformer 应该怎么分配给 <span class="math inline">\(p\)</span> 个 stage，才能让每个 GPU 拿到的计算量尽量接近？</p>
+<p>如果 <span class="math inline">\(N\)</span> 恰好能被 <span class="math inline">\(p\)</span> 整除，每个 stage 直接拿 <span class="math inline">\(N/p\)</span> 层即可。当 <span class="math inline">\(N/p\)</span> 不是整数时，只按 <code>N // p</code> 分配会剩下若干层；把余数全部塞进某个 stage，又会让它明显更重。我们希望切分后的 layers 仍保持连续，同时让多出来的层尽量均匀地落在各个 stage 上。</p>
+<p>一种简洁的做法不是逐个处理余数，而是先在全局 layer 序列上放置 <span class="math inline">\(p+1\)</span> 个近似等距的边界。第 <span class="math inline">\(t\)</span> 个 stage 取相邻两个边界之间的连续区间：</p>
+<p>假设我们把 <span class="math inline">\([0, N)\)</span> 切成 <span class="math inline">\(p\)</span> 段左闭右开的连续区间</p>
+<p><span class="math display">\[
+[\text{start}_t, \text{end}_t), \quad t = 0, 1, \dots, p-1,
+\]</span></p>
+<p>当前实现用一个取整公式给出每个 rank 的边界：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="va">self</span>.layer_start <span class="op">=</span> num_hidden_layers <span class="op">*</span> pp_rank <span class="op">//</span> pp_size</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="va">self</span>.layer_end <span class="op">=</span> num_hidden_layers <span class="op">*</span> (pp_rank <span class="op">+</span> <span class="dv">1</span>) <span class="op">//</span> pp_size</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>这个公式同时满足三个要求：</p>
+<ul>
+<li>覆盖完整：<code>layer_start</code> 在 <code>pp_rank=0</code> 时取值 0，<code>layer_end</code> 在 <code>pp_rank=pp_size-1</code> 时取值 <span class="math inline">\(N\)</span>，所以整个区间序列从 0 开始、到 <span class="math inline">\(N\)</span> 结束，不会漏掉任何一层。</li>
+<li>相邻区间无缝：<code>layer_end[t]</code> 和 <code>layer_start[t+1]</code> 用的是同一个表达式 <code>num_hidden_layers * (t+1) // pp_size</code>，两者天然相等，因此相邻 stage 的区间不会漏掉某一层，也不会重叠。</li>
+<li>分配尽量均衡：每个 stage 的层数只可能是 <span class="math inline">\(\lfloor N/p \rfloor\)</span> 或 <span class="math inline">\(\lceil N/p \rceil\)</span>，任意两个 stage 最多相差一层。</li>
+</ul>
+<div class="cell no-code-copy">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code hidden" id="cb5" data-startfrom="119" data-source-offset="-0"><pre class="sourceCode js code-with-copy"><code class="sourceCode javascript" style="counter-reset: source-line 118;"><span id="cb5-119"><a href="#cb5-119" aria-hidden="true" tabindex="-1"></a>viewof ppPartitionLayers <span class="op">=</span> Inputs<span class="op">.</span><span class="fu">range</span>(</span>
+<span id="cb5-120"><a href="#cb5-120" aria-hidden="true" tabindex="-1"></a>  [<span class="dv">1</span><span class="op">,</span> <span class="dv">32</span>]<span class="op">,</span></span>
+<span id="cb5-121"><a href="#cb5-121" aria-hidden="true" tabindex="-1"></a>  {<span class="dt">value</span><span class="op">:</span> <span class="dv">10</span><span class="op">,</span> <span class="dt">step</span><span class="op">:</span> <span class="dv">1</span><span class="op">,</span> <span class="dt">label</span><span class="op">:</span> <span class="st">"Transformer layers N"</span>}</span>
+<span id="cb5-122"><a href="#cb5-122" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb5-123"><a href="#cb5-123" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-124"><a href="#cb5-124" aria-hidden="true" tabindex="-1"></a>viewof ppPartitionStages <span class="op">=</span> Inputs<span class="op">.</span><span class="fu">range</span>(</span>
+<span id="cb5-125"><a href="#cb5-125" aria-hidden="true" tabindex="-1"></a>  [<span class="dv">1</span><span class="op">,</span> <span class="dv">8</span>]<span class="op">,</span></span>
+<span id="cb5-126"><a href="#cb5-126" aria-hidden="true" tabindex="-1"></a>  {<span class="dt">value</span><span class="op">:</span> <span class="dv">4</span><span class="op">,</span> <span class="dt">step</span><span class="op">:</span> <span class="dv">1</span><span class="op">,</span> <span class="dt">label</span><span class="op">:</span> <span class="st">"Pipeline stages p"</span>}</span>
+<span id="cb5-127"><a href="#cb5-127" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-display">
+<div>
+<div id="ojs-cell-1-1" data-nodetype="declaration">
+
+</div>
+</div>
+</div>
+<div class="cell-output cell-output-display">
+<div>
+<div id="ojs-cell-1-2" data-nodetype="declaration">
+
+</div>
+</div>
+</div>
+</div>
+<div class="cell no-code-copy">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code hidden" id="cb6" data-startfrom="132" data-source-offset="0"><pre class="sourceCode js code-with-copy"><code class="sourceCode javascript" style="counter-reset: source-line 131;"><span id="cb6-132"><a href="#cb6-132" aria-hidden="true" tabindex="-1"></a>{</span>
+<span id="cb6-133"><a href="#cb6-133" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> N <span class="op">=</span> ppPartitionLayers</span>
+<span id="cb6-134"><a href="#cb6-134" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> p <span class="op">=</span> ppPartitionStages</span>
+<span id="cb6-135"><a href="#cb6-135" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> colors <span class="op">=</span> [</span>
+<span id="cb6-136"><a href="#cb6-136" aria-hidden="true" tabindex="-1"></a>    <span class="st">"#1971c2"</span><span class="op">,</span> <span class="st">"#5f3dc4"</span><span class="op">,</span> <span class="st">"#2b8a3e"</span><span class="op">,</span> <span class="st">"#e8590c"</span><span class="op">,</span></span>
+<span id="cb6-137"><a href="#cb6-137" aria-hidden="true" tabindex="-1"></a>    <span class="st">"#c2255c"</span><span class="op">,</span> <span class="st">"#0b7285"</span><span class="op">,</span> <span class="st">"#9c36b5"</span><span class="op">,</span> <span class="st">"#495057"</span></span>
+<span id="cb6-138"><a href="#cb6-138" aria-hidden="true" tabindex="-1"></a>  ]</span>
+<span id="cb6-139"><a href="#cb6-139" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> ranges <span class="op">=</span> <span class="bu">Array</span><span class="op">.</span><span class="fu">from</span>({<span class="dt">length</span><span class="op">:</span> p}<span class="op">,</span> (_<span class="op">,</span> stage) <span class="kw">=&gt;</span> {</span>
+<span id="cb6-140"><a href="#cb6-140" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> start <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(N <span class="op">*</span> stage <span class="op">/</span> p)</span>
+<span id="cb6-141"><a href="#cb6-141" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> end <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(N <span class="op">*</span> (stage <span class="op">+</span> <span class="dv">1</span>) <span class="op">/</span> p)</span>
+<span id="cb6-142"><a href="#cb6-142" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> {stage<span class="op">,</span> start<span class="op">,</span> end<span class="op">,</span> <span class="dt">count</span><span class="op">:</span> end <span class="op">-</span> start}</span>
+<span id="cb6-143"><a href="#cb6-143" aria-hidden="true" tabindex="-1"></a>  })</span>
+<span id="cb6-144"><a href="#cb6-144" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-145"><a href="#cb6-145" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> <span class="bu">root</span> <span class="op">=</span> <span class="fu">html</span><span class="vs">`&lt;div class="pp-partition-demo"&gt;</span></span>
+<span id="cb6-146"><a href="#cb6-146" aria-hidden="true" tabindex="-1"></a><span class="vs">    &lt;style&gt;</span></span>
+<span id="cb6-147"><a href="#cb6-147" aria-hidden="true" tabindex="-1"></a><span class="vs">      .pp-partition-demo {</span></span>
+<span id="cb6-148"><a href="#cb6-148" aria-hidden="true" tabindex="-1"></a><span class="vs">        margin: 0.5rem 0 1.5rem;</span></span>
+<span id="cb6-149"><a href="#cb6-149" aria-hidden="true" tabindex="-1"></a><span class="vs">        color: var(--bs-body-color, #212529);</span></span>
+<span id="cb6-150"><a href="#cb6-150" aria-hidden="true" tabindex="-1"></a><span class="vs">      }</span></span>
+<span id="cb6-151"><a href="#cb6-151" aria-hidden="true" tabindex="-1"></a><span class="vs">      .pp-partition-demo .pp-partition-heading {</span></span>
+<span id="cb6-152"><a href="#cb6-152" aria-hidden="true" tabindex="-1"></a><span class="vs">        display: flex;</span></span>
+<span id="cb6-153"><a href="#cb6-153" aria-hidden="true" tabindex="-1"></a><span class="vs">        align-items: baseline;</span></span>
+<span id="cb6-154"><a href="#cb6-154" aria-hidden="true" tabindex="-1"></a><span class="vs">        justify-content: space-between;</span></span>
+<span id="cb6-155"><a href="#cb6-155" aria-hidden="true" tabindex="-1"></a><span class="vs">        gap: 1rem;</span></span>
+<span id="cb6-156"><a href="#cb6-156" aria-hidden="true" tabindex="-1"></a><span class="vs">        margin-bottom: 0.55rem;</span></span>
+<span id="cb6-157"><a href="#cb6-157" aria-hidden="true" tabindex="-1"></a><span class="vs">        font-weight: 700;</span></span>
+<span id="cb6-158"><a href="#cb6-158" aria-hidden="true" tabindex="-1"></a><span class="vs">      }</span></span>
+<span id="cb6-159"><a href="#cb6-159" aria-hidden="true" tabindex="-1"></a><span class="vs">      .pp-partition-demo .pp-partition-formula {</span></span>
+<span id="cb6-160"><a href="#cb6-160" aria-hidden="true" tabindex="-1"></a><span class="vs">        color: var(--bs-secondary-color, #6c757d);</span></span>
+<span id="cb6-161"><a href="#cb6-161" aria-hidden="true" tabindex="-1"></a><span class="vs">        font-family: var(--bs-font-monospace, monospace);</span></span>
+<span id="cb6-162"><a href="#cb6-162" aria-hidden="true" tabindex="-1"></a><span class="vs">        font-size: 0.85rem;</span></span>
+<span id="cb6-163"><a href="#cb6-163" aria-hidden="true" tabindex="-1"></a><span class="vs">        font-weight: 500;</span></span>
+<span id="cb6-164"><a href="#cb6-164" aria-hidden="true" tabindex="-1"></a><span class="vs">      }</span></span>
+<span id="cb6-165"><a href="#cb6-165" aria-hidden="true" tabindex="-1"></a><span class="vs">      .pp-partition-demo .pp-layer-scroll {</span></span>
+<span id="cb6-166"><a href="#cb6-166" aria-hidden="true" tabindex="-1"></a><span class="vs">        overflow-x: auto;</span></span>
+<span id="cb6-167"><a href="#cb6-167" aria-hidden="true" tabindex="-1"></a><span class="vs">        padding: 0.15rem 0 0.45rem;</span></span>
+<span id="cb6-168"><a href="#cb6-168" aria-hidden="true" tabindex="-1"></a><span class="vs">      }</span></span>
+<span id="cb6-169"><a href="#cb6-169" aria-hidden="true" tabindex="-1"></a><span class="vs">      .pp-partition-demo .pp-layer-track {</span></span>
+<span id="cb6-170"><a href="#cb6-170" aria-hidden="true" tabindex="-1"></a><span class="vs">        display: grid;</span></span>
+<span id="cb6-171"><a href="#cb6-171" aria-hidden="true" tabindex="-1"></a><span class="vs">        gap: 3px;</span></span>
+<span id="cb6-172"><a href="#cb6-172" aria-hidden="true" tabindex="-1"></a><span class="vs">      }</span></span>
+<span id="cb6-173"><a href="#cb6-173" aria-hidden="true" tabindex="-1"></a><span class="vs">      .pp-partition-demo .pp-layer-cell {</span></span>
+<span id="cb6-174"><a href="#cb6-174" aria-hidden="true" tabindex="-1"></a><span class="vs">        display: grid;</span></span>
+<span id="cb6-175"><a href="#cb6-175" aria-hidden="true" tabindex="-1"></a><span class="vs">        place-items: center;</span></span>
+<span id="cb6-176"><a href="#cb6-176" aria-hidden="true" tabindex="-1"></a><span class="vs">        min-height: 42px;</span></span>
+<span id="cb6-177"><a href="#cb6-177" aria-hidden="true" tabindex="-1"></a><span class="vs">        border: 1px solid rgba(0, 0, 0, 0.18);</span></span>
+<span id="cb6-178"><a href="#cb6-178" aria-hidden="true" tabindex="-1"></a><span class="vs">        border-radius: 4px;</span></span>
+<span id="cb6-179"><a href="#cb6-179" aria-hidden="true" tabindex="-1"></a><span class="vs">        color: #fff;</span></span>
+<span id="cb6-180"><a href="#cb6-180" aria-hidden="true" tabindex="-1"></a><span class="vs">        font-size: 0.78rem;</span></span>
+<span id="cb6-181"><a href="#cb6-181" aria-hidden="true" tabindex="-1"></a><span class="vs">        font-weight: 700;</span></span>
+<span id="cb6-182"><a href="#cb6-182" aria-hidden="true" tabindex="-1"></a><span class="vs">      }</span></span>
+<span id="cb6-183"><a href="#cb6-183" aria-hidden="true" tabindex="-1"></a><span class="vs">      .pp-partition-demo .pp-stage-list {</span></span>
+<span id="cb6-184"><a href="#cb6-184" aria-hidden="true" tabindex="-1"></a><span class="vs">        display: grid;</span></span>
+<span id="cb6-185"><a href="#cb6-185" aria-hidden="true" tabindex="-1"></a><span class="vs">        grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));</span></span>
+<span id="cb6-186"><a href="#cb6-186" aria-hidden="true" tabindex="-1"></a><span class="vs">        gap: 0.65rem;</span></span>
+<span id="cb6-187"><a href="#cb6-187" aria-hidden="true" tabindex="-1"></a><span class="vs">        margin-top: 0.8rem;</span></span>
+<span id="cb6-188"><a href="#cb6-188" aria-hidden="true" tabindex="-1"></a><span class="vs">      }</span></span>
+<span id="cb6-189"><a href="#cb6-189" aria-hidden="true" tabindex="-1"></a><span class="vs">      .pp-partition-demo .pp-stage-card {</span></span>
+<span id="cb6-190"><a href="#cb6-190" aria-hidden="true" tabindex="-1"></a><span class="vs">        padding: 0.65rem 0.75rem;</span></span>
+<span id="cb6-191"><a href="#cb6-191" aria-hidden="true" tabindex="-1"></a><span class="vs">        border: 1px solid var(--bs-border-color, #dee2e6);</span></span>
+<span id="cb6-192"><a href="#cb6-192" aria-hidden="true" tabindex="-1"></a><span class="vs">        border-top: 5px solid var(--stage-color);</span></span>
+<span id="cb6-193"><a href="#cb6-193" aria-hidden="true" tabindex="-1"></a><span class="vs">        border-radius: 5px;</span></span>
+<span id="cb6-194"><a href="#cb6-194" aria-hidden="true" tabindex="-1"></a><span class="vs">        background: var(--bs-body-bg, #fff);</span></span>
+<span id="cb6-195"><a href="#cb6-195" aria-hidden="true" tabindex="-1"></a><span class="vs">      }</span></span>
+<span id="cb6-196"><a href="#cb6-196" aria-hidden="true" tabindex="-1"></a><span class="vs">      .pp-partition-demo .pp-stage-card.empty {</span></span>
+<span id="cb6-197"><a href="#cb6-197" aria-hidden="true" tabindex="-1"></a><span class="vs">        border-style: dashed;</span></span>
+<span id="cb6-198"><a href="#cb6-198" aria-hidden="true" tabindex="-1"></a><span class="vs">        opacity: 0.72;</span></span>
+<span id="cb6-199"><a href="#cb6-199" aria-hidden="true" tabindex="-1"></a><span class="vs">      }</span></span>
+<span id="cb6-200"><a href="#cb6-200" aria-hidden="true" tabindex="-1"></a><span class="vs">      .pp-partition-demo .pp-stage-name {</span></span>
+<span id="cb6-201"><a href="#cb6-201" aria-hidden="true" tabindex="-1"></a><span class="vs">        font-weight: 750;</span></span>
+<span id="cb6-202"><a href="#cb6-202" aria-hidden="true" tabindex="-1"></a><span class="vs">      }</span></span>
+<span id="cb6-203"><a href="#cb6-203" aria-hidden="true" tabindex="-1"></a><span class="vs">      .pp-partition-demo .pp-stage-range {</span></span>
+<span id="cb6-204"><a href="#cb6-204" aria-hidden="true" tabindex="-1"></a><span class="vs">        margin-top: 0.18rem;</span></span>
+<span id="cb6-205"><a href="#cb6-205" aria-hidden="true" tabindex="-1"></a><span class="vs">        font-family: var(--bs-font-monospace, monospace);</span></span>
+<span id="cb6-206"><a href="#cb6-206" aria-hidden="true" tabindex="-1"></a><span class="vs">        font-size: 0.9rem;</span></span>
+<span id="cb6-207"><a href="#cb6-207" aria-hidden="true" tabindex="-1"></a><span class="vs">      }</span></span>
+<span id="cb6-208"><a href="#cb6-208" aria-hidden="true" tabindex="-1"></a><span class="vs">      .pp-partition-demo .pp-stage-count {</span></span>
+<span id="cb6-209"><a href="#cb6-209" aria-hidden="true" tabindex="-1"></a><span class="vs">        margin-top: 0.12rem;</span></span>
+<span id="cb6-210"><a href="#cb6-210" aria-hidden="true" tabindex="-1"></a><span class="vs">        color: var(--bs-secondary-color, #6c757d);</span></span>
+<span id="cb6-211"><a href="#cb6-211" aria-hidden="true" tabindex="-1"></a><span class="vs">        font-size: 0.82rem;</span></span>
+<span id="cb6-212"><a href="#cb6-212" aria-hidden="true" tabindex="-1"></a><span class="vs">      }</span></span>
+<span id="cb6-213"><a href="#cb6-213" aria-hidden="true" tabindex="-1"></a><span class="vs">      .pp-partition-demo .pp-partition-warning {</span></span>
+<span id="cb6-214"><a href="#cb6-214" aria-hidden="true" tabindex="-1"></a><span class="vs">        margin-top: 0.75rem;</span></span>
+<span id="cb6-215"><a href="#cb6-215" aria-hidden="true" tabindex="-1"></a><span class="vs">        color: #b02a37;</span></span>
+<span id="cb6-216"><a href="#cb6-216" aria-hidden="true" tabindex="-1"></a><span class="vs">        font-size: 0.86rem;</span></span>
+<span id="cb6-217"><a href="#cb6-217" aria-hidden="true" tabindex="-1"></a><span class="vs">        font-weight: 600;</span></span>
+<span id="cb6-218"><a href="#cb6-218" aria-hidden="true" tabindex="-1"></a><span class="vs">      }</span></span>
+<span id="cb6-219"><a href="#cb6-219" aria-hidden="true" tabindex="-1"></a><span class="vs">    &lt;/style&gt;</span></span>
+<span id="cb6-220"><a href="#cb6-220" aria-hidden="true" tabindex="-1"></a><span class="vs">    &lt;div class="pp-partition-heading"&gt;</span></span>
+<span id="cb6-221"><a href="#cb6-221" aria-hidden="true" tabindex="-1"></a><span class="vs">      &lt;span&gt;Global Transformer layers&lt;/span&gt;</span></span>
+<span id="cb6-222"><a href="#cb6-222" aria-hidden="true" tabindex="-1"></a><span class="vs">      &lt;span class="pp-partition-formula"&gt;&lt;/span&gt;</span></span>
+<span id="cb6-223"><a href="#cb6-223" aria-hidden="true" tabindex="-1"></a><span class="vs">    &lt;/div&gt;</span></span>
+<span id="cb6-224"><a href="#cb6-224" aria-hidden="true" tabindex="-1"></a><span class="vs">    &lt;div class="pp-layer-scroll"&gt;</span></span>
+<span id="cb6-225"><a href="#cb6-225" aria-hidden="true" tabindex="-1"></a><span class="vs">      &lt;div class="pp-layer-track"&gt;&lt;/div&gt;</span></span>
+<span id="cb6-226"><a href="#cb6-226" aria-hidden="true" tabindex="-1"></a><span class="vs">    &lt;/div&gt;</span></span>
+<span id="cb6-227"><a href="#cb6-227" aria-hidden="true" tabindex="-1"></a><span class="vs">    &lt;div class="pp-stage-list"&gt;&lt;/div&gt;</span></span>
+<span id="cb6-228"><a href="#cb6-228" aria-hidden="true" tabindex="-1"></a><span class="vs">    &lt;div class="pp-partition-warning" hidden&gt;&lt;/div&gt;</span></span>
+<span id="cb6-229"><a href="#cb6-229" aria-hidden="true" tabindex="-1"></a><span class="vs">  &lt;/div&gt;`</span></span>
+<span id="cb6-230"><a href="#cb6-230" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-231"><a href="#cb6-231" aria-hidden="true" tabindex="-1"></a>  <span class="bu">root</span><span class="op">.</span><span class="fu">querySelector</span>(<span class="st">".pp-partition-formula"</span>)<span class="op">.</span><span class="at">textContent</span> <span class="op">=</span> <span class="vs">`N=</span><span class="sc">${</span>N<span class="sc">}</span><span class="vs">, p=</span><span class="sc">${</span>p<span class="sc">}</span><span class="vs">`</span></span>
+<span id="cb6-232"><a href="#cb6-232" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-233"><a href="#cb6-233" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> track <span class="op">=</span> <span class="bu">root</span><span class="op">.</span><span class="fu">querySelector</span>(<span class="st">".pp-layer-track"</span>)</span>
+<span id="cb6-234"><a href="#cb6-234" aria-hidden="true" tabindex="-1"></a>  track<span class="op">.</span><span class="at">style</span><span class="op">.</span><span class="at">gridTemplateColumns</span> <span class="op">=</span> <span class="vs">`repeat(</span><span class="sc">${</span>N<span class="sc">}</span><span class="vs">, minmax(21px, 1fr))`</span></span>
+<span id="cb6-235"><a href="#cb6-235" aria-hidden="true" tabindex="-1"></a>  track<span class="op">.</span><span class="at">style</span><span class="op">.</span><span class="at">minWidth</span> <span class="op">=</span> <span class="vs">`</span><span class="sc">${</span><span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="dv">520</span><span class="op">,</span> N <span class="op">*</span> <span class="dv">24</span>)<span class="sc">}</span><span class="vs">px`</span></span>
+<span id="cb6-236"><a href="#cb6-236" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-237"><a href="#cb6-237" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> layer <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> layer <span class="op">&lt;</span> N<span class="op">;</span> layer <span class="op">+=</span> <span class="dv">1</span>) {</span>
+<span id="cb6-238"><a href="#cb6-238" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> range <span class="op">=</span> ranges<span class="op">.</span><span class="fu">find</span>(({start<span class="op">,</span> end}) <span class="kw">=&gt;</span> layer <span class="op">&gt;=</span> start <span class="op">&amp;&amp;</span> layer <span class="op">&lt;</span> end)</span>
+<span id="cb6-239"><a href="#cb6-239" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> cell <span class="op">=</span> <span class="bu">document</span><span class="op">.</span><span class="fu">createElement</span>(<span class="st">"div"</span>)</span>
+<span id="cb6-240"><a href="#cb6-240" aria-hidden="true" tabindex="-1"></a>    cell<span class="op">.</span><span class="at">className</span> <span class="op">=</span> <span class="st">"pp-layer-cell"</span></span>
+<span id="cb6-241"><a href="#cb6-241" aria-hidden="true" tabindex="-1"></a>    cell<span class="op">.</span><span class="at">style</span><span class="op">.</span><span class="at">background</span> <span class="op">=</span> colors[range<span class="op">.</span><span class="at">stage</span>]</span>
+<span id="cb6-242"><a href="#cb6-242" aria-hidden="true" tabindex="-1"></a>    cell<span class="op">.</span><span class="at">textContent</span> <span class="op">=</span> layer</span>
+<span id="cb6-243"><a href="#cb6-243" aria-hidden="true" tabindex="-1"></a>    cell<span class="op">.</span><span class="at">title</span> <span class="op">=</span> <span class="vs">`Layer </span><span class="sc">${</span>layer<span class="sc">}</span><span class="vs"> → Stage </span><span class="sc">${</span>range<span class="op">.</span><span class="at">stage</span><span class="sc">}</span><span class="vs">`</span></span>
+<span id="cb6-244"><a href="#cb6-244" aria-hidden="true" tabindex="-1"></a>    cell<span class="op">.</span><span class="fu">setAttribute</span>(<span class="st">"aria-label"</span><span class="op">,</span> cell<span class="op">.</span><span class="at">title</span>)</span>
+<span id="cb6-245"><a href="#cb6-245" aria-hidden="true" tabindex="-1"></a>    track<span class="op">.</span><span class="fu">appendChild</span>(cell)</span>
+<span id="cb6-246"><a href="#cb6-246" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb6-247"><a href="#cb6-247" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-248"><a href="#cb6-248" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> stageList <span class="op">=</span> <span class="bu">root</span><span class="op">.</span><span class="fu">querySelector</span>(<span class="st">".pp-stage-list"</span>)</span>
+<span id="cb6-249"><a href="#cb6-249" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">const</span> range <span class="kw">of</span> ranges) {</span>
+<span id="cb6-250"><a href="#cb6-250" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> card <span class="op">=</span> <span class="bu">document</span><span class="op">.</span><span class="fu">createElement</span>(<span class="st">"div"</span>)</span>
+<span id="cb6-251"><a href="#cb6-251" aria-hidden="true" tabindex="-1"></a>    card<span class="op">.</span><span class="at">className</span> <span class="op">=</span> <span class="vs">`pp-stage-card</span><span class="sc">${</span>range<span class="op">.</span><span class="at">count</span> <span class="op">===</span> <span class="dv">0</span> <span class="op">?</span> <span class="st">" empty"</span> <span class="op">:</span> <span class="st">""</span><span class="sc">}</span><span class="vs">`</span></span>
+<span id="cb6-252"><a href="#cb6-252" aria-hidden="true" tabindex="-1"></a>    card<span class="op">.</span><span class="at">style</span><span class="op">.</span><span class="fu">setProperty</span>(<span class="st">"--stage-color"</span><span class="op">,</span> colors[range<span class="op">.</span><span class="at">stage</span>])</span>
+<span id="cb6-253"><a href="#cb6-253" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-254"><a href="#cb6-254" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> name <span class="op">=</span> <span class="bu">document</span><span class="op">.</span><span class="fu">createElement</span>(<span class="st">"div"</span>)</span>
+<span id="cb6-255"><a href="#cb6-255" aria-hidden="true" tabindex="-1"></a>    name<span class="op">.</span><span class="at">className</span> <span class="op">=</span> <span class="st">"pp-stage-name"</span></span>
+<span id="cb6-256"><a href="#cb6-256" aria-hidden="true" tabindex="-1"></a>    name<span class="op">.</span><span class="at">textContent</span> <span class="op">=</span> <span class="vs">`Stage </span><span class="sc">${</span>range<span class="op">.</span><span class="at">stage</span><span class="sc">}</span><span class="vs">`</span></span>
+<span id="cb6-257"><a href="#cb6-257" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-258"><a href="#cb6-258" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> interval <span class="op">=</span> <span class="bu">document</span><span class="op">.</span><span class="fu">createElement</span>(<span class="st">"div"</span>)</span>
+<span id="cb6-259"><a href="#cb6-259" aria-hidden="true" tabindex="-1"></a>    interval<span class="op">.</span><span class="at">className</span> <span class="op">=</span> <span class="st">"pp-stage-range"</span></span>
+<span id="cb6-260"><a href="#cb6-260" aria-hidden="true" tabindex="-1"></a>    interval<span class="op">.</span><span class="at">textContent</span> <span class="op">=</span> <span class="vs">`[</span><span class="sc">${</span>range<span class="op">.</span><span class="at">start</span><span class="sc">}</span><span class="vs">, </span><span class="sc">${</span>range<span class="op">.</span><span class="at">end</span><span class="sc">}</span><span class="vs">)`</span></span>
+<span id="cb6-261"><a href="#cb6-261" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-262"><a href="#cb6-262" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> count <span class="op">=</span> <span class="bu">document</span><span class="op">.</span><span class="fu">createElement</span>(<span class="st">"div"</span>)</span>
+<span id="cb6-263"><a href="#cb6-263" aria-hidden="true" tabindex="-1"></a>    count<span class="op">.</span><span class="at">className</span> <span class="op">=</span> <span class="st">"pp-stage-count"</span></span>
+<span id="cb6-264"><a href="#cb6-264" aria-hidden="true" tabindex="-1"></a>    count<span class="op">.</span><span class="at">textContent</span> <span class="op">=</span> <span class="vs">`</span><span class="sc">${</span>range<span class="op">.</span><span class="at">count</span><span class="sc">}</span><span class="vs"> layer</span><span class="sc">${</span>range<span class="op">.</span><span class="at">count</span> <span class="op">===</span> <span class="dv">1</span> <span class="op">?</span> <span class="st">""</span> <span class="op">:</span> <span class="st">"s"</span><span class="sc">}</span><span class="vs">`</span></span>
+<span id="cb6-265"><a href="#cb6-265" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-266"><a href="#cb6-266" aria-hidden="true" tabindex="-1"></a>    card<span class="op">.</span><span class="fu">append</span>(name<span class="op">,</span> interval<span class="op">,</span> count)</span>
+<span id="cb6-267"><a href="#cb6-267" aria-hidden="true" tabindex="-1"></a>    stageList<span class="op">.</span><span class="fu">appendChild</span>(card)</span>
+<span id="cb6-268"><a href="#cb6-268" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb6-269"><a href="#cb6-269" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-270"><a href="#cb6-270" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (p <span class="op">&gt;</span> N) {</span>
+<span id="cb6-271"><a href="#cb6-271" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> warning <span class="op">=</span> <span class="bu">root</span><span class="op">.</span><span class="fu">querySelector</span>(<span class="st">".pp-partition-warning"</span>)</span>
+<span id="cb6-272"><a href="#cb6-272" aria-hidden="true" tabindex="-1"></a>    warning<span class="op">.</span><span class="at">hidden</span> <span class="op">=</span> <span class="kw">false</span></span>
+<span id="cb6-273"><a href="#cb6-273" aria-hidden="true" tabindex="-1"></a>    warning<span class="op">.</span><span class="at">textContent</span> <span class="op">=</span> <span class="st">"p &gt; N 会产生空 stage；公式仍然成立，但实际训练通常应避免这种配置。"</span></span>
+<span id="cb6-274"><a href="#cb6-274" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb6-275"><a href="#cb6-275" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-276"><a href="#cb6-276" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="bu">root</span></span>
+<span id="cb6-277"><a href="#cb6-277" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-display">
+<div id="ojs-cell-2" data-nodetype="expression">
+
+</div>
+</div>
+</div>
+<details>
+<summary>
+为什么各 stage 的层数最多相差一层？
+</summary>
+<p>把总层数写成</p>
+<p><span class="math display">\[
+N = \text{base} \times p + r, \qquad 0 \le r &lt; p.
+\]</span></p>
+<p>第 <span class="math inline">\(t\)</span> 个 stage 的末尾边界可以展开为</p>
+<p><span class="math display">\[
+\text{end}_t
+= \text{base} \times (t+1)
++ \left\lfloor \frac{(t+1)r}{p} \right\rfloor.
+\]</span></p>
+<p>相邻两个边界相减时，第一项固定贡献 <span class="math inline">\(\text{base}\)</span> 层；第二项的增量只可能是 0 或 1。因此每个 stage 最终只会拿到 <span class="math inline">\(\text{base}\)</span> 或 <span class="math inline">\(\text{base}+1\)</span> 层。</p>
+</details>
+<p>需要注意的是，这个划分方式只保证了<strong>层数</strong>上的均衡，并没有考虑到 stage 0 额外持有 embedding、最后一个 stage 额外持有 final norm 和 lm_head 带来的计算/显存差异。</p>
+</section>
+</section>
+<section id="sec-pp-stage-contract" class="level2" data-number="7.3">
+<h2 data-number="7.3" class="anchored" data-anchor-id="sec-pp-stage-contract"><span class="header-section-number">7.3</span> Stage 的边界契约</h2>
+<p>模型被切分为多个 stage 之后，对外部调度器而言，每个 stage 最好表现为一个黑盒：无论它处于 first、middle 还是 last，只要接收符合约定的输入 tensor，就会产生符合约定的输出 tensor。</p>
+<p>要让这层黑盒成立，外部调度器与 stage 之间必须提前约定 tensor 的语义和 layout。这里的边界契约分为两类。</p>
+<section id="外部数据与-loss-边界" class="level3" data-number="7.3.1">
+<h3 data-number="7.3.1" class="anchored" data-anchor-id="外部数据与-loss-边界"><span class="header-section-number">7.3.1</span> 外部数据与 loss 边界</h3>
+<p>模型与外部训练流程之间保持普通语言模型的标准 I/O：</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>外部 I/O</th>
+<th>Tensor 语义</th>
+<th>Layout</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>data iterator → first stage</td>
+<td>token IDs</td>
+<td><code>[B,S]</code></td>
+</tr>
+<tr class="even">
+<td>last stage → loss</td>
+<td>logits</td>
+<td><code>[B,S,V]</code></td>
+</tr>
+</tbody>
+</table>
+<div class="callout callout-style-default callout-note callout-titled" title="Loss 不属于 stage 契约">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>Loss 不属于 stage 契约
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p><code>PipelineStage.forward()</code> 的职责到生成 logits 为止。将 logits 与 labels 结合并计算标量 loss，是外层训练循环 <code>forward_step()</code> 的职责，不属于 stage 内部的模型结构。</p>
+</div>
+</div>
+</section>
+<section id="stage-间的-pp-通信边界" class="level3" data-number="7.3.2">
+<h3 data-number="7.3.2" class="anchored" data-anchor-id="stage-间的-pp-通信边界"><span class="header-section-number">7.3.2</span> Stage 间的 PP 通信边界</h3>
+<p>相邻 stage 之间遵循 PP 的通信契约。Forward 传递 hidden states，Backward 沿原路传回相同 layout 的 gradient：</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>PP 通信方向</th>
+<th>Tensor 语义</th>
+<th>Layout</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>stage <span class="math inline">\(t\)</span> → stage <span class="math inline">\(t+1\)</span></td>
+<td>hidden states</td>
+<td><code>[S,B,H]</code></td>
+</tr>
+<tr class="even">
+<td>stage <span class="math inline">\(t+1\)</span> → stage <span class="math inline">\(t\)</span></td>
+<td>hidden-state gradient</td>
+<td><code>[S,B,H]</code></td>
+</tr>
+</tbody>
+</table>
+<div class="callout callout-style-default callout-note callout-titled" title="为什么 PP 边界选择 `[S,B,H]`？">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>为什么 PP 边界选择 <code>[S,B,H]</code>？
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>外部 I/O 使用 <code>[B,S]</code>，而 PP stage 内部之间使用 <code>[S,B,H]</code>，是因为当前 stage 内部复用了前面章节实现的 TP block，它以 sequence-first 的 <code>[S,B,H]</code> 作为内部 layout。让 PP 边界与 TP block 保持一致，数据无需额外转置便能直接进入计算 block。即使没有开启 TP，纯 Dense 模式也沿用 <code>[S,B,H]</code> 契约，使两种 stage 对调度器保持相同的接口。</p>
+</div>
+</div>
+</section>
+<section id="firstmiddle-与-last-stage-如何适配契约" class="level3" data-number="7.3.3">
+<h3 data-number="7.3.3" class="anchored" data-anchor-id="firstmiddle-与-last-stage-如何适配契约"><span class="header-section-number">7.3.3</span> First、Middle 与 Last Stage 如何适配契约</h3>
+<p>外部 layout <code>[B,S]</code> 与 PP 内部 layout <code>[S,B,H]</code> 之间的转换，由位于流水线两端的 embedding 和 lm_head 承担：</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Stage</th>
+<th>输入 tensor</th>
+<th>本地职责与运算</th>
+<th>输出 tensor</th>
+<th>Layout 适配角色</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>First</td>
+<td><code>input_ids [B,S]</code></td>
+<td><code>movedim</code> → embedding → local layers</td>
+<td>hidden states <code>[S,B,H]</code></td>
+<td>入口适配：将外部 <code>[B,S]</code> 转换为内部 <code>[S,B,H]</code></td>
+</tr>
+<tr class="even">
+<td>Middle</td>
+<td>hidden states <code>[S,B,H]</code></td>
+<td>local layers</td>
+<td>hidden states <code>[S,B,H]</code></td>
+<td>内部透传：始终保持 <code>[S,B,H]</code>，无需转换</td>
+</tr>
+<tr class="odd">
+<td>Last</td>
+<td>hidden states <code>[S,B,H]</code></td>
+<td>local layers → final norm → lm_head</td>
+<td>logits <code>[B,S,V]</code></td>
+<td>出口适配：将内部 <code>[S,B,H]</code> 恢复为外部 <code>[B,S,V]</code></td>
+</tr>
+</tbody>
+</table>
+<p>边界契约统一了 stage 对外的数据形态，stage 内部是否开启 TP、包含多少层等细节不再影响外部对 stage 的调用。</p>
+</section>
+</section>
+<section id="sec-pp-p2p" class="level2" data-number="7.4">
+<h2 data-number="7.4" class="anchored" data-anchor-id="sec-pp-p2p"><span class="header-section-number">7.4</span> Stage 间的 P2P 通信</h2>
+<p>stage 定义好之后，模型仍然只是分布在不同进程里的几段独立计算，真正把它们连成 <a href="#sec-pp-one-batch" class="quarto-xref"><span>小节 7.6</span></a> 里的流水线的，是 stage 之间传递 hidden states 和梯度的通信。Forward 产生的 hidden states 交给下一个 stage，Backward 产生的梯度沿原路返回。</p>
+<p>这种通信只发生在相邻两个 stage 之间，属于 point-to-point（P2P）通信。当前实现用 <code>P2PCommunicator</code> 集中管理通信对象、接收 buffer 和实际的 send/recv。</p>
+<section id="训练时需要的四个操作" class="level3" data-number="7.4.1">
+<h3 data-number="7.4.1" class="anchored" data-anchor-id="训练时需要的四个操作"><span class="header-section-number">7.4.1</span> 训练时需要的四个操作</h3>
+<p>站在一个 stage 的视角，我们只需要四个具有训练语义的操作：</p>
+<ul>
+<li><p><code>recv_forward()</code>：从 prev stage 接收 hidden states，作为本地 forward 的输入。first stage 返回 <code>None</code>，直接从 data iterator 读取 <code>input_ids</code>。</p></li>
+<li><p><code>send_forward(hidden)</code>：将本地 forward 输出的 hidden states 发送给 next stage。last stage 跳过发送，直接输出 logits 用于计算 loss。</p></li>
+<li><p><code>send_backward(grad)</code>：将本地 backward 计算出的输入梯度发送给 prev stage。first stage 跳过发送。</p></li>
+<li><p><code>recv_backward()</code>：从 next stage 接收输出梯度，作为本地 backward 的 <code>grad_tensors</code>。last stage 返回 <code>None</code>，从标量 loss 启动 backward。</p></li>
+</ul>
+<div class="pp-local-operations" role="img" aria-label="一个 stage 内 forward 和 backward 的 P2P 操作顺序">
+  <style>
+    .pp-local-operations {
+      margin: 1rem 0 1.5rem;
+      overflow-x: auto;
+    }
+    .pp-local-operations svg {
+      display: block;
+      width: 100%;
+      min-width: 720px;
+      height: auto;
+      font-family: var(--bs-body-font-family, system-ui, sans-serif);
+    }
+    .pp-local-operations .row-panel {
+      fill: var(--bs-tertiary-bg, #f8f9fa);
+      stroke: var(--bs-border-color, #ced4da);
+      stroke-width: 1.5;
+    }
+    .pp-local-operations .row-title {
+      fill: var(--bs-body-color, #212529);
+      font-size: 18px;
+      font-weight: 750;
+      text-anchor: middle;
+    }
+    .pp-local-operations .node {
+      stroke-width: 1.5;
+    }
+    .pp-local-operations .forward-node {
+      fill: #1971c2;
+      stroke: #0b4a85;
+    }
+    .pp-local-operations .backward-node {
+      fill: #2b8a3e;
+      stroke: #176329;
+    }
+    .pp-local-operations .compute-node {
+      fill: #5f3dc4;
+      stroke: #3b2585;
+    }
+    .pp-local-operations .node-text {
+      fill: #fff;
+      font-family: var(--bs-font-monospace, monospace);
+      font-size: 15px;
+      font-weight: 650;
+      text-anchor: middle;
+    }
+    .pp-local-operations .edge {
+      fill: none;
+      stroke-width: 2.8;
+    }
+    .pp-local-operations .forward-edge {
+      stroke: #1971c2;
+      marker-end: url(#pp-local-forward-arrow);
+    }
+    .pp-local-operations .backward-edge {
+      stroke: #2b8a3e;
+      marker-end: url(#pp-local-backward-arrow);
+    }
+    .pp-local-operations .edge-label,
+    .pp-local-operations .boundary-note {
+      font-size: 13px;
+      text-anchor: middle;
+    }
+    .pp-local-operations .edge-label {
+      fill: var(--bs-secondary-color, #6c757d);
+    }
+    .pp-local-operations .boundary-note {
+      fill: var(--bs-body-color, #495057);
+    }
+  </style>
+
+  <svg viewbox="0 0 960 320" aria-hidden="true">
+    <defs>
+      <marker id="pp-local-forward-arrow" markerwidth="8" markerheight="8" refx="7" refy="4" orient="auto">
+        <path d="M0,0 L8,4 L0,8 Z" fill="#1971c2"></path>
+      </marker>
+      <marker id="pp-local-backward-arrow" markerwidth="8" markerheight="8" refx="7" refy="4" orient="auto">
+        <path d="M0,0 L8,4 L0,8 Z" fill="#2b8a3e"></path>
+      </marker>
+    </defs>
+
+    <rect class="row-panel" x="20" y="15" width="920" height="135" rx="10"></rect>
+    <text class="row-title" x="90" y="86">Forward</text>
+    <rect class="node forward-node" x="170" y="45" width="210" height="52" rx="7"></rect>
+    <rect class="node compute-node" x="430" y="45" width="180" height="52" rx="7"></rect>
+    <rect class="node forward-node" x="660" y="45" width="210" height="52" rx="7"></rect>
+    <text class="node-text" x="275" y="77">recv_forward()</text>
+    <text class="node-text" x="520" y="77">local forward</text>
+    <text class="node-text" x="765" y="77">send_forward(h)</text>
+    <path class="edge forward-edge" d="M380 71 H430"></path>
+    <path class="edge forward-edge" d="M610 71 H660"></path>
+    <text class="boundary-note" x="275" y="122">first stage：recv_forward 返回 None</text>
+    <text class="boundary-note" x="765" y="122">last stage：跳过发送</text>
+
+    <rect class="row-panel" x="20" y="170" width="920" height="135" rx="10"></rect>
+    <text class="row-title" x="90" y="241">Backward</text>
+    <rect class="node backward-node" x="170" y="200" width="210" height="52" rx="7"></rect>
+    <rect class="node compute-node" x="430" y="200" width="180" height="52" rx="7"></rect>
+    <rect class="node backward-node" x="660" y="200" width="210" height="52" rx="7"></rect>
+    <text class="node-text" x="275" y="232">send_backward(g)</text>
+    <text class="node-text" x="520" y="232">local backward</text>
+    <text class="node-text" x="765" y="232">recv_backward()</text>
+    <path class="edge backward-edge" d="M430 226 H380"></path>
+    <path class="edge backward-edge" d="M660 226 H610"></path>
+    <text class="boundary-note" x="275" y="277">first stage：跳过发送</text>
+    <text class="boundary-note" x="765" y="277">last stage：recv_backward 返回 None</text>
+  </svg>
+</div>
+<p>正确的 P2P 通信的关键是，在 forward / backward 中，stage 的 send 需要与相邻的 recv 匹配：</p>
+<div class="pp-api-pairs" role="img" aria-label="Stage k 与 Stage k+1 之间成对的 forward 和 backward P2P 操作">
+  <style>
+    .pp-api-pairs {
+      margin: 1rem 0 1.5rem;
+      overflow-x: auto;
+    }
+    .pp-api-pairs svg {
+      display: block;
+      width: 100%;
+      min-width: 640px;
+      height: auto;
+      font-family: var(--bs-body-font-family, system-ui, sans-serif);
+    }
+    .pp-api-pairs .stage-box {
+      fill: var(--bs-body-bg, #fff);
+      stroke: var(--bs-border-color, #ced4da);
+      stroke-width: 1.5;
+    }
+    .pp-api-pairs .stage-title {
+      fill: var(--bs-body-color, #212529);
+      font-size: 18px;
+      font-weight: 750;
+      text-anchor: middle;
+    }
+    .pp-api-pairs .api-box {
+      fill: #1971c2;
+      stroke: #0b4a85;
+      stroke-width: 1.5;
+    }
+    .pp-api-pairs .api-box.backward {
+      fill: #2b8a3e;
+      stroke: #176329;
+    }
+    .pp-api-pairs .api-text {
+      fill: #fff;
+      font-family: var(--bs-font-monospace, monospace);
+      font-size: 16px;
+      font-weight: 650;
+      text-anchor: middle;
+    }
+    .pp-api-pairs .forward-path,
+    .pp-api-pairs .backward-path {
+      fill: none;
+      stroke-width: 3;
+    }
+    .pp-api-pairs .forward-path {
+      stroke: #1971c2;
+      marker-end: url(#pp-api-forward-arrow);
+    }
+    .pp-api-pairs .backward-path {
+      stroke: #2b8a3e;
+      marker-end: url(#pp-api-backward-arrow);
+    }
+    .pp-api-pairs .path-label {
+      font-size: 16px;
+      font-weight: 700;
+      text-anchor: middle;
+    }
+    .pp-api-pairs .path-label.forward {
+      fill: #145c9e;
+    }
+    .pp-api-pairs .path-label.backward {
+      fill: #237032;
+    }
+  </style>
+
+  <svg viewbox="0 0 960 260" aria-hidden="true">
+    <defs>
+      <marker id="pp-api-forward-arrow" markerwidth="8" markerheight="8" refx="7" refy="4" orient="auto">
+        <path d="M0,0 L8,4 L0,8 Z" fill="#1971c2"></path>
+      </marker>
+      <marker id="pp-api-backward-arrow" markerwidth="8" markerheight="8" refx="7" refy="4" orient="auto">
+        <path d="M0,0 L8,4 L0,8 Z" fill="#2b8a3e"></path>
+      </marker>
+    </defs>
+
+    <rect class="stage-box" x="20" y="15" width="350" height="225" rx="10"></rect>
+    <rect class="stage-box" x="590" y="15" width="350" height="225" rx="10"></rect>
+    <text class="stage-title" x="195" y="48">Stage k</text>
+    <text class="stage-title" x="765" y="48">Stage k+1</text>
+
+    <rect class="api-box" x="55" y="70" width="280" height="50" rx="7"></rect>
+    <text class="api-text" x="195" y="101">send_forward(hidden)</text>
+    <rect class="api-box" x="625" y="70" width="280" height="50" rx="7"></rect>
+    <text class="api-text" x="765" y="101">recv_forward()</text>
+
+    <path class="forward-path" d="M335 95 H625"></path>
+    <text class="path-label forward" x="480" y="77">hidden states</text>
+
+    <rect class="api-box backward" x="55" y="160" width="280" height="50" rx="7"></rect>
+    <text class="api-text" x="195" y="191">recv_backward()</text>
+    <rect class="api-box backward" x="625" y="160" width="280" height="50" rx="7"></rect>
+    <text class="api-text" x="765" y="191">send_backward(input_grad)</text>
+
+    <path class="backward-path" d="M625 185 H335"></path>
+    <text class="path-label backward" x="480" y="167">input gradient</text>
+  </svg>
+</div>
+<p>“匹配”包括约定相同的 shape 和 dtype，这部分已在 <a href="#sec-pp-stage-contract" class="quarto-xref"><span>小节 7.3</span></a> 中讨论过。除此之外，send/recv 的调用顺序也必须协调一致。如果相邻两个 stage 同时阻塞在 <code>send</code> 上等待对方的 <code>recv</code>，就会导致死锁。当前实现使用 <code>isend/irecv</code> 异步发起通信，再通过 <code>.wait()</code> 等待完成，由底层处理顺序问题。因此当前实现实际是仍然是同步调用，将 wait() 延后以实现通信与计算重叠，可以作为未来的优化方向。</p>
+</section>
+<section id="p2pcommunicator-实现细节" class="level3" data-number="7.4.2">
+<h3 data-number="7.4.2" class="anchored" data-anchor-id="p2pcommunicator-实现细节"><span class="header-section-number">7.4.2</span> <code>P2PCommunicator</code> 实现细节</h3>
+<p>前面的四个基础操作最终共享同一条实现路径。先只看代码结构：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> _batched_p2p_ops(...):</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>    <span class="co"># 将非空的通信方向构造成 dist.P2POp</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>    <span class="co"># 通过 dist.batch_isend_irecv 一次性发起</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> reqs</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> P2PCommunicator:</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> <span class="fu">__init__</span>(...):</span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>        <span class="co"># 在 PP group 内找到相邻 stage</span></span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>        <span class="co"># 将 prev / next 的 group rank 转换为 global rank</span></span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> recv_forward(...):</span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> send_forward(...):</span>
+<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> recv_backward(...):</span>
+<span id="cb7-16"><a href="#cb7-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-17"><a href="#cb7-17" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> send_backward(...):</span>
+<span id="cb7-18"><a href="#cb7-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-19"><a href="#cb7-19" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> _communicate(...):</span>
+<span id="cb7-20"><a href="#cb7-20" aria-hidden="true" tabindex="-1"></a>        <span class="co"># 根据启用的方向准备 recv buffer</span></span>
+<span id="cb7-21"><a href="#cb7-21" aria-hidden="true" tabindex="-1"></a>        <span class="co"># 调用 _batched_p2p_ops，再等待所有 requests 完成</span></span>
+<span id="cb7-22"><a href="#cb7-22" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> tensor_from_prev, tensor_from_next</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p><code>__init__</code> 负责确定通信对象：先在 PP group 内计算出 prev/next 的 group rank，再把它们转换成实际发起 P2P 时用到的 global rank。这一步是必要的，因为当 TP × PP 同时启用时，rank ± 1 并不一定对应真正的 prev/next stage。</p>
+<p>四个基础方法 <code>recv_forward</code>、<code>send_forward</code>、<code>recv_backward</code>、<code>send_backward</code> 负责把训练语义翻译成底层的通信方向，并处理 first/last stage 的边界情况（例如 first stage 的 <code>recv_forward</code> 直接返回 <code>None</code>）。它们最终都会调用同一个入口 <code>_communicate</code>，只是传入的方向参数不同。</p>
+<p><code>_communicate</code> 是发起通信的统一入口。它根据调用方启用的 recv-prev、recv-next 准备好接收 buffer，然后调用 <code>_batched_p2p_ops</code> 发起通信。这个接口在设计上可以同时描述四个方向，但目前 <code>recv_forward</code> 等方法每次只会用到其中一个方向。</p>
+<p><code>_batched_p2p_ops</code> 接收 recv buffer 和待发送的 tensor，把每个非空的通信方向包装成对应的 <code>dist.P2POp</code>，再通过 <code>dist.batch_isend_irecv</code> 一次性发起。返回的 requests 会在 <code>_communicate</code> 中逐个 <code>.wait()</code>，所以底层虽然用的是非阻塞的 <code>isend</code>/<code>irecv</code>，但对调用方来说整个接口仍然表现为同步通信。</p>
+<p>完整实现位于 <code>model/pipeline_parallel_p2p_communication.py</code>，主要入口是 <code>_batched_p2p_ops</code> 和 <code>P2PCommunicator</code>。</p>
+<p>P2P 通信只是把 tensor 的值送过了进程边界，autograd graph 并不会自动跨越进程，这就需要我们手动在两个 stage 的计算图之间建立连接。</p>
+</section>
+</section>
+<section id="sec-pp-autograd" class="level2" data-number="7.5">
+<h2 data-number="7.5" class="anchored" data-anchor-id="sec-pp-autograd"><span class="header-section-number">7.5</span> 跨进程 Autograd：手动连接两段计算图</h2>
+<p><code>P2PCommunicator._communicate</code> 接收来自上一个 stage 的数据时，会显式创建一个 <code>requires_grad=True</code> 的 buffer 来接收对方发来的数据：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>tensor_recv_prev <span class="op">=</span> torch.empty(</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>    recv_prev_shape,</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>    requires_grad<span class="op">=</span><span class="va">True</span>,</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>    device<span class="op">=</span>torch.cuda.current_device(),</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>    dtype<span class="op">=</span>pipeline_dtype,</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>这个接收的 tensor 会作为当前 stage 本地计算图的叶子节点，从这里建立当前 stage 的计算图。</p>
+<div class="pp-autograd-steps pp-autograd-forward" role="img" aria-label="P2P 连接两张独立的本地计算图；接收 tensor 是 requires-grad leaf，第二张计算图从这里开始">
+  <style>
+    .pp-autograd-steps {
+      margin: 1rem 0 1.5rem;
+      overflow-x: auto;
+    }
+    .pp-autograd-steps svg {
+      display: block;
+      width: 100%;
+      min-width: 760px;
+      height: auto;
+    }
+    .pp-autograd-steps text {
+      font-family: var(--bs-body-font-family, system-ui, sans-serif);
+    }
+    .pp-autograd-steps .step-panel,
+    .pp-autograd-steps .local-graph {
+      fill: var(--bs-tertiary-bg, #f8f9fa);
+      stroke: var(--bs-border-color, #ced4da);
+      stroke-width: 1.5;
+    }
+    .pp-autograd-steps .local-graph {
+      fill: var(--bs-body-bg, #fff);
+      stroke-dasharray: 5 4;
+    }
+    .pp-autograd-steps .step-title,
+    .pp-autograd-steps .graph-title,
+    .pp-autograd-steps .note {
+      fill: var(--bs-body-color, #212529);
+    }
+    .pp-autograd-steps .step-title {
+      font-size: 18px;
+      font-weight: 750;
+    }
+    .pp-autograd-steps .graph-title {
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .pp-autograd-steps .note {
+      font-size: 12px;
+      fill: var(--bs-secondary-color, #6c757d);
+      text-anchor: middle;
+    }
+    .pp-autograd-steps .node rect,
+    .pp-autograd-steps .node ellipse {
+      stroke-width: 1.5;
+    }
+    .pp-autograd-steps .node text {
+      fill: #fff;
+      font-size: 14px;
+      font-weight: 700;
+      text-anchor: middle;
+    }
+    .pp-autograd-steps .node text.sub {
+      font-size: 12px;
+      font-weight: 450;
+    }
+    .pp-autograd-steps .tensor rect {
+      fill: #1971c2;
+      stroke: #0b4a85;
+    }
+    .pp-autograd-steps .operation ellipse {
+      fill: #5f3dc4;
+      stroke: #3b2585;
+    }
+    .pp-autograd-steps .gradient rect {
+      fill: #2b8a3e;
+      stroke: #176329;
+    }
+    .pp-autograd-steps .forward-edge,
+    .pp-autograd-steps .grad-edge,
+    .pp-autograd-steps .comm-edge,
+    .pp-autograd-steps .relation-edge {
+      fill: none;
+      stroke-width: 2.3;
+    }
+    .pp-autograd-steps .forward-edge {
+      stroke: #1971c2;
+      marker-end: url(#pp-step-forward-arrow);
+    }
+    .pp-autograd-steps .grad-edge {
+      stroke: #2b8a3e;
+      marker-end: url(#pp-step-backward-arrow);
+    }
+    .pp-autograd-steps .comm-edge {
+      stroke: #e8590c;
+      stroke-width: 3;
+      marker-end: url(#pp-step-comm-arrow);
+    }
+    .pp-autograd-steps .relation-edge {
+      stroke: var(--bs-secondary-color, #6c757d);
+      stroke-dasharray: 5 4;
+    }
+    .pp-autograd-steps .broken-edge {
+      stroke: #c92a2a;
+      stroke-width: 2.5;
+      stroke-dasharray: 6 5;
+    }
+    .pp-autograd-steps .break-mark {
+      stroke: #c92a2a;
+      stroke-width: 3;
+    }
+    .pp-autograd-steps .break-label,
+    .pp-autograd-steps .comm-label {
+      font-size: 12px;
+      font-weight: 700;
+      text-anchor: middle;
+    }
+    .pp-autograd-steps .break-label {
+      fill: #c92a2a;
+    }
+    .pp-autograd-steps .comm-label {
+      fill: #e8590c;
+    }
+    .pp-autograd-forward svg {
+      min-width: 640px;
+    }
+    .pp-autograd-forward .local-graph {
+      stroke-dasharray: none;
+    }
+    .pp-autograd-forward .received-leaf rect {
+      stroke: #2b8a3e;
+      stroke-width: 3;
+    }
+    .pp-autograd-forward .requires-badge rect {
+      fill: #2b8a3e;
+      stroke: #176329;
+      stroke-width: 1.2;
+    }
+    .pp-autograd-forward .requires-badge text {
+      fill: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      text-anchor: middle;
+    }
+    .pp-autograd-forward .p2p-value-edge {
+      fill: none;
+      stroke: #a13d00;
+      stroke-width: 3;
+      stroke-dasharray: 7 6;
+      marker-end: url(#pp-forward-p2p-arrow);
+    }
+    .pp-autograd-forward .blocked-autograd-edge {
+      fill: none;
+      stroke: #d98989;
+      stroke-width: 2.2;
+      stroke-dasharray: 4 7;
+      marker-end: url(#pp-forward-blocked-arrow);
+    }
+    .pp-autograd-forward .blocked-cross {
+      stroke: #c92a2a;
+      stroke-width: 3.5;
+      stroke-linecap: round;
+    }
+    .pp-autograd-forward .blocked-label {
+      fill: #c92a2a;
+      font-size: 13px;
+      font-weight: 700;
+      text-anchor: middle;
+    }
+    .pp-autograd-forward .legend-text {
+      fill: var(--bs-secondary-color, #6c757d);
+      font-size: 16px;
+      font-weight: 600;
+    }
+  </style>
+
+  <svg viewbox="0 0 1100 300" aria-hidden="true">
+    <defs>
+      <marker id="pp-step-forward-arrow" markerwidth="8" markerheight="8" refx="7" refy="4" orient="auto">
+        <path d="M0,0 L8,4 L0,8 Z" fill="#1971c2"></path>
+      </marker>
+      <marker id="pp-forward-p2p-arrow" markerwidth="8" markerheight="8" refx="7" refy="4" orient="auto">
+        <path d="M0,0 L8,4 L0,8 Z" fill="#a13d00"></path>
+      </marker>
+      <marker id="pp-forward-blocked-arrow" markerwidth="8" markerheight="8" refx="7" refy="4" orient="auto">
+        <path d="M0,0 L8,4 L0,8 Z" fill="#d98989"></path>
+      </marker>
+    </defs>
+
+    <rect class="step-panel" x="20" y="15" width="1060" height="270" rx="10"></rect>
+    <text class="step-title" x="45" y="48">两张独立的 local autograd graphs</text>
+
+    <rect class="local-graph" x="40" y="68" width="445" height="170" rx="8"></rect>
+    <rect class="local-graph" x="615" y="68" width="445" height="170" rx="8"></rect>
+    <text class="graph-title" x="60" y="94">Stage k</text>
+    <text class="graph-title" x="635" y="94">Stage k+1</text>
+
+    <g class="node tensor">
+      <rect x="65" y="140" width="105" height="62" rx="7"></rect>
+      <text x="117.5" y="176">xₖ</text>
+    </g>
+    <g class="node operation">
+      <ellipse cx="275" cy="171" rx="58" ry="35"></ellipse>
+      <text x="275" y="176">fₖ</text>
+    </g>
+    <g class="node tensor">
+      <rect x="385" y="140" width="80" height="62" rx="7"></rect>
+      <text x="425" y="176">yₖ</text>
+    </g>
+    <path class="forward-edge" d="M170 171 H217"></path>
+    <path class="forward-edge" d="M333 171 H385"></path>
+
+    <g class="requires-badge">
+      <rect x="625" y="103" width="145" height="26" rx="13"></rect>
+      <text x="697.5" y="121">leaf · requires_grad=True</text>
+    </g>
+    <g class="node tensor received-leaf">
+      <rect x="635" y="140" width="125" height="62" rx="7"></rect>
+      <text x="697.5" y="176">xₖ₊₁</text>
+    </g>
+    <g class="node operation">
+      <ellipse cx="865" cy="171" rx="58" ry="35"></ellipse>
+      <text x="865" y="176">fₖ₊₁</text>
+    </g>
+    <g class="node tensor">
+      <rect x="965" y="140" width="75" height="62" rx="7"></rect>
+      <text x="1002.5" y="176">yₖ₊₁</text>
+    </g>
+    <path class="forward-edge" d="M760 171 H807"></path>
+    <path class="forward-edge" d="M923 171 H965"></path>
+
+    <path class="p2p-value-edge" d="M465 171 H635"></path>
+    <text class="comm-label" x="550" y="151">P2P · value only</text>
+
+    <path class="blocked-autograd-edge" d="M635 210 C610 248 490 248 465 210"></path>
+    <line class="blocked-cross" x1="542" y1="230" x2="558" y2="246"></line>
+    <line class="blocked-cross" x1="558" y1="230" x2="542" y2="246"></line>
+    <text class="blocked-label" x="550" y="224">autograd cannot cross</text>
+
+    <line x1="330" y1="263" x2="370" y2="263" class="forward-edge"></line>
+    <text class="legend-text" x="380" y="267">autograd edge</text>
+    <line x1="585" y1="263" x2="625" y2="263" class="p2p-value-edge"></line>
+    <text class="legend-text" x="635" y="267">value transfer only</text>
+  </svg>
+</div>
+<p>但 <code>requires_grad=True</code> 只建立了当前 stage 内部的计算图，stage 之间的计算图仍然是孤立的。P2P 通信只搬运了 hidden states 的数值，autograd 不会自动把梯度从下一个 stage 传回上一个 stage。因此，我们需要在 backward 方向再次通过 P2P 接收梯度，再手动调用 torch.autograd.backward，将梯度接回本地计算图。</p>
+<div class="pp-autograd-steps pp-autograd-gradient" role="img" aria-label="Backward 穿过 pipeline 边界的两种情况：last stage 从标量 loss 开始；非 last stage 从 next 传回的 output gradient 开始">
+  <style>
+    .pp-autograd-gradient svg {
+      min-width: 640px;
+    }
+    .pp-autograd-gradient .step-title {
+      font-size: 19px;
+    }
+    .pp-autograd-gradient .graph-title {
+      font-size: 14px;
+    }
+    .pp-autograd-gradient .node text {
+      font-size: 15px;
+    }
+    .pp-autograd-gradient .node text.sub {
+      font-size: 13px;
+    }
+    .pp-autograd-gradient .comm-label,
+    .pp-autograd-gradient .break-label {
+      font-size: 13px;
+    }
+    .pp-autograd-gradient .broken-edge {
+      stroke: #7b8794;
+      stroke-width: 1.8;
+      stroke-dasharray: 5 5;
+    }
+    .pp-autograd-gradient .break-label {
+      fill: #66717d;
+      font-weight: 650;
+    }
+    .pp-autograd-gradient .grad-edge {
+      stroke-width: 2.8;
+      marker-end: url(#pp-boundary-backward-arrow);
+    }
+    .pp-autograd-gradient .comm-edge {
+      stroke: #a13d00;
+      stroke-width: 3.4;
+      marker-end: url(#pp-boundary-comm-arrow);
+    }
+    .pp-autograd-gradient .comm-label {
+      fill: #8f3600;
+      font-weight: 750;
+    }
+  </style>
+
+  <svg viewbox="0 0 960 445" aria-hidden="true">
+    <defs>
+      <marker id="pp-boundary-backward-arrow" markerwidth="8" markerheight="8" refx="7" refy="4" orient="auto">
+        <path d="M0,0 L8,4 L0,8 Z" fill="#2b8a3e"></path>
+      </marker>
+      <marker id="pp-boundary-comm-arrow" markerwidth="8" markerheight="8" refx="7" refy="4" orient="auto">
+        <path d="M0,0 L8,4 L0,8 Z" fill="#a13d00"></path>
+      </marker>
+    </defs>
+
+    <rect class="step-panel" x="15" y="10" width="930" height="200" rx="10"></rect>
+    <text class="step-title" x="35" y="43">Last stage：标量 loss 直接启动 backward</text>
+
+    <line class="broken-edge" x1="90" y1="70" x2="90" y2="132"></line>
+    <line class="broken-edge" x1="90" y1="160" x2="90" y2="188"></line>
+    <text class="break-label" x="90" y="201">boundary</text>
+    <text class="graph-title" x="45" y="86">Prev</text>
+    <text class="graph-title" x="120" y="86">Last stage</text>
+    <text class="graph-title" x="790" y="86">没有 next stage</text>
+
+    <g class="node gradient">
+      <rect x="260" y="112" width="190" height="68" rx="8"></rect>
+      <text x="355" y="139">input_tensor.grad</text>
+      <text class="sub" x="355" y="162">leaf 上的输入梯度</text>
+    </g>
+    <g class="node tensor">
+      <rect x="700" y="112" width="180" height="68" rx="8"></rect>
+      <text x="790" y="139">output_tensor</text>
+      <text class="sub" x="790" y="162">scalar loss</text>
+    </g>
+
+    <path class="grad-edge" d="M700 146 H450"></path>
+    <text class="graph-title" x="575" y="126" style="text-anchor:middle">local backward</text>
+    <text class="note" x="575" y="168">output_grad=None</text>
+    <path class="comm-edge" d="M260 146 H90"></path>
+    <text class="comm-label" x="175" y="126">send prev</text>
+
+    <rect class="step-panel" x="15" y="230" width="930" height="200" rx="10"></rect>
+    <text class="step-title" x="35" y="263">Non-last stage：next 的梯度启动 backward</text>
+
+    <line class="broken-edge" x1="90" y1="290" x2="90" y2="352"></line>
+    <line class="broken-edge" x1="90" y1="380" x2="90" y2="408"></line>
+    <line class="broken-edge" x1="890" y1="290" x2="890" y2="352"></line>
+    <line class="broken-edge" x1="890" y1="380" x2="890" y2="408"></line>
+    <text class="break-label" x="90" y="421">boundary</text>
+    <text class="break-label" x="890" y="421" style="text-anchor:end">boundary</text>
+    <text class="graph-title" x="45" y="306">Prev</text>
+    <text class="graph-title" x="120" y="306">Current stage</text>
+    <text class="graph-title" x="910" y="306">Next</text>
+
+    <g class="node gradient">
+      <rect x="260" y="332" width="190" height="68" rx="8"></rect>
+      <text x="355" y="359">input_tensor.grad</text>
+      <text class="sub" x="355" y="382">leaf 上的输入梯度</text>
+    </g>
+    <g class="node gradient">
+      <rect x="700" y="332" width="120" height="68" rx="8"></rect>
+      <text x="760" y="359">output_grad</text>
+      <text class="sub" x="760" y="382">来自 next</text>
+    </g>
+
+    <path class="comm-edge" d="M890 366 H820"></path>
+    <text class="comm-label" x="855" y="346">recv next</text>
+    <path class="grad-edge" d="M700 366 H450"></path>
+    <text class="graph-title" x="575" y="346" style="text-anchor:middle">local backward</text>
+    <text class="note" x="575" y="388">使用 output_grad</text>
+    <path class="comm-edge" d="M260 366 H90"></path>
+    <text class="comm-label" x="175" y="346">若存在 prev，则继续传递</text>
+  </svg>
+</div>
+<p>这一步具体怎么做，取决于当前 stage 是不是 last stage：last stage 没有 next，backward 的起点来自本地；非 last stage 后面还有 next，backward 的起点要等 P2P 从 next 传回梯度才有。</p>
+<p>两种情形可以统一成同一次调用：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>torch.autograd.backward(</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>    tensors<span class="op">=</span>output_tensor,</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>    grad_tensors<span class="op">=</span>output_grad,</span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>Last stage 的 <code>output_tensor</code> 本身就是标量 loss，<code>output_grad</code> 传 <code>None</code>，PyTorch 会隐式使用梯度 1 来启动 backward；非 last stage 的 <code>output_grad</code> 是从 next 接收的 tensor，PyTorch 会以它作为反向传播的起点。</p>
+<p>把这四个 P2P 操作和手动 backward 组合起来，一个典型 stage 的 forward/backward 大致如下：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Forward：recv_forward 的返回值是新的 leaf，本地图从这里开始建立</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>input_tensor <span class="op">=</span> recv_forward()       <span class="co"># requires_grad=True</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>output_tensor <span class="op">=</span> stage_model(input_tensor)</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>send_forward(output_tensor)</span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a><span class="co"># Backward：recv_backward 拿到的梯度作为本地 backward 的起点</span></span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>output_grad <span class="op">=</span> recv_backward()       <span class="co"># 来自 next stage，last stage 为 None</span></span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>torch.autograd.backward(</span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>    tensors<span class="op">=</span>output_tensor,</span>
+<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a>    grad_tensors<span class="op">=</span>output_grad,</span>
+<span id="cb10-11"><a href="#cb10-11" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb10-12"><a href="#cb10-12" aria-hidden="true" tabindex="-1"></a>input_grad <span class="op">=</span> input_tensor.grad      <span class="co"># leaf 上累积的输入梯度</span></span>
+<span id="cb10-13"><a href="#cb10-13" aria-hidden="true" tabindex="-1"></a>send_backward(input_grad)           <span class="co"># 发给 prev stage，first stage 跳过</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>至此，stage 之间原本孤立的计算图，就通过 P2P 通信和手动调用 <code>torch.autograd.backward</code> 被连接成了一条完整的反向传播链路。</p>
+</section>
+<section id="sec-pp-one-batch" class="level2" data-number="7.6">
+<h2 data-number="7.6" class="anchored" data-anchor-id="sec-pp-one-batch"><span class="header-section-number">7.6</span> 总结：单 Batch 的生命周期</h2>
+<p>前面已经分别解释了 P2P 通信和跨进程 Autograd。现在把这些局部机制放回同一条时间轴，以 <code>PP size = 4</code> 为例，追踪一个 batch 如何完成完整的 Forward 和 Backward。</p>
+<p>Forward 必须依次经过 Stage 0、1、2、3；last stage 得到 logits 并计算 loss 后，Backward 再按 Stage 3、2、1、0 的顺序返回。下图沿用后面调度章节的表示方式：蓝色表示本地 Forward，绿色表示本地 Backward，灰色表示该 stage 正在等待依赖。这里将 Backward 画成两个时间格宽，这是因为 backward 需要计算输入的梯度和参数的梯度，计算量来说约为 Forward 的两倍。</p>
+<div class="pp-single-batch-timeline" role="img" aria-label="一个 batch 在四个 pipeline stages 中依次完成 forward，再以相反顺序完成 backward 的静态时间线">
+  <div class="pp-single-batch-legend">
+    <span><i class="pp-single-batch-mark forward"></i>Forward</span>
+    <span><i class="pp-single-batch-mark backward"></i>Backward</span>
+    <span><i class="pp-single-batch-mark wait"></i>等待</span>
+  </div>
+  <div class="pp-single-batch-scroll">
+    <div class="pp-single-batch-grid">
+      <div></div>
+      <div class="pp-single-batch-time">t0</div>
+      <div class="pp-single-batch-time">t1</div>
+      <div class="pp-single-batch-time">t2</div>
+      <div class="pp-single-batch-time">t3</div>
+      <div class="pp-single-batch-time">t4</div>
+      <div class="pp-single-batch-time">t5</div>
+      <div class="pp-single-batch-time">t6</div>
+      <div class="pp-single-batch-time">t7</div>
+      <div class="pp-single-batch-time">t8</div>
+      <div class="pp-single-batch-time">t9</div>
+      <div class="pp-single-batch-time">t10</div>
+      <div class="pp-single-batch-time">t11</div>
+
+      <div class="pp-single-batch-stage" style="grid-row: 2">Stage 0</div>
+      <div class="pp-single-batch-lane" style="grid-row: 2"></div>
+      <div class="pp-single-batch-operation forward" style="grid-row: 2; grid-column: 2">F</div>
+      <div class="pp-single-batch-operation backward" style="grid-row: 2; grid-column: 12 / span 2">B</div>
+
+      <div class="pp-single-batch-stage" style="grid-row: 3">Stage 1</div>
+      <div class="pp-single-batch-lane" style="grid-row: 3"></div>
+      <div class="pp-single-batch-operation forward" style="grid-row: 3; grid-column: 3">F</div>
+      <div class="pp-single-batch-operation backward" style="grid-row: 3; grid-column: 10 / span 2">B</div>
+
+      <div class="pp-single-batch-stage" style="grid-row: 4">Stage 2</div>
+      <div class="pp-single-batch-lane" style="grid-row: 4"></div>
+      <div class="pp-single-batch-operation forward" style="grid-row: 4; grid-column: 4">F</div>
+      <div class="pp-single-batch-operation backward" style="grid-row: 4; grid-column: 8 / span 2">B</div>
+
+      <div class="pp-single-batch-stage" style="grid-row: 5">Stage 3</div>
+      <div class="pp-single-batch-lane" style="grid-row: 5"></div>
+      <div class="pp-single-batch-operation forward" style="grid-row: 5; grid-column: 5">F</div>
+      <div class="pp-single-batch-operation backward" style="grid-row: 5; grid-column: 6 / span 2">B</div>
+    </div>
+  </div>
+</div>
+<p>我们可以看到，stage 之间存在数据依赖：后面 stage 的 forward 必须等待前一个 stage 传来 hidden states，前面 stage 的 backward 必须等待后一个 stage 传回 gradient。这个依赖链直接导致了大部分时候 GPU 都在空转。从上图也能看出，灰色等待区域远大于蓝色和绿色的实际计算区域。每个 stage 的大部分时间都处于空闲状态——以 Stage 0 为例，在整个 batch 的生命周期中只执行了一次 Forward 和一次 Backward，其余时间都在等待下游 stage 完成。随着 PP size 增大，这个问题会更加严重，下一章将介绍如何缓解这个问题。</p>
+
+
+</section>
+
+</main> <!-- /main -->
+<script type="ojs-module-contents">
+eyJjb250ZW50cyI6W3sibWV0aG9kTmFtZSI6ImludGVycHJldCIsImNlbGxOYW1lIjoib2pzLWNlbGwtMSIsImlubGluZSI6ZmFsc2UsInNvdXJjZSI6InZpZXdvZiBwcFBhcnRpdGlvbkxheWVycyA9IElucHV0cy5yYW5nZShcbiAgWzEsIDMyXSxcbiAge3ZhbHVlOiAxMCwgc3RlcDogMSwgbGFiZWw6IFwiVHJhbnNmb3JtZXIgbGF5ZXJzIE5cIn1cbilcblxudmlld29mIHBwUGFydGl0aW9uU3RhZ2VzID0gSW5wdXRzLnJhbmdlKFxuICBbMSwgOF0sXG4gIHt2YWx1ZTogNCwgc3RlcDogMSwgbGFiZWw6IFwiUGlwZWxpbmUgc3RhZ2VzIHBcIn1cbilcbiJ9LHsibWV0aG9kTmFtZSI6ImludGVycHJldCIsImNlbGxOYW1lIjoib2pzLWNlbGwtMiIsImlubGluZSI6ZmFsc2UsInNvdXJjZSI6Ilxue1xuICBjb25zdCBOID0gcHBQYXJ0aXRpb25MYXllcnNcbiAgY29uc3QgcCA9IHBwUGFydGl0aW9uU3RhZ2VzXG4gIGNvbnN0IGNvbG9ycyA9IFtcbiAgICBcIiMxOTcxYzJcIiwgXCIjNWYzZGM0XCIsIFwiIzJiOGEzZVwiLCBcIiNlODU5MGNcIixcbiAgICBcIiNjMjI1NWNcIiwgXCIjMGI3Mjg1XCIsIFwiIzljMzZiNVwiLCBcIiM0OTUwNTdcIlxuICBdXG4gIGNvbnN0IHJhbmdlcyA9IEFycmF5LmZyb20oe2xlbmd0aDogcH0sIChfLCBzdGFnZSkgPT4ge1xuICAgIGNvbnN0IHN0YXJ0ID0gTWF0aC5mbG9vcihOICogc3RhZ2UgLyBwKVxuICAgIGNvbnN0IGVuZCA9IE1hdGguZmxvb3IoTiAqIChzdGFnZSArIDEpIC8gcClcbiAgICByZXR1cm4ge3N0YWdlLCBzdGFydCwgZW5kLCBjb3VudDogZW5kIC0gc3RhcnR9XG4gIH0pXG5cbiAgY29uc3Qgcm9vdCA9IGh0bWxgPGRpdiBjbGFzcz1cInBwLXBhcnRpdGlvbi1kZW1vXCI+XG4gICAgPHN0eWxlPlxuICAgICAgLnBwLXBhcnRpdGlvbi1kZW1vIHtcbiAgICAgICAgbWFyZ2luOiAwLjVyZW0gMCAxLjVyZW07XG4gICAgICAgIGNvbG9yOiB2YXIoLS1icy1ib2R5LWNvbG9yLCAjMjEyNTI5KTtcbiAgICAgIH1cbiAgICAgIC5wcC1wYXJ0aXRpb24tZGVtbyAucHAtcGFydGl0aW9uLWhlYWRpbmcge1xuICAgICAgICBkaXNwbGF5OiBmbGV4O1xuICAgICAgICBhbGlnbi1pdGVtczogYmFzZWxpbmU7XG4gICAgICAgIGp1c3RpZnktY29udGVudDogc3BhY2UtYmV0d2VlbjtcbiAgICAgICAgZ2FwOiAxcmVtO1xuICAgICAgICBtYXJnaW4tYm90dG9tOiAwLjU1cmVtO1xuICAgICAgICBmb250LXdlaWdodDogNzAwO1xuICAgICAgfVxuICAgICAgLnBwLXBhcnRpdGlvbi1kZW1vIC5wcC1wYXJ0aXRpb24tZm9ybXVsYSB7XG4gICAgICAgIGNvbG9yOiB2YXIoLS1icy1zZWNvbmRhcnktY29sb3IsICM2Yzc1N2QpO1xuICAgICAgICBmb250LWZhbWlseTogdmFyKC0tYnMtZm9udC1tb25vc3BhY2UsIG1vbm9zcGFjZSk7XG4gICAgICAgIGZvbnQtc2l6ZTogMC44NXJlbTtcbiAgICAgICAgZm9udC13ZWlnaHQ6IDUwMDtcbiAgICAgIH1cbiAgICAgIC5wcC1wYXJ0aXRpb24tZGVtbyAucHAtbGF5ZXItc2Nyb2xsIHtcbiAgICAgICAgb3ZlcmZsb3cteDogYXV0bztcbiAgICAgICAgcGFkZGluZzogMC4xNXJlbSAwIDAuNDVyZW07XG4gICAgICB9XG4gICAgICAucHAtcGFydGl0aW9uLWRlbW8gLnBwLWxheWVyLXRyYWNrIHtcbiAgICAgICAgZGlzcGxheTogZ3JpZDtcbiAgICAgICAgZ2FwOiAzcHg7XG4gICAgICB9XG4gICAgICAucHAtcGFydGl0aW9uLWRlbW8gLnBwLWxheWVyLWNlbGwge1xuICAgICAgICBkaXNwbGF5OiBncmlkO1xuICAgICAgICBwbGFjZS1pdGVtczogY2VudGVyO1xuICAgICAgICBtaW4taGVpZ2h0OiA0MnB4O1xuICAgICAgICBib3JkZXI6IDFweCBzb2xpZCByZ2JhKDAsIDAsIDAsIDAuMTgpO1xuICAgICAgICBib3JkZXItcmFkaXVzOiA0cHg7XG4gICAgICAgIGNvbG9yOiAjZmZmO1xuICAgICAgICBmb250LXNpemU6IDAuNzhyZW07XG4gICAgICAgIGZvbnQtd2VpZ2h0OiA3MDA7XG4gICAgICB9XG4gICAgICAucHAtcGFydGl0aW9uLWRlbW8gLnBwLXN0YWdlLWxpc3Qge1xuICAgICAgICBkaXNwbGF5OiBncmlkO1xuICAgICAgICBncmlkLXRlbXBsYXRlLWNvbHVtbnM6IHJlcGVhdChhdXRvLWZpdCwgbWlubWF4KDEzNXB4LCAxZnIpKTtcbiAgICAgICAgZ2FwOiAwLjY1cmVtO1xuICAgICAgICBtYXJnaW4tdG9wOiAwLjhyZW07XG4gICAgICB9XG4gICAgICAucHAtcGFydGl0aW9uLWRlbW8gLnBwLXN0YWdlLWNhcmQge1xuICAgICAgICBwYWRkaW5nOiAwLjY1cmVtIDAuNzVyZW07XG4gICAgICAgIGJvcmRlcjogMXB4IHNvbGlkIHZhcigtLWJzLWJvcmRlci1jb2xvciwgI2RlZTJlNik7XG4gICAgICAgIGJvcmRlci10b3A6IDVweCBzb2xpZCB2YXIoLS1zdGFnZS1jb2xvcik7XG4gICAgICAgIGJvcmRlci1yYWRpdXM6IDVweDtcbiAgICAgICAgYmFja2dyb3VuZDogdmFyKC0tYnMtYm9keS1iZywgI2ZmZik7XG4gICAgICB9XG4gICAgICAucHAtcGFydGl0aW9uLWRlbW8gLnBwLXN0YWdlLWNhcmQuZW1wdHkge1xuICAgICAgICBib3JkZXItc3R5bGU6IGRhc2hlZDtcbiAgICAgICAgb3BhY2l0eTogMC43MjtcbiAgICAgIH1cbiAgICAgIC5wcC1wYXJ0aXRpb24tZGVtbyAucHAtc3RhZ2UtbmFtZSB7XG4gICAgICAgIGZvbnQtd2VpZ2h0OiA3NTA7XG4gICAgICB9XG4gICAgICAucHAtcGFydGl0aW9uLWRlbW8gLnBwLXN0YWdlLXJhbmdlIHtcbiAgICAgICAgbWFyZ2luLXRvcDogMC4xOHJlbTtcbiAgICAgICAgZm9udC1mYW1pbHk6IHZhcigtLWJzLWZvbnQtbW9ub3NwYWNlLCBtb25vc3BhY2UpO1xuICAgICAgICBmb250LXNpemU6IDAuOXJlbTtcbiAgICAgIH1cbiAgICAgIC5wcC1wYXJ0aXRpb24tZGVtbyAucHAtc3RhZ2UtY291bnQge1xuICAgICAgICBtYXJnaW4tdG9wOiAwLjEycmVtO1xuICAgICAgICBjb2xvcjogdmFyKC0tYnMtc2Vjb25kYXJ5LWNvbG9yLCAjNmM3NTdkKTtcbiAgICAgICAgZm9udC1zaXplOiAwLjgycmVtO1xuICAgICAgfVxuICAgICAgLnBwLXBhcnRpdGlvbi1kZW1vIC5wcC1wYXJ0aXRpb24td2FybmluZyB7XG4gICAgICAgIG1hcmdpbi10b3A6IDAuNzVyZW07XG4gICAgICAgIGNvbG9yOiAjYjAyYTM3O1xuICAgICAgICBmb250LXNpemU6IDAuODZyZW07XG4gICAgICAgIGZvbnQtd2VpZ2h0OiA2MDA7XG4gICAgICB9XG4gICAgPC9zdHlsZT5cbiAgICA8ZGl2IGNsYXNzPVwicHAtcGFydGl0aW9uLWhlYWRpbmdcIj5cbiAgICAgIDxzcGFuPkdsb2JhbCBUcmFuc2Zvcm1lciBsYXllcnM8L3NwYW4+XG4gICAgICA8c3BhbiBjbGFzcz1cInBwLXBhcnRpdGlvbi1mb3JtdWxhXCI+PC9zcGFuPlxuICAgIDwvZGl2PlxuICAgIDxkaXYgY2xhc3M9XCJwcC1sYXllci1zY3JvbGxcIj5cbiAgICAgIDxkaXYgY2xhc3M9XCJwcC1sYXllci10cmFja1wiPjwvZGl2PlxuICAgIDwvZGl2PlxuICAgIDxkaXYgY2xhc3M9XCJwcC1zdGFnZS1saXN0XCI+PC9kaXY+XG4gICAgPGRpdiBjbGFzcz1cInBwLXBhcnRpdGlvbi13YXJuaW5nXCIgaGlkZGVuPjwvZGl2PlxuICA8L2Rpdj5gXG5cbiAgcm9vdC5xdWVyeVNlbGVjdG9yKFwiLnBwLXBhcnRpdGlvbi1mb3JtdWxhXCIpLnRleHRDb250ZW50ID0gYE49JHtOfSwgcD0ke3B9YFxuXG4gIGNvbnN0IHRyYWNrID0gcm9vdC5xdWVyeVNlbGVjdG9yKFwiLnBwLWxheWVyLXRyYWNrXCIpXG4gIHRyYWNrLnN0eWxlLmdyaWRUZW1wbGF0ZUNvbHVtbnMgPSBgcmVwZWF0KCR7Tn0sIG1pbm1heCgyMXB4LCAxZnIpKWBcbiAgdHJhY2suc3R5bGUubWluV2lkdGggPSBgJHtNYXRoLm1heCg1MjAsIE4gKiAyNCl9cHhgXG5cbiAgZm9yIChsZXQgbGF5ZXIgPSAwOyBsYXllciA8IE47IGxheWVyICs9IDEpIHtcbiAgICBjb25zdCByYW5nZSA9IHJhbmdlcy5maW5kKCh7c3RhcnQsIGVuZH0pID0+IGxheWVyID49IHN0YXJ0ICYmIGxheWVyIDwgZW5kKVxuICAgIGNvbnN0IGNlbGwgPSBkb2N1bWVudC5jcmVhdGVFbGVtZW50KFwiZGl2XCIpXG4gICAgY2VsbC5jbGFzc05hbWUgPSBcInBwLWxheWVyLWNlbGxcIlxuICAgIGNlbGwuc3R5bGUuYmFja2dyb3VuZCA9IGNvbG9yc1tyYW5nZS5zdGFnZV1cbiAgICBjZWxsLnRleHRDb250ZW50ID0gbGF5ZXJcbiAgICBjZWxsLnRpdGxlID0gYExheWVyICR7bGF5ZXJ9IOKGkiBTdGFnZSAke3JhbmdlLnN0YWdlfWBcbiAgICBjZWxsLnNldEF0dHJpYnV0ZShcImFyaWEtbGFiZWxcIiwgY2VsbC50aXRsZSlcbiAgICB0cmFjay5hcHBlbmRDaGlsZChjZWxsKVxuICB9XG5cbiAgY29uc3Qgc3RhZ2VMaXN0ID0gcm9vdC5xdWVyeVNlbGVjdG9yKFwiLnBwLXN0YWdlLWxpc3RcIilcbiAgZm9yIChjb25zdCByYW5nZSBvZiByYW5nZXMpIHtcbiAgICBjb25zdCBjYXJkID0gZG9jdW1lbnQuY3JlYXRlRWxlbWVudChcImRpdlwiKVxuICAgIGNhcmQuY2xhc3NOYW1lID0gYHBwLXN0YWdlLWNhcmQke3JhbmdlLmNvdW50ID09PSAwID8gXCIgZW1wdHlcIiA6IFwiXCJ9YFxuICAgIGNhcmQuc3R5bGUuc2V0UHJvcGVydHkoXCItLXN0YWdlLWNvbG9yXCIsIGNvbG9yc1tyYW5nZS5zdGFnZV0pXG5cbiAgICBjb25zdCBuYW1lID0gZG9jdW1lbnQuY3JlYXRlRWxlbWVudChcImRpdlwiKVxuICAgIG5hbWUuY2xhc3NOYW1lID0gXCJwcC1zdGFnZS1uYW1lXCJcbiAgICBuYW1lLnRleHRDb250ZW50ID0gYFN0YWdlICR7cmFuZ2Uuc3RhZ2V9YFxuXG4gICAgY29uc3QgaW50ZXJ2YWwgPSBkb2N1bWVudC5jcmVhdGVFbGVtZW50KFwiZGl2XCIpXG4gICAgaW50ZXJ2YWwuY2xhc3NOYW1lID0gXCJwcC1zdGFnZS1yYW5nZVwiXG4gICAgaW50ZXJ2YWwudGV4dENvbnRlbnQgPSBgWyR7cmFuZ2Uuc3RhcnR9LCAke3JhbmdlLmVuZH0pYFxuXG4gICAgY29uc3QgY291bnQgPSBkb2N1bWVudC5jcmVhdGVFbGVtZW50KFwiZGl2XCIpXG4gICAgY291bnQuY2xhc3NOYW1lID0gXCJwcC1zdGFnZS1jb3VudFwiXG4gICAgY291bnQudGV4dENvbnRlbnQgPSBgJHtyYW5nZS5jb3VudH0gbGF5ZXIke3JhbmdlLmNvdW50ID09PSAxID8gXCJcIiA6IFwic1wifWBcblxuICAgIGNhcmQuYXBwZW5kKG5hbWUsIGludGVydmFsLCBjb3VudClcbiAgICBzdGFnZUxpc3QuYXBwZW5kQ2hpbGQoY2FyZClcbiAgfVxuXG4gIGlmIChwID4gTikge1xuICAgIGNvbnN0IHdhcm5pbmcgPSByb290LnF1ZXJ5U2VsZWN0b3IoXCIucHAtcGFydGl0aW9uLXdhcm5pbmdcIilcbiAgICB3YXJuaW5nLmhpZGRlbiA9IGZhbHNlXG4gICAgd2FybmluZy50ZXh0Q29udGVudCA9IFwicCA+IE4g5Lya5Lqn55Sf56m6IHN0YWdl77yb5YWs5byP5LuN54S25oiQ56uL77yM5L2G5a6e6ZmF6K6t57uD6YCa5bi45bqU6YG/5YWN6L+Z56eN6YWN572u44CCXCJcbiAgfVxuXG4gIHJldHVybiByb290XG59XG4ifSx7Im1ldGhvZE5hbWUiOiJpbnRlcnByZXRRdWlldCIsInNvdXJjZSI6InNoaW55SW5wdXQoJ3BwUGFydGl0aW9uTGF5ZXJzJykifSx7Im1ldGhvZE5hbWUiOiJpbnRlcnByZXRRdWlldCIsInNvdXJjZSI6InNoaW55SW5wdXQoJ3BwUGFydGl0aW9uU3RhZ2VzJykifV19
+</script>
+<script type="module">
+if (window.location.protocol === "file:") { alert("The OJS runtime does not work with file:// URLs. Please use a web server to view this document."); }
+window._ojs.paths.runtimeToDoc = "../../src";
+window._ojs.paths.runtimeToRoot = "../..";
+window._ojs.paths.docToRoot = "..";
+window._ojs.selfContained = false;
+window._ojs.runtime.interpretFromScriptTags();
+</script>
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "已复制");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "已复制");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+<input type="hidden" id="giscus-base-theme" value="light">
+<input type="hidden" id="giscus-alt-theme" value="light">
+<script>
+  function loadGiscus() {
+    // Function to get the theme based on body class
+    const getTheme = () => {
+      let baseTheme = document.getElementById('giscus-base-theme').value;
+      let altTheme = document.getElementById('giscus-alt-theme').value;
+      return document.body.classList.contains('quarto-dark') ? altTheme : baseTheme;
+    };
+    const script = document.createElement("script");
+    script.src = "https://giscus.app/client.js";
+    script.async = true;
+    script.dataset.repo = "ANKer661/minimind-tron";
+    script.dataset.repoId = "R_kgDOSsJaIA";
+    script.dataset.category = "Announcements";
+    script.dataset.categoryId = "DIC_kwDOSsJaIM4DC1Es";
+    script.dataset.mapping = "pathname";
+    script.dataset.reactionsEnabled = "1";
+    script.dataset.emitMetadata = "0";
+    script.dataset.inputPosition = "top";
+    script.dataset.theme = getTheme();
+    script.dataset.lang = "zh-CN";
+    script.crossOrigin = "anonymous";
+    // Append the script to the desired div instead of at the end of the body
+    document.getElementById("quarto-content").appendChild(script);
+  }
+  loadGiscus();
+</script>
+<nav class="page-navigation">
+  <div class="nav-page nav-page-previous">
+      <a href="../src/unified_benchmark.html" class="pagination-link" aria-label="统一 Benchmark、限制与源码索引">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-number">6</span>&nbsp; <span class="chapter-title">统一 Benchmark、限制与源码索引</span></span>
+      </a>          
+  </div>
+  <div class="nav-page nav-page-next">
+  </div>
+</nav>
+</div> <!-- /content -->
+
+
+
+
+<footer class="footer"><div class="nav-footer"><div class="nav-footer-center"><div class="toc-actions d-sm-block d-md-none"><ul><li><a href="https://github.com/ANKer661/minimind-tron/edit/main/book/src/pipeline_parallel.qmd" class="toc-action"><i class="bi bi-github"></i>编辑该页面</a></li><li><a href="https://github.com/ANKer661/minimind-tron/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></div></div></footer></body></html>
